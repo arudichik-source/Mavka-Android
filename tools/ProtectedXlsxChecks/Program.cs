@@ -15,6 +15,7 @@ using (var memory = new MemoryStream())
             zip.CreateEntry("[Content_Types].xml").Open(), Encoding.UTF8);
         types.Write("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\" />");
         types.Flush();
+        types.Dispose(); // ZipArchive requires the previous entry stream closed.
         using var workbook = new StreamWriter(
             zip.CreateEntry("xl/workbook.xml").Open(), Encoding.UTF8);
         workbook.Write("<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" />");
