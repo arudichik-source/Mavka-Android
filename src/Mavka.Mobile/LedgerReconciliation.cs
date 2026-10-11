@@ -30,14 +30,14 @@ internal static class LedgerReconciliation
             var k = Key(item.Name, item.Measure, item.Nsn, item.UnitPrice);
             if (!combined.TryGetValue(k, out var v))
                 v = (item.Name, item.Measure, item.Nsn, item.UnitPrice, 0, 0);
-            combined[k] = v with { Local = v.Local + item.Quantity };
+            combined[k] = (v.Name, v.Unit, v.Nsn, v.Price, v.Local + item.Quantity, v.Remote);
         }
         foreach (var item in remote)
         {
             var k = Key(item.Name, item.Measure, item.Nsn, item.UnitPrice);
             if (!combined.TryGetValue(k, out var v))
                 v = (item.Name, item.Measure, item.Nsn, item.UnitPrice, 0, 0);
-            combined[k] = v with { Remote = v.Remote + item.Quantity };
+            combined[k] = (v.Name, v.Unit, v.Nsn, v.Price, v.Local, v.Remote + item.Quantity);
         }
         return combined.Values
             .Where(item => item.Local != item.Remote)
