@@ -15,6 +15,8 @@ public class MainActivity : Activity
 {
     private LinearLayout _body = null!;
     private GmailCredentialsStore _store = null!;
+    private UserProfileStore _profileStore = null!;
+    private FrameLayout _drawerOverlay = null!;
     private Button _home = null!, _inbox = null!, _settings = null!;
     private string _screen = "home";
     private bool _busy;
@@ -24,9 +26,25 @@ public class MainActivity : Activity
     {
         base.OnCreate(state);
         _store = new GmailCredentialsStore(this);
+        _profileStore = new UserProfileStore(this);
         var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
         root.SetBackgroundColor(Color.Rgb(248, 247, 245));
         root.SetOnApplyWindowInsetsListener(new SafeInsets(Dp(14), Dp(10), Dp(10)));
+
+        var topBar = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        topBar.SetGravity(GravityFlags.CenterVertical);
+        var brand = new TextView(this) { Text = "Мавка Mobile", TextSize = 21 };
+        brand.SetTextColor(Color.Rgb(31, 36, 36));
+        brand.SetTypeface(null, TypefaceStyle.Bold);
+        topBar.AddView(brand, new LinearLayout.LayoutParams(0, Dp(52), 1));
+        brand.Gravity = GravityFlags.CenterVertical;
+        var hamburger = new Android.Widget.Button(this) { Text = "☰", TextSize = 23 };
+        hamburger.SetSingleLine(true);
+        hamburger.SetPadding(0, 0, 0, 0);
+        topBar.AddView(hamburger, new LinearLayout.LayoutParams(Dp(58), Dp(52)));
+        hamburger.Click += (_, _) => ShowDrawer();
+        root.AddView(topBar);
+
         var scroll = new ScrollView(this) { FillViewport = true };
         scroll.LayoutParameters = new LinearLayout.LayoutParams(-1, 0, 1);
         _body = new LinearLayout(this) { Orientation = Orientation.Vertical };
@@ -41,7 +59,32 @@ public class MainActivity : Activity
         nav.AddView(_settings);
         root.AddView(scroll);
         root.AddView(nav);
-        SetContentView(root);
+
+        var host = new FrameLayout(this);
+        host.AddView(root, new FrameLayout.LayoutParams(-1, -1));
+
+        _drawerOverlay = new FrameLayout(this);
+        _drawerOverlay.SetBackgroundColor(Color.Argb(115, 0, 0, 0));
+        _drawerOverlay.Visibility = ViewStates.Gone;
+        _drawerOverlay.Click += (_, _) => CloseDrawer();
+
+        var sidePanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        sidePanel.Clickable = true;
+        sidePanel.SetBackgroundColor(Color.White);
+        sidePanel.SetPadding(Dp(14), Dp(50), Dp(14), Dp(30));
+        Text(sidePanel, "Мавка Mobile", 22, true);
+        Text(sidePanel, "Меню", 15);
+        Button(sidePanel, "Головна", () => { CloseDrawer(); ShowHome(); });
+        Button(sidePanel, "Вхідні", () => { CloseDrawer(); ShowInbox(); });
+        Button(sidePanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
+        Button(sidePanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
+        Button(sidePanel, "Закрити меню", CloseDrawer);
+
+        _drawerOverlay.AddView(sidePanel,
+            new FrameLayout.LayoutParams(Dp(292), -1, GravityFlags.Right));
+        host.AddView(_drawerOverlay, new FrameLayout.LayoutParams(-1, -1));
+
+        SetContentView(host);
         ShowHome();
     }
 
@@ -116,6 +159,22 @@ public class MainActivity : Activity
         Text(card, mail.Subject, 19, true);
         Text(card, mail.DateText, 14);
         Text(card, mail.Body, 15);
+        if (mail.Attachments.Count > 0)
+        {
+            Text(_body, "Вкладення TXT", 19, true);
+            foreach (var attachment in mail.Attachments)
+            {
+                var fileCard = Card();
+                Text(fileCard, attachment.FileName, 16, true);
+                Text(fileCard, "Текстовий файл — перегляд без збереження на диск", 13);
+                Button(fileCard, "Переглянути файл", () =>
+                    new AlertDialog.Builder(this)
+                        .SetTitle(attachment.FileName)
+                        .SetMessage(attachment.Text)
+                        .SetPositiveButton("Закрити", (_, _) => { })
+                        .Show());
+            }
+        }
         Button(_body, "← До вхідних", ShowInbox);
     }
 
@@ -161,6 +220,162 @@ public class MainActivity : Activity
                 status.Text = $"Помилка читання пошти: {ex.GetType().Name}";
         }
         finally { _busy = false; }
+    }
+
+    private void ShowDrawer()
+    {
+        _drawerOverlay.Visibility = ViewStates.Visible;
+        _drawerOverlay.BringToFront();
+    }
+
+    private void CloseDrawer()
+    {
+        _drawerOverlay.Visibility = ViewStates.Gone;
+    }
+
+    private UserProfile? LoadUserProfile()
+    {
+        try { return _profileStore.Load(); }
+        catch { return null; }
+    }
+
+    private void ShowProfile()
+    {
+        Begin("profile", "Профіль користувача");
+        var current = LoadUserProfile();
+        var card = Card();
+
+        Text(card, "Підрозділ", 15, true);
+        var unit = ProfileInput(card, "Назва підрозділу", current?.Unit);
+        Text(card, "ПІБ", 15, true);
+        var fullName = ProfileInput(card, "Прізвище Ім’я По батькові", current?.FullName);
+        Text(card, "Військове звання", 15, true);
+        var rank = ProfileInput(card, "Звання", current?.Rank);
+        Text(card, "Посада", 15, true);
+        var position = ProfileInput(card, "Посада користувача", current?.Position);
+        Text(card, "Матеріально відповідальна особа (МВО)", 15, true);
+
+        var mvoRow = new RadioGroup(this) { Orientation = Orientation.Horizontal };
+        var yes = new RadioButton(this) { Text = "МВО (+)" };
+        var no = new RadioButton(this) { Text = "МВО (−)" };
+        yes.Id = View.GenerateViewId();
+        no.Id = View.GenerateViewId();
+        mvoRow.AddView(yes);
+        mvoRow.AddView(no);
+        mvoRow.Check(current?.IsMvo == true ? yes.Id : no.Id);
+        card.AddView(mvoRow);
+
+        Text(card, "Поля потрібні для реєстраційного листа до ГОЛОВНОЇ МАВКИ.", 13);
+        var status = Text(card,
+            current is null ? "Профіль ще не збережено." : "Профіль збережено локально.", 14);
+
+        UserProfile? CollectAndSave()
+        {
+            var u = (unit.Text ?? "").Trim();
+            var name = (fullName.Text ?? "").Trim();
+            var r = (rank.Text ?? "").Trim();
+            var p = (position.Text ?? "").Trim();
+            if (new[] { u, name, r, p }.Any(x => x.Length == 0 || x.Length > 160))
+            {
+                status.Text = "Заповни всі поля (не більш ніж 160 символів кожне).";
+                return null;
+            }
+            try
+            {
+                var stored = _profileStore.Save(u, name, r, p, yes.Checked);
+                status.Text = "Профіль успішно збережено на телефоні.";
+                return stored;
+            }
+            catch (Exception ex)
+            {
+                status.Text = "Помилка збереження профілю: " + ex.GetType().Name;
+                return null;
+            }
+        }
+
+        Button(card, "Зберегти профіль", () => { CollectAndSave(); });
+
+        Button(card, "Переглянути реєстраційний лист", () =>
+        {
+            var profile = CollectAndSave();
+            if (profile is null) return;
+            var recipient = _store.GetMainMavkaEmail();
+            var body = RegistrationMailService.BuildBody(profile, _store.GetEmail());
+            new AlertDialog.Builder(this)
+                .SetTitle("Реєстрація → " + recipient)
+                .SetMessage(body)
+                .SetPositiveButton("Закрити", (_, _) => { })
+                .Show();
+        });
+
+        var sendButton = new Android.Widget.Button(this) { Text = "Надіслати реєстрацію ГОЛОВНІЙ МАВЦІ" };
+        card.AddView(sendButton);
+        sendButton.Click += (_, _) =>
+        {
+            if (_busy) return;
+            var profile = CollectAndSave();
+            if (profile is null) return;
+            if (!_store.HasCredentials)
+            {
+                status.Text = "Спочатку підключи Gmail у Налаштуваннях.";
+                return;
+            }
+            var sender = _store.GetEmail();
+            var recipient = _store.GetMainMavkaEmail();
+            new AlertDialog.Builder(this)
+                .SetTitle("Надіслати реєстраційний лист?")
+                .SetMessage("З пошти: " + sender + "\nКому: " + recipient +
+                            "\n\nБуде передано збережені поля профілю. " +
+                            "Надсилання не означає, що головна Мавка вже зареєструвала користувача.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("Надіслати", async (_, _) =>
+                {
+                    if (_busy) return;
+                    _busy = true;
+                    sendButton.Enabled = false;
+                    status.Text = "Відправлення листа через Gmail…";
+                    try
+                    {
+                        var password = _store.GetPassword();
+                        if (string.IsNullOrEmpty(password))
+                            throw new InvalidOperationException("Gmail credentials missing.");
+                        await RegistrationMailService.SendAsync(
+                            sender, password, recipient, profile);
+                        if (_screen == "profile")
+                            status.Text = "Лист надіслано. Очікуємо підтвердження реєстрації від ГОЛОВНОЇ МАВКИ.";
+                    }
+                    catch (MailKit.Security.AuthenticationException)
+                    {
+                        if (_screen == "profile")
+                            status.Text = "Gmail відхилив пароль застосунку.";
+                    }
+                    catch (System.OperationCanceledException)
+                    {
+                        if (_screen == "profile")
+                            status.Text = "Перевищено час очікування надсилання.";
+                    }
+                    catch (Exception ex)
+                    {
+                        if (_screen == "profile")
+                            status.Text = "Помилка надсилання: " + ex.GetType().Name;
+                    }
+                    finally { _busy = false; sendButton.Enabled = true; }
+                })
+                .Show();
+        };
+    }
+
+    private EditText ProfileInput(LinearLayout parent, string hint, string? value)
+    {
+        var field = new EditText(this)
+        {
+            Hint = hint,
+            Text = value ?? "",
+            InputType = InputTypes.ClassText | InputTypes.TextFlagCapSentences
+        };
+        field.SetSingleLine(true);
+        parent.AddView(field);
+        return field;
     }
 
     private void ShowSettings()
@@ -299,6 +514,7 @@ public class MainActivity : Activity
 
     public override void OnBackPressed()
     {
+        if (_drawerOverlay.Visibility == ViewStates.Visible) { CloseDrawer(); return; }
         if (_screen == "mail") { ShowSettings(); return; }
         if (_screen == "message") { ShowInbox(); return; }
         if (_screen != "home") { ShowHome(); return; }
