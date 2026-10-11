@@ -13,6 +13,77 @@ internal sealed record MavkaMailItem(
 
 internal static class GmailConnectionService
 {
+    // Connectivity-only test. Does not use or transmit user credentials.
+    // Certificate validation remains strict; the callback only collects diagnostics.
+    public static async Task<string> DiagnoseTlsAsync()
+    {
+        var result = new List<string>
+        {
+            "Час UTC: " + DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+        };
+
+        using (var http = new HttpClient())
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+        {
+            try
+            {
+                using var response = await http.GetAsync(
+                    "https://www.google.com/generate_204", timeout.Token);
+                result.Add("HTTPS 443: HTTP " + (int)response.StatusCode);
+            }
+            catch (Exception ex)
+            {
+                result.Add("HTTPS 443: " + ex.GetType().Name);
+                if (ex.InnerException is not null)
+                    result.Add("HTTPS причина: " + ex.InnerException.GetType().Name);
+            }
+        }
+
+        string certificateErrors = "callback не викликано";
+        string chainErrors = "немає даних";
+
+        using var client = new ImapClient();
+        client.ServerCertificateValidationCallback = (_, _, chain, errors) =>
+        {
+            certificateErrors = errors.ToString();
+            chainErrors = chain is null || chain.ChainStatus.Length == 0
+                ? "немає статусів"
+                : string.Join(", ", chain.ChainStatus.Select(item => item.Status.ToString()));
+
+            // DO NOT change this to true; invalid certificates must be rejected.
+            return errors == System.Net.Security.SslPolicyErrors.None;
+        };
+
+        using var imapTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try
+        {
+            await client.ConnectAsync(
+                "imap.gmail.com", 993, SecureSocketOptions.SslOnConnect, imapTimeout.Token);
+            result.Add("IMAP 993: TLS успішно");
+            await client.DisconnectAsync(true, imapTimeout.Token);
+        }
+        catch (MailKit.Security.SslHandshakeException ex)
+        {
+            result.Add("IMAP 993: SslHandshakeException");
+            result.Add("Сертифікат: " + certificateErrors);
+            result.Add("Ланцюг: " + chainErrors);
+            result.Add("Внутрішня помилка: " +
+                (ex.InnerException?.GetType().Name ?? "не вказано"));
+            var explanation = string.Join(" ", ex.Message.Split(
+                new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
+            result.Add("Причина: " + explanation[..Math.Min(explanation.Length, 700)]);
+        }
+        catch (Exception ex)
+        {
+            result.Add("IMAP 993: " + ex.GetType().Name);
+            result.Add("Сертифікат: " + certificateErrors);
+            result.Add("Внутрішня помилка: " +
+                (ex.InnerException?.GetType().Name ?? "не вказано"));
+        }
+
+        return string.Join("\n", result);
+    }
+
     public static async Task TestImapAsync(
         string email, string appPassword, Action<string>? progress = null)
     {
