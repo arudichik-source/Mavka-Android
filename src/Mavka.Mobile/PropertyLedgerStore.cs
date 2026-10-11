@@ -346,7 +346,10 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         using var database = WritableDatabase;
         var values = new ContentValues();
         values.Put("mail_status", "sent");
-        database.Update("receipts", values, "document_id = ?", new[] { documentId });
+        if (database.Update("receipts", values, "document_id = ?",
+                new[] { documentId }) != 1)
+            throw new InvalidOperationException(
+                "Неможливо підтвердити збереження статусу надсилання накладної.");
     }
 
     /// <summary>Read-only movement history of locally confirmed receipts for one exact item.</summary>
