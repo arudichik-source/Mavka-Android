@@ -6,7 +6,7 @@ using MimeKit;
 
 namespace Mavka.Mobile;
 
-internal sealed record MavkaTextAttachment(string FileName, string Text);
+internal sealed record MavkaTextAttachment(string FileName, string Text); // TXT or JSON text preview
 
 internal sealed record MavkaMailItem(
     string Subject, string DateText, string Body, IReadOnlyList<MavkaTextAttachment> Attachments);
@@ -99,8 +99,8 @@ internal static class GmailConnectionService
         await client.DisconnectAsync(true, timeout.Token);
     }
 
-    // Read-only: search within Gmail Inbox, check the exact sender mailbox,
-    // and fetch only text/plain parts. Attachments and HTML are not downloaded.
+    // Read-only: server-side sender search followed by exact From-header matching.
+    // Fetch plaintext and small TXT/JSON attachments; never execute or render HTML.
     public static async Task<IReadOnlyList<MavkaMailItem>> ReadFromSenderAsync(
         string account, string appPassword, string allowedSender)
     {
@@ -161,7 +161,8 @@ internal static class GmailConnectionService
             {
                 var fileName = attachment.FileName;
                 if (string.IsNullOrWhiteSpace(fileName) ||
-                    !fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
+                    !(fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
+                      fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) ||
                     attachment.Octets > 32768)
                     continue;
 
@@ -175,8 +176,11 @@ internal static class GmailConnectionService
 
                 // Never interpret attachment content as HTML or executable code.
                 var contents = System.Text.Encoding.UTF8.GetString(stream.ToArray()).TrimStart('\uFEFF');
+                var display = fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                    ? MavkaJsonPreview.Format(contents)
+                    : contents;
                 textAttachments.Add(new MavkaTextAttachment(
-                    Path.GetFileName(fileName), contents));
+                    Path.GetFileName(fileName), display));
                 if (textAttachments.Count >= 3) break;
             }
 
