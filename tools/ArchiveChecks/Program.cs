@@ -49,4 +49,26 @@ Check(!ArchiveDocumentClassifier.TryClassify("{}", unit, out _), "Unknown attach
 Check(!ArchiveDocumentClassifier.TryClassify(
     validInvoice.Replace("\"quantity\":2", "\"quantity\":-9"), unit, out _),
     "Invalid quantity cannot be archived");
-Console.WriteLine("Archive and profile regression checks: 14/14 PASS");
+// The real IMAP intake previously rejected 200-position encrypted documents
+// before the invoice parser could see them. Exercise a >65 KB valid payload.
+var expanded = System.Text.Json.JsonSerializer.Serialize(new
+{
+    format = "MAVKA_DOCUMENT_V1", type = "invoice",
+    documentId = "DEMO-LARGE-200", documentNumber = "TEST-200",
+    recipient = unit, date = "2026-10-12",
+    positions = Enumerable.Range(1, 200).Select(i => new
+    {
+        name = "Канцелярська позиція " + i + new string('X', 165),
+        unit = "шт.", quantity = 1, price = 1.25m,
+        nsn = "TEST-" + i + new string('Z', 155)
+    }).ToArray()
+});
+Check(expanded.Length > 65000 && expanded.Length < 196608,
+    "Large invoice test fixture must exceed old intake cap.");
+Check(MavkaExchangeParser.TryInvoice(expanded, out var large) &&
+    large is not null && large.Positions.Count == 200,
+    "Valid long 200-position invoice must parse.");
+Check(ArchiveDocumentClassifier.TryClassify(expanded, unit, out var accepted) &&
+    accepted is not null && accepted.DocumentId == "DEMO-LARGE-200",
+    "Large invoice must remain eligible for durable archive.");
+Console.WriteLine("Archive and profile regression checks: PASS (includes 200 long rows)");
