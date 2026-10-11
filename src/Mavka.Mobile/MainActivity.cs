@@ -159,6 +159,22 @@ public class MainActivity : Activity
         Text(card, mail.Subject, 19, true);
         Text(card, mail.DateText, 14);
         Text(card, mail.Body, 15);
+        if (mail.Attachments.Count > 0)
+        {
+            Text(_body, "Вкладення TXT", 19, true);
+            foreach (var attachment in mail.Attachments)
+            {
+                var fileCard = Card();
+                Text(fileCard, attachment.FileName, 16, true);
+                Text(fileCard, "Текстовий файл — перегляд без збереження на диск", 13);
+                Button(fileCard, "Переглянути файл", () =>
+                    new AlertDialog.Builder(this)
+                        .SetTitle(attachment.FileName)
+                        .SetMessage(attachment.Text)
+                        .SetPositiveButton("Закрити", (_, _) => { })
+                        .Show());
+            }
+        }
         Button(_body, "← До вхідних", ShowInbox);
     }
 
