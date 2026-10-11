@@ -26,6 +26,8 @@ public class MainActivity : Activity
     private FrameLayout _drawerOverlay = null!;
     private Button _home = null!, _inbox = null!, _assets = null!, _settings = null!;
     private string _screen = "home";
+    private string _inboxQuery = "";
+    private string _mailFilter = "all";
     private bool _busy;
     private IReadOnlyList<MavkaMailItem> _messages = Array.Empty<MavkaMailItem>();
 
@@ -192,11 +194,61 @@ public class MainActivity : Activity
     {
         Begin("inbox", "Вхідні");
         var card = Card();
-        Text(card, "Листи ГОЛОВНОЇ МАВКИ", 18, true);
-        Text(card, "Адреса: " + _store.GetMainMavkaEmail(), 14);
+        Text(card, "Листи ГОЛОВНОЇ МАВКИ", 17, true);
+        Text(card, "Лише від " + _store.GetMainMavkaEmail(), 12);
+
+        var search = new EditText(this)
+        {
+            Hint = "Пошук за номером, датою або типом",
+            Text = _inboxQuery,
+            TextSize = 14
+        };
+        search.SetSingleLine(true);
+        search.SetPadding(Dp(12), Dp(7), Dp(12), Dp(7));
+        search.Background = Rounded(Color.Rgb(248, 248, 245), 12,
+            Color.Rgb(234, 236, 229));
+        ConfigureKeyboard(search);
+        card.AddView(search, new LinearLayout.LayoutParams(-1, Dp(43)));
+        search.TextChanged += (_, _) =>
+        {
+            _inboxQuery = search.Text ?? "";
+            if (_screen == "inbox") ShowInboxContent();
+        };
+
+        var filters = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        filters.SetPadding(0, Dp(8), 0, Dp(6));
+        card.AddView(filters);
+        foreach (var (label, value) in new[]
+        {
+            ("Усі", "all"), ("Накладні", "invoices"), ("Інші", "other")
+        })
+        {
+            var filter = new Button(this) { Text = label, TextSize = 12 };
+            filter.SetAllCaps(false);
+            filter.SetTextColor(value == _mailFilter ? Color.White : Color.Rgb(31, 73, 47));
+            filter.Background = Rounded(value == _mailFilter
+                ? Color.Rgb(9, 84, 50) : Color.Rgb(235, 240, 235), 11);
+            var layout = new LinearLayout.LayoutParams(0, Dp(37), 1);
+            layout.SetMargins(Dp(2), 0, Dp(2), 0);
+            filters.AddView(filter, layout);
+            filter.Click += (_, _) =>
+            {
+                _mailFilter = value;
+                foreach (var child in Enumerable.Range(0, filters.ChildCount)
+                    .Select(index => filters.GetChildAt(index)).OfType<Button>())
+                {
+                    bool active = child.Text == label;
+                    child.SetTextColor(active ? Color.White : Color.Rgb(31, 73, 47));
+                    child.Background = Rounded(active ? Color.Rgb(9, 84, 50) :
+                        Color.Rgb(235, 240, 235), 11);
+                }
+                ShowInboxContent();
+            };
+        }
+
         var status = Text(card, _store.HasCredentials
-            ? "Листи доступні після синхронізації."
-            : "Спочатку підключи Gmail у Налаштуваннях.", 14);
+            ? "Онови пошту, щоб перевірити нові документи."
+            : "Підключи Gmail у Налаштуваннях.", 12);
         Button(card, "Оновити листи", async () =>
         {
             await RefreshMessagesAsync(status);
@@ -348,20 +400,67 @@ public class MainActivity : Activity
 
     private void ShowInboxContent()
     {
-        // The two first child views are the title and controls card.
+        // The header and filter card stay in place while searching.
         while (_body.ChildCount > 2)
             _body.RemoveViewAt(2);
-        if (_messages.Count == 0)
+
+        var visible = _messages.Where(mail =>
         {
-            Text(_body, "Службових листів поки немає.", 16);
+            bool invoice = mail.Attachments.Any(a =>
+                MavkaExchangeParser.TryInvoice(a.RawJson, out _));
+            if (_mailFilter == "invoices" && !invoice) return false;
+            if (_mailFilter == "other" && invoice) return false;
+            if (_inboxQuery.Length == 0) return true;
+            return mail.Subject.Contains(_inboxQuery, StringComparison.OrdinalIgnoreCase) ||
+                   mail.DateText.Contains(_inboxQuery, StringComparison.OrdinalIgnoreCase) ||
+                   mail.Body.Contains(_inboxQuery, StringComparison.OrdinalIgnoreCase) ||
+                   mail.Attachments.Any(a => a.FileName.Contains(
+                       _inboxQuery, StringComparison.OrdinalIgnoreCase));
+        }).ToList();
+
+        if (visible.Count == 0)
+        {
+            var empty = Card();
+            Text(empty, _messages.Count == 0
+                ? "Службових листів поки немає. Натисни «Оновити листи»."
+                : "За цим пошуком листів не знайдено.", 15);
             return;
         }
-        foreach (var mail in _messages)
+
+        foreach (var mail in visible)
         {
+            var invoice = mail.Attachments
+                .Select(a => MavkaExchangeParser.TryInvoice(a.RawJson, out var item)
+                    ? item : null).FirstOrDefault(x => x is not null);
             var card = Card();
-            Text(card, mail.Subject, 17, true);
-            Text(card, mail.DateText, 13);
-            Button(card, "Читати повідомлення", () => ShowMessage(mail));
+            var row = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+            row.SetGravity(GravityFlags.CenterVertical);
+            card.AddView(row);
+
+            var glyph = new TextView(this)
+            {
+                Text = invoice is null ? "✉" : "▤",
+                TextSize = 25, Gravity = GravityFlags.Center
+            };
+            glyph.SetTextColor(invoice is null ?
+                Color.Rgb(32, 91, 59) : Color.Rgb(191, 92, 42));
+            glyph.Background = Rounded(invoice is null
+                ? Color.Rgb(231, 242, 233) : Color.Rgb(252, 237, 224), 12);
+            row.AddView(glyph, new LinearLayout.LayoutParams(Dp(48), Dp(48)));
+
+            var data = new LinearLayout(this) { Orientation = Orientation.Vertical };
+            var lp = new LinearLayout.LayoutParams(0, -2, 1);
+            lp.SetMargins(Dp(11), 0, Dp(5), 0);
+            row.AddView(data, lp);
+            Text(data, invoice?.Number ?? mail.Subject, 14, true);
+            Text(data, invoice is null ? "Службове повідомлення" :
+                "Накладна · " + invoice.Recipient, 12);
+            Text(data, mail.DateText, 11);
+
+            var arrow = Text(row, "›", 27, true);
+            arrow.SetTextColor(Color.Rgb(48, 81, 58));
+            row.Clickable = true;
+            row.Click += (_, _) => ShowMessage(mail);
         }
     }
 
@@ -397,6 +496,14 @@ public class MainActivity : Activity
             var info = Card();
             Text(info, "Накладна № " + invoice.Number, 17, true);
             Text(info, "Отримувач: " + invoice.Recipient, 14);
+            Text(info, "Дата: " + invoice.Date + "  ·  ID: " + invoice.DocumentId, 13);
+            Text(info, "Позицій: " + invoice.Positions.Count, 14, true);
+            foreach (var position in invoice.Positions)
+                AddAssetRow(info, position.Name,
+                    string.IsNullOrWhiteSpace(position.Nsn) ? "Номенклатура" :
+                    "NSN: " + position.Nsn,
+                    position.Quantity.ToString("0.###") + " " + position.Unit);
+            Text(info, "Перевір усі позиції перед підтвердженням отримання.", 12);
             Button(info, "Підтвердити отримання майна", () =>
             {
                 if (_busy) return;
