@@ -52,6 +52,9 @@ jobs:
       - name: Verify read-only reconciliation
         run: dotnet run --project tools/ReconciliationChecks/ReconciliationChecks.csproj
 
+      - name: Verify old SQLite schema migrations
+        run: python3 tools/sqlite_migration_smoke.py
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
