@@ -53,7 +53,7 @@ internal sealed class ExchangeKeyStore
 
             using var wrapper = store.GetKey(Alias, null)!;
             using var cipher = Cipher.GetInstance("AES/GCM/NoPadding")!;
-            cipher.Init(CipherMode.EncryptMode, wrapper);
+            cipher.Init(Javax.Crypto.CipherMode.EncryptMode, wrapper);
             var iv = cipher.GetIV() ?? throw new InvalidOperationException("Missing IV.");
             var sealedKey = cipher.DoFinal(key)!;
 
@@ -87,7 +87,7 @@ internal sealed class ExchangeKeyStore
             throw new InvalidOperationException("Android Keystore key missing.");
         using var cipher = Cipher.GetInstance("AES/GCM/NoPadding")!;
         using var parameters = new GCMParameterSpec(128, Convert.FromBase64String(parts[0]));
-        cipher.Init(CipherMode.DecryptMode, wrapper, parameters);
+        cipher.Init(Javax.Crypto.CipherMode.DecryptMode, wrapper, parameters);
         var plaintext = cipher.DoFinal(Convert.FromBase64String(parts[1]))!;
         if (plaintext.Length != 32)
             throw new InvalidOperationException("Invalid stored key length.");
