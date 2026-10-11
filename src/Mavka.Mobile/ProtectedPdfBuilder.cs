@@ -42,6 +42,17 @@ internal static class ProtectedPdfBuilder
                 !System.Text.Encoding.ASCII.GetString(result, 0, 5)
                     .Equals("%PDF-", StringComparison.Ordinal))
                 throw new InvalidOperationException("Encrypted PDF could not be generated.");
+
+            // Validate the finished password-protected file in memory before
+            // exposing it to public Android Downloads. This also catches
+            // damaged or unsupported encrypted output early.
+            using (var checkStream = new MemoryStream(result, writable: false))
+            using (var decrypted = PdfReader.Open(
+                checkStream, password, PdfDocumentOpenMode.Import))
+            {
+                if (decrypted.PageCount == 0)
+                    throw new InvalidOperationException("Protected PDF has no pages.");
+            }
             return result;
         }
         finally
