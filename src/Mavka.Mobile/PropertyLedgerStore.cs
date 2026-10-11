@@ -161,7 +161,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                 values.Put("line_number", ++line);
                 values.Put("name", asset.Name);
                 values.Put("unit", asset.Measure);
-                values.Put("nsn", "");
+                values.Put("nsn", asset.Nsn ?? "");
                 values.Put("quantity", asset.Quantity.ToString(CultureInfo.InvariantCulture));
                 if (asset.UnitPrice.HasValue)
                     values.Put("unit_price", asset.UnitPrice.Value.ToString(CultureInfo.InvariantCulture));
