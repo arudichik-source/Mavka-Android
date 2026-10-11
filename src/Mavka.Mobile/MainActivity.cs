@@ -16,6 +16,7 @@ public class MainActivity : Activity
     private LinearLayout _body = null!;
     private GmailCredentialsStore _store = null!;
     private UserProfileStore _profileStore = null!;
+    private PropertyLedgerStore _ledger = null!;
     private FrameLayout _drawerOverlay = null!;
     private Button _home = null!, _inbox = null!, _settings = null!;
     private string _screen = "home";
@@ -29,6 +30,7 @@ public class MainActivity : Activity
         Window?.SetSoftInputMode(SoftInput.AdjustResize | SoftInput.StateAlwaysHidden);
         _store = new GmailCredentialsStore(this);
         _profileStore = new UserProfileStore(this);
+        _ledger = new PropertyLedgerStore(this);
         var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
         root.SetBackgroundColor(Color.Rgb(248, 247, 245));
         root.SetOnApplyWindowInsetsListener(new SafeInsets(Dp(14), Dp(10), Dp(10)));
@@ -78,6 +80,7 @@ public class MainActivity : Activity
         Text(sidePanel, "Меню", 15);
         Button(sidePanel, "Головна", () => { CloseDrawer(); ShowHome(); });
         Button(sidePanel, "Вхідні", () => { CloseDrawer(); ShowInbox(); });
+        Button(sidePanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
         Button(sidePanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
         Button(sidePanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
         Button(sidePanel, "Закрити меню", CloseDrawer);
@@ -88,6 +91,50 @@ public class MainActivity : Activity
 
         SetContentView(host);
         ShowHome();
+        StartWelcomeSplash(host);
+    }
+
+    private async void StartWelcomeSplash(FrameLayout host)
+    {
+        // Approved artwork is bundled inside the APK; no download at startup.
+        var welcome = new FrameLayout(this);
+        welcome.SetBackgroundColor(Color.Rgb(12, 55, 41));
+
+        try
+        {
+            using var stream = Assets!.Open("mavka_splash.webp");
+            var bitmap = BitmapFactory.DecodeStream(stream);
+            if (bitmap is not null)
+            {
+                var picture = new ImageView(this);
+                picture.SetScaleType(ImageView.ScaleType.CenterCrop);
+                picture.SetImageBitmap(bitmap);
+                welcome.AddView(picture, new FrameLayout.LayoutParams(-1, -1));
+            }
+        }
+        catch (Java.IO.IOException)
+        {
+            var fallback = new TextView(this)
+            {
+                Text = "Mavka Mobile\n\nВас вітає компанія RAM Systems",
+                TextSize = 24,
+                Gravity = GravityFlags.Center
+            };
+            fallback.SetTextColor(Color.White);
+            welcome.AddView(fallback, new FrameLayout.LayoutParams(-1, -1));
+        }
+
+        host.AddView(welcome, new FrameLayout.LayoutParams(-1, -1));
+        welcome.BringToFront();
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(3500));
+        }
+        finally
+        {
+            if (welcome.Parent == host)
+                host.RemoveView(welcome);
+        }
     }
 
     private void Begin(string screen, string title)
@@ -113,6 +160,7 @@ public class MainActivity : Activity
         Text(card, "Службові повідомлення", 20, true);
         Text(card, $"Завантажено: {_messages.Count}", 18);
         Button(card, "Перейти до вхідних", ShowInbox);
+        Button(card, "Майно підрозділу", ShowAssets);
         Text(_body, "Дозволений відправник", 18, true);
         Text(_body, _store.GetMainMavkaEmail(), 15);
         Text(_body, "Пошук лише у «Вхідних» Gmail, без зміни стану листів.", 13);
@@ -133,6 +181,112 @@ public class MainActivity : Activity
             if (_screen == "inbox") ShowInboxContent();
         });
         ShowInboxContent();
+    }
+
+    private void ShowAssets()
+    {
+        Begin("assets", "Майно підрозділу");
+        var top = Card();
+        var profile = LoadUserProfile();
+        Text(top, "Підрозділ: " + (profile?.Unit ?? "не визначений у профілі"), 17, true);
+        var status = Text(top, "Джерело: JSON-лист ГОЛОВНОЇ МАВКИ (MAVKA_UNIT_ASSETS_V1).", 13);
+        Button(top, "Оновити дані з пошти", async () =>
+        {
+            await RefreshMessagesAsync(status);
+            if (_screen == "assets") RenderAssets();
+        });
+        RenderAssets();
+    }
+
+    private void RenderAssets()
+    {
+        while (_body.ChildCount > 2)
+            _body.RemoveViewAt(2);
+
+        var profile = LoadUserProfile();
+        if (profile is null || string.IsNullOrWhiteSpace(profile.Unit))
+        {
+            Text(_body, "Спочатку заповни підрозділ у профілі користувача.", 16);
+            Button(_body, "Профіль користувача", ShowProfile);
+            return;
+        }
+
+        // Local holdings reflect only manually confirmed, transactionally stored receipts.
+        var localCard = Card();
+        Text(localCard, "Майно, підтверджене на телефоні", 18, true);
+        var search = new EditText(this)
+        {
+            Hint = "Пошук за назвою або NSN",
+            InputType = InputTypes.ClassText
+        };
+        ConfigureKeyboard(search);
+        localCard.AddView(search);
+        var localRows = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        localCard.AddView(localRows);
+        void DrawLocal()
+        {
+            localRows.RemoveAllViews();
+            try
+            {
+                var all = _ledger.ListHoldings(profile.Unit);
+                var query = (search.Text ?? "").Trim();
+                var filtered = all.Where(x => query.Length == 0 ||
+                    x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                    (x.Nsn?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)).ToList();
+                Text(localRows, $"Локальних позицій: {filtered.Count} із {all.Count}", 14);
+                foreach (var asset in filtered)
+                {
+                    Text(localRows, asset.Name + " — " + asset.Quantity.ToString("0.###") +
+                        " " + asset.Unit + (string.IsNullOrEmpty(asset.Nsn) ? "" : " · " + asset.Nsn), 14);
+                }
+                if (all.Count == 0)
+                    Text(localRows, "Ще немає підтверджених накладних.", 14);
+            }
+            catch (Exception ex)
+            {
+                Text(localRows, "Помилка локальної бази: " + ex.GetType().Name, 14);
+            }
+        }
+        search.TextChanged += (_, _) => DrawLocal();
+        DrawLocal();
+
+        // Only snapshots received from the configured sender are present in _messages.
+        // Never merge snapshots from different units or add quantities from separate dates.
+        var latest = _messages.SelectMany(mail => mail.Attachments
+                .Where(a => a.RawJson is not null)
+                .Select(a => new { mail, attachment = a }))
+            .Select(entry => new
+            {
+                entry.mail,
+                parsed = MavkaExchangeParser.TryAssets(entry.attachment.RawJson, out var snapshot)
+                    ? snapshot : null
+            })
+            .Where(entry => entry.parsed is not null &&
+                string.Equals(entry.parsed.Unit, profile.Unit, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(entry => entry.mail.MessageUid)
+            .FirstOrDefault();
+
+        if (latest?.parsed is null)
+        {
+            Text(_body, "Окремого знімка майна з ГОЛОВНОЇ МАВКИ наразі немає.", 14);
+            return;
+        }
+
+        var snapshot = latest.parsed;
+        var header = Card();
+        Text(header, "Окремий знімок із ГОЛОВНОЇ МАВКИ (не сумується з локальним)", 16, true);
+        Text(header, "Підрозділ: " + snapshot.Unit, 17, true);
+        Text(header, "Станом на: " +
+            (string.IsNullOrWhiteSpace(snapshot.AsOf) ? "дату не зазначено" : snapshot.AsOf), 14);
+        Text(header, "Позицій: " + snapshot.Items.Count, 14);
+        Text(header, "Перегляд отриманого знімка. Не є підтвердженим залишком у головній базі.", 13);
+
+        foreach (var asset in snapshot.Items)
+        {
+            var card = Card();
+            Text(card, asset.Name, 16, true);
+            Text(card, asset.Quantity.ToString("0.###") + " " + asset.Measure, 15);
+        }
     }
 
     private void ShowInboxContent()
@@ -161,6 +315,7 @@ public class MainActivity : Activity
         Text(card, mail.Subject, 19, true);
         Text(card, mail.DateText, 14);
         Text(card, mail.Body, 15);
+        var status = Text(card, "Лист із налаштованої адреси ГОЛОВНОЇ МАВКИ.", 13);
         if (mail.Attachments.Count > 0)
         {
             Text(_body, "Вкладення TXT / JSON", 19, true);
@@ -177,6 +332,131 @@ public class MainActivity : Activity
                         .Show());
             }
         }
+        foreach (var attachment in mail.Attachments)
+        {
+            if (!MavkaExchangeParser.TryInvoice(attachment.RawJson, out var invoice) ||
+                invoice is null) continue;
+
+            var info = Card();
+            Text(info, "Накладна № " + invoice.Number, 17, true);
+            Text(info, "Отримувач: " + invoice.Recipient, 14);
+            Button(info, "Підтвердити отримання майна", () =>
+            {
+                if (_busy) return;
+                var profile = LoadUserProfile();
+                if (profile is null)
+                {
+                    status.Text = "Спочатку заповни профіль користувача.";
+                    return;
+                }
+                if (!profile.IsMvo)
+                {
+                    status.Text = "Для підтвердження потрібен профіль МВО (+).";
+                    return;
+                }
+                if (!string.Equals(profile.Unit.Trim(), invoice.Recipient.Trim(),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    status.Text = "Отримувач накладної не збігається з підрозділом у профілі.";
+                    return;
+                }
+                if (!_store.HasCredentials)
+                {
+                    status.Text = "Спочатку підключи Gmail у Налаштуваннях.";
+                    return;
+                }
+                string? existingStatus;
+                try { existingStatus = _ledger.GetMailStatus(invoice.DocumentId); }
+                catch (Exception ex)
+                {
+                    status.Text = "Помилка локальної бази: " + ex.GetType().Name;
+                    return;
+                }
+                if (existingStatus == "sent")
+                {
+                    status.Text = "Накладна вже зарахована до локальної бази й підтвердження надіслано.";
+                    return;
+                }
+                new AlertDialog.Builder(this)
+                    .SetTitle("Підтвердження отримання")
+                    .SetMessage("Документ № " + invoice.Number +
+                        "\nПідрозділ: " + profile.Unit +
+                        "\nМВО: " + profile.FullName +
+                        "\n\nПозицій: " + invoice.Positions.Count +
+                        "\nПісля натискання майно буде додано до локальної бази телефону, " +
+                        "а підтвердження надіслано ГОЛОВНІЙ МАВЦІ. " +
+                        "Це не означає автоматичне проведення документа в головній базі.")
+                    .SetNegativeButton("Скасувати", (_, _) => { })
+                    .SetPositiveButton("Підтвердити й надіслати", async (_, _) =>
+                    {
+                        if (_busy) return;
+                        _busy = true;
+                        status.Text = "Надсилаємо підтвердження...";
+                        try
+                        {
+                            // SQLite transaction commits receipt and its items atomically.
+                            // The document ID is unique; retrying must never double inventory.
+                            bool added = _ledger.AddConfirmedInvoice(invoice);
+                            status.Text = added
+                                ? "Майно зараховано локально. Надсилаємо підтвердження..."
+                                : "Накладну вже зараховано. Повторно надсилаємо підтвердження...";
+
+                            var password = _store.GetPassword() ??
+                                throw new InvalidOperationException("Пароль Gmail відсутній.");
+                            await RegistrationMailService.SendReceiptAsync(
+                                _store.GetEmail(), password, _store.GetMainMavkaEmail(),
+                                profile, invoice);
+                            _ledger.MarkMailSent(invoice.DocumentId);
+                            if (_screen == "message")
+                                status.Text = "Майно зараховано в локальну базу. " +
+                                    "Лист-підтвердження надіслано. " +
+                                    "ГОЛОВНА МАВКА має обробити його окремо.";
+                        }
+                        catch (Exception ex)
+                        {
+                            if (_screen == "message")
+                                status.Text = "Помилка: " + ex.GetType().Name +
+                                    ". Якщо майно вже зараховано локально, воно не буде " +
+                                    "зараховане вдруге. Повтори надсилання підтвердження.";
+                        }
+                        finally { _busy = false; }
+                    })
+                    .Show();
+            });
+        }
+
+        Button(_body, "Перемістити лист у кошик Gmail", () =>
+        {
+            if (_busy) return;
+            new AlertDialog.Builder(this)
+                .SetTitle("Перемістити лист у кошик?")
+                .SetMessage("Лист «" + mail.Subject +
+                    "» буде переміщено в кошик Gmail. Це не видалить документ з головної Мавки.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("У кошик", async (_, _) =>
+                {
+                    if (_busy) return;
+                    _busy = true;
+                    status.Text = "Переміщення листа в кошик...";
+                    try
+                    {
+                        var pass = _store.GetPassword() ??
+                            throw new InvalidOperationException("Пароль Gmail відсутній.");
+                        await GmailConnectionService.MoveToTrashAsync(
+                            _store.GetEmail(), pass, _store.GetMainMavkaEmail(), mail);
+                        _messages = _messages.Where(m => !(m.MessageUid == mail.MessageUid &&
+                            m.UidValidity == mail.UidValidity)).ToList();
+                        ShowInbox();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (_screen == "message")
+                            status.Text = "Помилка переміщення: " + ex.GetType().Name;
+                    }
+                    finally { _busy = false; }
+                })
+                .Show();
+        });
         Button(_body, "← До вхідних", ShowInbox);
     }
 
@@ -203,7 +483,7 @@ public class MainActivity : Activity
                 throw new InvalidOperationException("Пароль не збережений.");
             _messages = await GmailConnectionService.ReadFromSenderAsync(
                 _store.GetEmail(), password, sender);
-            if (_screen is "home" or "inbox")
+            if (_screen is "home" or "inbox" or "assets")
                 status.Text = $"Завантажено листів: {_messages.Count}. Тільки від дозволеної адреси.";
         }
         catch (MailKit.Security.AuthenticationException)

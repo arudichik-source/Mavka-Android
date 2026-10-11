@@ -36,4 +36,32 @@ internal static class RegistrationMailService
         await client.SendAsync(message, timeout.Token);
         await client.DisconnectAsync(true, timeout.Token);
     }
+
+    public static async Task SendReceiptAsync(
+        string sender, string password, string recipient,
+        UserProfile profile, IncomingInvoice invoice)
+    {
+        var body = "MAVKA_MOBILE_RECEIPT_V1\n" +
+                   "ClientId: " + profile.ClientId + "\n" +
+                   "DocumentId: " + invoice.DocumentId + "\n" +
+                   "DocumentNumber: " + invoice.Number + "\n" +
+                   "Підрозділ: " + profile.Unit + "\n" +
+                   "ПІБ: " + profile.FullName + "\n" +
+                   "МВО: " + (profile.IsMvo ? "+" : "-") + "\n" +
+                   "Status: RECEIVED\n" +
+                   "ConfirmedAtUtc: " + DateTimeOffset.UtcNow.ToString("O") + "\n";
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+        var message = new MimeMessage();
+        message.From.Add(MailboxAddress.Parse(sender));
+        message.To.Add(MailboxAddress.Parse(recipient));
+        message.Subject = "MAVKA_MOBILE_RECEIPT_V1 " + invoice.Number;
+        message.Body = new TextPart("plain") { Text = body };
+
+        var opened = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
+        using var client = opened.Client;
+        await client.AuthenticateAsync(sender, password, timeout.Token);
+        await client.SendAsync(message, timeout.Token);
+        await client.DisconnectAsync(true, timeout.Token);
+    }
 }

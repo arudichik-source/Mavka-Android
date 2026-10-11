@@ -42,11 +42,13 @@ internal static class MavkaJsonPreview
             output.AppendLine("Формат: MAVKA_DOCUMENT_V1");
             output.AppendLine("Тип: " + (Value(root, "type") ?? "не вказано"));
             output.AppendLine("Номер: " + (Value(root, "documentNumber") ?? "не вказано"));
-            output.AppendLine("Дата: " + (Value(root, "date") ?? "не вказано"));
+            output.AppendLine("ID: " + (Value(root, "documentId") ?? "не вказано"));
+            output.AppendLine("Дата: " + (Value(root, "documentDate") ?? Value(root, "date") ?? "не вказано"));
             output.AppendLine("Отримувач: " + (Value(root, "recipient") ?? "не вказано"));
 
-            if (root.TryGetProperty("items", out var items) &&
-                items.ValueKind == JsonValueKind.Array)
+            if (!root.TryGetProperty("positions", out var items))
+                root.TryGetProperty("items", out items);
+            if (items.ValueKind == JsonValueKind.Array)
             {
                 output.AppendLine();
                 output.AppendLine("Позиції (" + items.GetArrayLength() + "):");
@@ -61,6 +63,9 @@ internal static class MavkaJsonPreview
                     output.AppendLine(shown + ". " + (Value(item, "name") ?? "Без назви"));
                     output.AppendLine("   Кількість: " + (Value(item, "quantity") ?? "?") +
                                       " " + (Value(item, "unit") ?? ""));
+                    var nsn = Value(item, "nsn");
+                    if (!string.IsNullOrWhiteSpace(nsn))
+                        output.AppendLine("   NSN: " + nsn);
                 }
             }
             output.AppendLine();
