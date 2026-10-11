@@ -74,6 +74,18 @@ internal sealed class ExchangeKeyStore
 
     public byte[]? GetKey(string keyId)
     {
+        string? selected = string.Equals(keyId, CurrentKeyId, StringComparison.OrdinalIgnoreCase) &&
+            HasKeyPair ? _prefs.GetString("current_sealed", null)
+            : string.Equals(keyId, FutureKeyId, StringComparison.OrdinalIgnoreCase) &&
+              HasKeyPair ? _prefs.GetString("future_sealed", null)
+            : null;
+
+        if (selected is not null)
+        {
+            using var wrapStore = LoadStore();
+            return UnwrapKey(wrapStore, selected);
+        }
+
         if (!string.Equals(keyId, KeyId, StringComparison.OrdinalIgnoreCase))
             return null;
 
@@ -94,11 +106,125 @@ internal sealed class ExchangeKeyStore
         return plaintext;
     }
 
+    // The old manual single-key import remains readable for previously received documents.
+    public string? CurrentKeyId => _prefs.GetString("current_id", null) ?? KeyId;
+    public string? FutureKeyId => _prefs.GetString("future_id", null);
+    public int Generation => _prefs.GetInt("generation", 0);
+    public bool HasKeyPair => !string.IsNullOrWhiteSpace(
+        _prefs.GetString("current_sealed", null)) &&
+        !string.IsNullOrWhiteSpace(_prefs.GetString("future_sealed", null));
+
+    public bool ImportPackage(string fileText, string documentPassword, string expectedClientId)
+    {
+        var pair = MavkaKeyPackage.Open(fileText, documentPassword);
+        try
+        {
+            if (!string.Equals(pair.RecipientClientId, expectedClientId,
+                StringComparison.Ordinal))
+                throw new InvalidOperationException("Key package is assigned to another user.");
+
+            var oldGeneration = Generation;
+            var newCurrentId = MavkaKeyPackage.Id(pair.CurrentKey);
+            var newFutureId = MavkaKeyPackage.Id(pair.FutureKey);
+
+            if (oldGeneration > pair.Generation)
+                throw new InvalidOperationException("Old key package rejected.");
+
+            if (oldGeneration == pair.Generation)
+            {
+                if (HasKeyPair &&
+                    CurrentKeyId == newCurrentId && FutureKeyId == newFutureId)
+                    return false; // The very same email can be read repeatedly.
+                throw new InvalidOperationException("Conflicting key package generation.");
+            }
+
+            if (HasKeyPair)
+            {
+                // Each key rotation must continue from the previously announced future key.
+                if (pair.Generation != oldGeneration + 1 ||
+                    !string.Equals(FutureKeyId, newCurrentId, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Unexpected key rotation.");
+            }
+
+            using var store = LoadStore();
+            EnsureWrappingKey(store);
+
+            var sealedCurrent = WrapKey(store, pair.CurrentKey);
+            var sealedFuture = WrapKey(store, pair.FutureKey);
+
+            using var editor = _prefs.Edit()!;
+            editor.PutInt("generation", pair.Generation);
+            editor.PutString("recipient_client_id", expectedClientId);
+            editor.PutString("current_id", newCurrentId);
+            editor.PutString("future_id", newFutureId);
+            editor.PutString("current_sealed", sealedCurrent);
+            editor.PutString("future_sealed", sealedFuture);
+            if (!editor.Commit())
+                throw new InvalidOperationException("Failed to persist key pair.");
+            return true;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pair.CurrentKey);
+            CryptographicOperations.ZeroMemory(pair.FutureKey);
+        }
+    }
+
+    public byte[]? GetCurrentKey()
+    {
+        var id = CurrentKeyId;
+        return id is null ? null : GetKey(id);
+    }
+
+    private static void EnsureWrappingKey(KeyStore store)
+    {
+        if (store.ContainsAlias(Alias)) return;
+        using var generator = KeyGenerator.GetInstance("AES", "AndroidKeyStore")!;
+        using var specification = new KeyGenParameterSpec.Builder(
+                Alias, KeyStorePurpose.Encrypt | KeyStorePurpose.Decrypt)
+            .SetBlockModes("GCM")
+            .SetEncryptionPaddings("NoPadding").Build();
+        generator.Init(specification);
+        generator.GenerateKey();
+    }
+
+    private static string WrapKey(KeyStore store, byte[] rawKey)
+    {
+        using var wrapper = store.GetKey(Alias, null)!;
+        using var cipher = Cipher.GetInstance("AES/GCM/NoPadding")!;
+        cipher.Init(Javax.Crypto.CipherMode.EncryptMode, wrapper);
+        var iv = cipher.GetIV() ?? throw new InvalidOperationException("Missing IV.");
+        var wrapped = cipher.DoFinal(rawKey)!;
+        return Convert.ToBase64String(iv) + ":" + Convert.ToBase64String(wrapped);
+    }
+
+    private static byte[] UnwrapKey(KeyStore store, string saved)
+    {
+        var parts = saved.Split(':', 2);
+        if (parts.Length != 2)
+            throw new InvalidOperationException("Invalid sealed key format.");
+        using var wrapper = store.GetKey(Alias, null) ??
+            throw new InvalidOperationException("Wrapping key is missing.");
+        using var cipher = Cipher.GetInstance("AES/GCM/NoPadding")!;
+        using var spec = new GCMParameterSpec(128, Convert.FromBase64String(parts[0]));
+        cipher.Init(Javax.Crypto.CipherMode.DecryptMode, wrapper, spec);
+        var rawKey = cipher.DoFinal(Convert.FromBase64String(parts[1]))!;
+        if (rawKey.Length != 32)
+            throw new InvalidOperationException("Incorrect unwrapped key length.");
+        return rawKey;
+    }
+
     public void Clear()
     {
         using var editor = _prefs.Edit()!;
         editor.Remove("key_id");
         editor.Remove("sealed_key");
+        editor.Remove("generation");
+        editor.Remove("recipient_client_id");
+        editor.Remove("current_id");
+        editor.Remove("future_id");
+        editor.Remove("current_sealed");
+        editor.Remove("future_sealed");
         if (!editor.Commit()) throw new InvalidOperationException("Cannot clear key.");
     }
 
