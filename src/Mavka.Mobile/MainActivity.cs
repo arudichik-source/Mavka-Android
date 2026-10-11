@@ -129,6 +129,8 @@ public class MainActivity : Activity
             InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
         };
         secret.SetSingleLine(true);
+        secret.TransformationMethod =
+    Android.Text.Method.PasswordTransformationMethod.Instance;
         card.AddView(secret);
         Text(card, "Вводь лише пароль застосунку, а не основний пароль Google.", 13);
         var status = Text(card, "Підключення ще не перевірялося.", 14);
@@ -193,17 +195,49 @@ Button(card, "Зберегти адресу ГОЛОВНОЇ МАВКИ", () =>
             save.Enabled = false;
             status.Text = "Перевіряємо з’єднання з Gmail…";
             try
-            {
-                await GmailConnectionService.TestImapAsync(address, password);
-                _store.Save(address, password);
-                secret.Text = "";
-                secret.Hint = "Збережений пароль (можна не вводити)";
-                status.Text = "Gmail підключено! IMAP перевірено.";
-            }
-            catch (MailKit.Security.AuthenticationException) { status.Text = "Google відхилив вхід. Перевір адресу й пароль застосунку."; }
-            catch (System.OperationCanceledException) { status.Text = "Час з’єднання минув. Перевір Інтернет."; }
-            catch (Exception) { status.Text = "Помилка з’єднання або захищеного збереження. Спробуй ще раз."; }
-            finally { _busy = false; save.Enabled = true; }
+         string stage = "1/5: Підключення до Gmail";
+
+try
+{
+    await GmailConnectionService.TestImapAsync(
+        address,
+        password,
+        message =>
+        {
+            stage = message;
+            status.Text = message;
+        });
+
+    stage = "5/5: Захищене збереження Android";
+    status.Text = stage;
+
+    _store.Save(address, password);
+
+    secret.Text = "";
+    secret.Hint = "Пароль збережено";
+
+    status.Text = "Gmail успішно підключено!";
+}
+catch (MailKit.Security.AuthenticationException)
+{
+    status.Text =
+        "Помилка авторизації Gmail. Перевір пароль застосунку.";
+}
+catch (System.OperationCanceledException)
+{
+    status.Text =
+        $"Перевищено час очікування. Етап: {stage}";
+}
+catch (Exception ex)
+{
+    status.Text =
+        $"Помилка на етапі {stage}: {ex.GetType().Name}";
+}
+finally
+{
+    _busy = false;
+    save.Enabled = true;
+}
         };
         Button(card, "Відключити Gmail", () =>
         {
