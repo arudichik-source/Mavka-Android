@@ -563,6 +563,16 @@ public class MainActivity : Activity
         Begin("profile", "Профіль користувача");
         var current = LoadUserProfile();
         var card = Card();
+        Text(card, "Ідентифікатор користувача: " +
+            (current?.ClientId ?? "з’явиться після першого збереження профілю"), 13);
+        if (current is not null)
+            Button(card, "Копіювати ID для ГОЛОВНОЇ МАВКИ", () =>
+            {
+                var clipboard = (Android.Content.ClipboardManager?)
+                    GetSystemService(Android.Content.Context.ClipboardService);
+                clipboard?.SetPrimaryClip(Android.Content.ClipData.NewPlainText(
+                    "Mavka Client ID", current.ClientId));
+            });
 
         Text(card, "Підрозділ", 15, true);
         var unit = ProfileInput(card, "Назва підрозділу", current?.Unit);
