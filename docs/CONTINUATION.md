@@ -265,3 +265,31 @@ Known limitation: SMTP has an inherent ambiguous success window before local
 sent-status commits; desktop receipt handling must dedupe by ClientId and
 documentId to guarantee exactly-once accounting.
 ---
+
+
+## 2026-10-12 — Scoped file manager (Android MediaStore)
+
+Working branch: `feature/mobile-file-manager-20261012`, stacked above
+`feature/mobile-reliability-20261012` (PR #23).
+
+- `MavkaExportPolicy.cs`: exactly the approved label `МаVКа файли`,
+  Android media relative path `Download/МаVКа файли/`, PDF and XLSX
+  allow-list. Paths outside this folder and internal databases are excluded.
+- `MavkaExportFileStore.cs`: Android 10+ MediaStore API (no raw filesystem
+  access, no `MANAGE_EXTERNAL_STORAGE`) to list PDF/XLSX export copies,
+  inspect name/date/size, open via system viewer, share with URI grants,
+  delete only revalidated copies from the dedicated export folder.
+- `MainActivity.cs`: an accessible `МаVКа файли` screen from Home/drawer,
+  search, sort, selection, confirmation before deleting selected copies or
+  clearing the folder. A deletion does **not** touch document archive,
+  property ledger, keys or Gmail.
+- `tools/FilePolicyChecks`: 10 safety assertions added to GitHub Actions.
+- Android 8/9: MediaStore scoped Downloads selection is not available.
+  A separate SAF picker is still needed; the UI explicitly says so.
+- This stage only **manages existing exported copies**. It does NOT yet
+  generate or publish plain PDF/XLSX. For real confidential exports, implement
+  and validate format-native PDF and XLSX password encryption first.
+- Physical device verification of listing, external viewers, scoped deletion,
+  multi-select and SAF remains pending. Do not merge until CI passes and
+  on-device permission behavior is verified.
+---
