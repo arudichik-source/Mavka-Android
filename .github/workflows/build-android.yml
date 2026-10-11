@@ -25,6 +25,17 @@ jobs:
       - name: Install Android workload
         run: dotnet workload install android
 
+      - name: Verify encrypted file generator
+        shell: bash
+        run: |
+          dotnet build tools/MavkaEncrypt/MavkaEncrypt.csproj -c Release
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          echo '{"format":"MAVKA_DOCUMENT_V1","type":"invoice","documentId":"TEST"}' > "$tmp_dir/input.json"
+          dotnet run --project tools/MavkaEncrypt -- create-key "$tmp_dir/demo.mavka-key"
+          dotnet run --project tools/MavkaEncrypt -- encrypt "$tmp_dir/demo.mavka-key" "$tmp_dir/input.json" "$tmp_dir/crypted.json"
+          grep -q 'MAVKA_ENCRYPTED_V1' "$tmp_dir/crypted.json"
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
