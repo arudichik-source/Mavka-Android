@@ -127,7 +127,8 @@ internal static class GmailConnectionService
     // Read-only: server-side sender search followed by exact From-header matching.
     // Fetch plaintext and small TXT/JSON attachments; never execute or render HTML.
     public static async Task<IReadOnlyList<MavkaMailItem>> ReadFromSenderAsync(
-        string account, string appPassword, string allowedSender)
+        string account, string appPassword, string allowedSender,
+        ExchangeKeyStore? exchangeKeys = null)
     {
         if (string.IsNullOrWhiteSpace(allowedSender) ||
             !System.Net.Mail.MailAddress.TryCreate(allowedSender.Trim(), out var parsed) ||
@@ -201,12 +202,38 @@ internal static class GmailConnectionService
 
                 // Never interpret attachment content as HTML or executable code.
                 var contents = System.Text.Encoding.UTF8.GetString(stream.ToArray()).TrimStart('\uFEFF');
-                var display = fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
-                    ? MavkaJsonPreview.Format(contents)
-                    : contents;
+                var isJson = fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+                string? usableJson = isJson ? contents : null;
+                string display = isJson ? MavkaJsonPreview.Format(contents) : contents;
+
+                if (isJson && MavkaEncryptedEnvelope.IsEnvelope(contents))
+                {
+                    usableJson = null;
+                    try
+                    {
+                        if (exchangeKeys is null)
+                            throw new KeyNotFoundException("Ключ обміну не налаштовано.");
+                        usableJson = MavkaEncryptedEnvelope.Decrypt(contents, exchangeKeys);
+                        display = "🔐 Зашифрований файл успішно розшифровано.\n\n" +
+                                  MavkaJsonPreview.Format(usableJson);
+                    }
+                    catch (KeyNotFoundException)
+                    {
+                        display = "🔒 Немає потрібного ключа. Відкрий ☰ → Ключ обміну.";
+                    }
+                    catch (System.Security.Cryptography.CryptographicException)
+                    {
+                        display = "🔒 Неможливо перевірити автентичність файлу: невірний ключ або файл змінено.";
+                    }
+                    catch (Exception ex) when (ex is ArgumentException or FormatException
+                                                   or System.Text.Json.JsonException
+                                                   or InvalidOperationException)
+                    {
+                        display = "🔒 Некоректний формат зашифрованого вкладення.";
+                    }
+                }
                 textAttachments.Add(new MavkaTextAttachment(
-                    Path.GetFileName(fileName), display,
-                    fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? contents : null));
+                    Path.GetFileName(fileName), display, usableJson));
                 if (textAttachments.Count >= 3) break;
             }
 
