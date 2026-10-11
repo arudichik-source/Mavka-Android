@@ -10,7 +10,10 @@ using Android.Widget;
 
 namespace Mavka.Mobile;
 
-[Activity(Label = "Мавка Mobile", MainLauncher = true, Exported = true)]
+[Activity(Label = "Мавка Mobile", MainLauncher = true, Exported = true,
+    ConfigurationChanges = Android.Content.PM.ConfigChanges.Orientation |
+                           Android.Content.PM.ConfigChanges.ScreenSize |
+                           Android.Content.PM.ConfigChanges.KeyboardHidden)]
 public class MainActivity : Activity
 {
     private LinearLayout _body = null!;
@@ -91,7 +94,10 @@ public class MainActivity : Activity
 
         SetContentView(host);
         ShowHome();
-        StartWelcomeSplash(host);
+        // Orientation changes are handled by this Activity, not a new OnCreate.
+        // Do not replay welcome after restoring an existing Activity.
+        if (state is null)
+            StartWelcomeSplash(host);
     }
 
     private async void StartWelcomeSplash(FrameLayout host)
