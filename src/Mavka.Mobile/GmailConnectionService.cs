@@ -152,18 +152,35 @@ internal static class GmailConnectionService
             return Array.Empty<MavkaMailItem>();
         }
 
-        var recent = matched.Reverse().Take(100).ToList();
+        // Search key provisioning mails separately, because the first key package
+        // may predate the latest 15 ordinary emails.
+        var keyMatches = await client.Inbox.SearchAsync(
+            SearchQuery.FromContains(allowedSender.Trim())
+                .And(SearchQuery.SubjectContains(MavkaKeyPackage.MailSubject)),
+            timeout.Token);
+        var keyUids = keyMatches.Reverse().Take(10).Select(uid => uid.Id).ToHashSet();
+
+        var recent = matched.Reverse().Take(100)
+            .Concat(keyMatches.Reverse().Take(10))
+            .Distinct()
+            .ToList();
         var summaries = await client.Inbox.FetchAsync(
             recent,
             MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.BodyStructure,
             timeout.Token);
 
-        var selected = summaries
+        // Exact sender re-check. Process key messages in UID order before
+        // the rest so even an old provisioning letter unlocks recent files.
+        var verified = summaries
             .Where(s => s.Envelope?.From?.Mailboxes.Any(m =>
                 string.Equals(m.Address, allowedSender.Trim(), StringComparison.OrdinalIgnoreCase)) == true)
-            .OrderByDescending(s => s.UniqueId.Id)
-            .Take(15)
-            .OrderBy(s => s.UniqueId.Id) // Key mail must be processed before later encrypted documents.
+            .ToList();
+        var selected = verified
+            .OrderByDescending(s => s.UniqueId.Id).Take(15)
+            .Concat(verified.Where(s => keyUids.Contains(s.UniqueId.Id))
+                .OrderByDescending(s => s.UniqueId.Id).Take(10))
+            .GroupBy(s => s.UniqueId.Id).Select(group => group.First())
+            .OrderBy(s => s.UniqueId.Id)
             .ToList();
 
         var result = new List<MavkaMailItem>();
