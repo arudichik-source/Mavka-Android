@@ -766,7 +766,10 @@ public class MainActivity : Activity
                 Button(fileCard, "Переглянути файл", () =>
                     new AlertDialog.Builder(this)
                         .SetTitle(attachment.FileName)
-                        .SetMessage(attachment.Text)
+                        .SetMessage(attachment.Text.Length <= 8000
+                            ? attachment.Text
+                            : attachment.Text[..8000] +
+                              "\n\nПерегляд скорочено. Структурований документ доступний у картці.")
                         .SetPositiveButton("Закрити", (_, _) => { })
                         .Show());
             }
@@ -781,14 +784,35 @@ public class MainActivity : Activity
             Text(info, "Отримувач: " + invoice.Recipient, 14);
             Text(info, "Дата: " + invoice.Date + "  ·  ID: " + invoice.DocumentId, 13);
             Text(info, "Позицій: " + invoice.Positions.Count, 14, true);
-            foreach (var position in invoice.Positions)
-                AddAssetRow(info, position.Name,
-                    string.IsNullOrWhiteSpace(position.Nsn) ? "Номенклатура" :
-                    "NSN: " + position.Nsn,
-                    position.Quantity.ToString("0.###") + " " + position.Unit +
-                    (position.UnitPrice.HasValue
-                        ? "\n" + position.UnitPrice.Value.ToString("0.00") + " грн/од."
-                        : ""));
+            // Render large invoices incrementally: creating hundreds of Android
+            // views in one UI event causes visible stalls on modest phones.
+            var positionList = new LinearLayout(this) { Orientation = Orientation.Vertical };
+            info.AddView(positionList);
+            int displayed = 0;
+            var more = new Android.Widget.Button(this) { Text = "Показати ще 25 позицій" };
+            info.AddView(more);
+            void AppendNextPage()
+            {
+                int end = Math.Min(displayed + 25, invoice.Positions.Count);
+                for (int index = displayed; index < end; index++)
+                {
+                    var position = invoice.Positions[index];
+                    AddAssetRow(positionList, position.Name,
+                        string.IsNullOrWhiteSpace(position.Nsn) ? "Номенклатура" :
+                        "NSN: " + position.Nsn,
+                        position.Quantity.ToString("0.###") + " " + position.Unit +
+                        (position.UnitPrice.HasValue
+                            ? "\n" + position.UnitPrice.Value.ToString("0.00") + " грн/од."
+                            : ""));
+                }
+                displayed = end;
+                more.Visibility = displayed >= invoice.Positions.Count
+                    ? ViewStates.Gone : ViewStates.Visible;
+                more.Text = "Показати ще 25 (показано " + displayed +
+                    " із " + invoice.Positions.Count + ")";
+            }
+            more.Click += (_, _) => AppendNextPage();
+            AppendNextPage();
             Text(info, "Перевір усі позиції перед підтвердженням отримання.", 12);
             Button(info, "Підтвердити отримання майна", () =>
             {
