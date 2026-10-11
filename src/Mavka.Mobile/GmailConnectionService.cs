@@ -128,7 +128,9 @@ internal static class GmailConnectionService
     // Fetch plaintext and small TXT/JSON attachments; never execute or render HTML.
     public static async Task<IReadOnlyList<MavkaMailItem>> ReadFromSenderAsync(
         string account, string appPassword, string allowedSender,
-        ExchangeKeyStore? exchangeKeys = null)
+        ExchangeKeyStore? exchangeKeys = null,
+        DocumentPasswordStore? documentPasswords = null,
+        string? recipientClientId = null)
     {
         if (string.IsNullOrWhiteSpace(allowedSender) ||
             !System.Net.Mail.MailAddress.TryCreate(allowedSender.Trim(), out var parsed) ||
@@ -161,6 +163,7 @@ internal static class GmailConnectionService
                 string.Equals(m.Address, allowedSender.Trim(), StringComparison.OrdinalIgnoreCase)) == true)
             .OrderByDescending(s => s.UniqueId.Id)
             .Take(15)
+            .OrderBy(s => s.UniqueId.Id) // Key mail must be processed before later encrypted documents.
             .ToList();
 
         var result = new List<MavkaMailItem>();
@@ -206,7 +209,40 @@ internal static class GmailConnectionService
                 string? usableJson = isJson ? contents : null;
                 string display = isJson ? MavkaJsonPreview.Format(contents) : contents;
 
-                if (isJson && MavkaEncryptedEnvelope.IsEnvelope(contents))
+                if (isJson && MavkaKeyPackage.IsPackage(contents))
+                {
+                    usableJson = null; // Never expose installed key material as an importable document.
+                    try
+                    {
+                        if (exchangeKeys is null || documentPasswords?.Load() is not string filePassword)
+                        {
+                            display = "🔒 Налаштуй пароль документів один раз у меню налаштувань.";
+                        }
+                        else if (string.IsNullOrWhiteSpace(recipientClientId))
+                        {
+                            display = "🔒 Для приймання ключів заповни профіль користувача.";
+                        }
+                        else
+                        {
+                            bool changed = exchangeKeys.ImportPackage(
+                                contents, filePassword, recipientClientId);
+                            display = changed
+                                ? "🔐 Нову пару ключів збережено: поточний " +
+                                  exchangeKeys.CurrentKeyId + ", майбутній " + exchangeKeys.FutureKeyId
+                                : "🔐 Ця пара ключів уже встановлена.";
+                        }
+                    }
+                    catch (System.Security.Cryptography.CryptographicException)
+                    {
+                        display = "🔒 Пароль документа неправильний або пакет ключів пошкоджено.";
+                    }
+                    catch (Exception ex) when (ex is ArgumentException or FormatException or
+                        InvalidOperationException or System.Text.Json.JsonException)
+                    {
+                        display = "🔒 Пакет ключів відхилено: некоректний, застарілий або іншому користувачеві.";
+                    }
+                }
+                else if (isJson && MavkaEncryptedEnvelope.IsEnvelope(contents))
                 {
                     usableJson = null;
                     try
@@ -243,6 +279,7 @@ internal static class GmailConnectionService
         }
 
         await client.DisconnectAsync(true, timeout.Token);
+        result.Reverse(); // Display latest first without breaking key rotation processing order.
         return result;
     }
 
