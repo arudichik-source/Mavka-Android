@@ -22,6 +22,7 @@ public class MainActivity : Activity
     private UserProfileStore _profileStore = null!;
     private PropertyLedgerStore _ledger = null!;
     private DocumentArchiveStore _archive = null!;
+    private MavkaExportFileStore _exportedFiles = null!;
     private bool _viewingArchivedDocument;
     private DateOnly _assetsAsOf = DateOnly.FromDateTime(DateTime.Today);
     private AssetIconProvider _assetIcons = null!;
@@ -46,6 +47,7 @@ public class MainActivity : Activity
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
         _archive = new DocumentArchiveStore(this);
+        _exportedFiles = new MavkaExportFileStore(this);
         _assetIcons = new AssetIconProvider(this);
         _exchangeKeys = new ExchangeKeyStore(this);
         _documentPasswords = new DocumentPasswordStore(this);
@@ -115,6 +117,7 @@ public class MainActivity : Activity
         Button(sidePanel, "Вхідні", () => { CloseDrawer(); ShowInbox(); });
         Button(sidePanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
         Button(sidePanel, "Історія документів", () => { CloseDrawer(); ShowDocuments(); });
+        Button(sidePanel, "МаVКа файли", () => { CloseDrawer(); ShowFiles(); });
         Button(sidePanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
         Button(sidePanel, "Ключ обміну", () => { CloseDrawer(); ShowExchangeKey(); });
         Button(sidePanel, "Пароль документів", () => { CloseDrawer(); ShowDocumentPassword(); });
@@ -237,6 +240,7 @@ public class MainActivity : Activity
         Button(card, "Перейти до вхідних", ShowInbox);
         Button(card, "Майно підрозділу", ShowAssets);
         Button(card, "Історія документів", ShowDocuments);
+        Button(card, "МаVКа файли", ShowFiles);
         var profile = LoadUserProfile();
         if (profile is not null)
         {
@@ -1184,6 +1188,165 @@ public class MainActivity : Activity
                 .SetMessage(ex.GetType().Name)
                 .SetPositiveButton("Закрити", (_, _) => { }).Show();
         }
+    }
+
+    private void ShowFiles()
+    {
+        Begin("files", MavkaExportPolicy.FolderTitle);
+        var header = Card();
+        Text(header, "Експортовані PDF та Excel", 18, true);
+        Text(header, "Тільки копії з папки Download/МаVКа файли. " +
+            "Видалення цих копій не видаляє накладні, залишки, " +
+            "підтвердження чи історію з внутрішньої бази Мавки.", 13);
+
+        if (!_exportedFiles.IsSupported)
+        {
+            Text(header, "На цій версії Android для папки Downloads необхідний " +
+                "окремий режим Storage Access Framework. Керування поки недоступне.", 14);
+            Button(_body, "← На головну", ShowHome);
+            return;
+        }
+
+        var search = ProfileInput(header, "Пошук файлів PDF / XLSX", "");
+        var output = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        header.AddView(output);
+        var selected = new HashSet<string>(StringComparer.Ordinal);
+        bool nameSorting = false;
+
+        void RenderList()
+        {
+            output.RemoveAllViews();
+            IReadOnlyList<MavkaExportFile> files;
+            try { files = _exportedFiles.ListFiles(); }
+            catch (Exception ex)
+            {
+                Text(output, "Не вдалося прочитати папку: " + ex.GetType().Name, 14);
+                return;
+            }
+
+            var query = (search.Text ?? "").Trim();
+            var matches = files.Where(file =>
+                query.Length == 0 ||
+                file.Name.Contains(query, StringComparison.OrdinalIgnoreCase));
+            var visible = nameSorting
+                ? matches.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList()
+                : matches.OrderByDescending(x => x.ModifiedAt).ToList();
+
+            Text(output, "Знайдено: " + visible.Count + " із " + files.Count, 14);
+            if (visible.Count == 0)
+                Text(output, "Експортованих PDF/XLSX немає або Android не надав " +
+                    "доступу до цих копій. Облікові документи зберігаються окремо.", 13);
+            foreach (var file in visible.Take(100))
+            {
+                var item = file;
+                var tile = new LinearLayout(this) { Orientation = Orientation.Vertical };
+                output.AddView(tile);
+                var marker = new CheckBox(this) { Text = item.Name };
+                marker.Checked = selected.Contains(item.Uri.ToString()!);
+                marker.CheckedChange += (_, _) =>
+                {
+                    var id = item.Uri.ToString()!;
+                    if (marker.Checked) selected.Add(id);
+                    else selected.Remove(id);
+                };
+                tile.AddView(marker);
+                Text(tile, (item.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
+                    ? "PDF" : "Excel") + " · " +
+                    item.ModifiedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm") +
+                    " · " + (item.Size / 1024d).ToString("0.#") + " КБ", 12);
+                Button(tile, "Відкрити", () =>
+                {
+                    try { _exportedFiles.OpenFile(item); }
+                    catch (Exception ex)
+                    {
+                        Toast.MakeText(this, "Немає програми для відкриття: " +
+                            ex.GetType().Name, ToastLength.Long)?.Show();
+                    }
+                });
+                Button(tile, "Поділитися", () =>
+                {
+                    try { _exportedFiles.ShareFile(item); }
+                    catch (Exception ex)
+                    {
+                        Toast.MakeText(this, "Не вдалося поділитися: " +
+                            ex.GetType().Name, ToastLength.Long)?.Show();
+                    }
+                });
+            }
+            if (visible.Count > 100)
+                Text(output, "Відображено перші 100 файлів. Скористайся пошуком.", 13);
+        }
+
+        search.TextChanged += (_, _) => RenderList();
+        Button(header, "Сортувати: " + (nameSorting ? "назва" : "дата") +
+            " (перемкнути)", () =>
+        {
+            nameSorting = !nameSorting;
+            RenderList();
+        });
+        Button(header, "Оновити список", RenderList);
+
+        void ConfirmDeletion(bool all)
+        {
+            if (_busy) return;
+            IReadOnlyList<MavkaExportFile> candidates;
+            try
+            {
+                var current = _exportedFiles.ListFiles();
+                candidates = all
+                    ? current
+                    : current.Where(item => selected.Contains(item.Uri.ToString()!)).ToList();
+            }
+            catch (Exception ex)
+            {
+                Toast.MakeText(this, "Помилка читання: " + ex.GetType().Name,
+                    ToastLength.Long)?.Show();
+                return;
+            }
+            if (candidates.Count == 0)
+            {
+                Toast.MakeText(this, "Файлів для видалення немає.",
+                    ToastLength.Short)?.Show();
+                return;
+            }
+            new AlertDialog.Builder(this)
+                .SetTitle(all ? "Очистити папку МаVКа файли?" : "Видалити вибрані копії?")
+                .SetMessage("Кількість файлів: " + candidates.Count +
+                    "\n\nБудуть видалені лише PDF/XLSX-копії з папки експорту. " +
+                    "Внутрішня база обліку й історія документів не зміняться.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("Видалити", async (_, _) =>
+                {
+                    if (_busy) return;
+                    _busy = true;
+                    int deleted = 0;
+                    string? error = null;
+                    try
+                    {
+                        await Task.Run(() =>
+                        {
+                            foreach (var item in candidates)
+                            {
+                                try { deleted += _exportedFiles.DeleteFile(item); }
+                                catch (Exception ex)
+                                {
+                                    error = ex.GetType().Name;
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                    finally { _busy = false; }
+                    if (_screen == "files") ShowFiles();
+                    Toast.MakeText(this, "Видалено: " + deleted +
+                        (error is null ? "" : "; перервано: " + error),
+                        ToastLength.Long)?.Show();
+                }).Show();
+        }
+
+        Button(header, "Видалити вибрані", () => ConfirmDeletion(false));
+        Button(header, "Очистити папку", () => ConfirmDeletion(true));
+        RenderList();
     }
 
     private void ShowDrawer()
