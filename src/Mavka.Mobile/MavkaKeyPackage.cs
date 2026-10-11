@@ -17,6 +17,17 @@ internal static class MavkaKeyPackage
     private static readonly UTF8Encoding Utf8 = new(false, true);
     private static readonly byte[] Context = Encoding.ASCII.GetBytes(Format);
 
+    public static bool IsPackage(string input)
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 6 });
+            return json.RootElement.ValueKind == JsonValueKind.Object &&
+                Get(json.RootElement, "format") == Format;
+        }
+        catch (JsonException) { return false; }
+    }
+
     public static string Create(MavkaKeyPair pair, string password)
     {
         ValidatePair(pair);
