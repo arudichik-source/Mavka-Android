@@ -87,12 +87,13 @@ internal static class GmailConnectionService
         {
             try
             {
-                var retryResult = await GmailTlsConnection.OpenImapAsync(imapTimeout.Token);
+                using var retryTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                var retryResult = await GmailTlsConnection.OpenImapAsync(retryTimeout.Token);
                 using var retryClient = retryResult.Client;
                 result.Add(retryResult.RevocationFallback
                     ? "Резервна перевірка: TLS успішно, без недоступної CRL/OCSP перевірки. Довіра та ім'я сервера перевіряються."
                     : "Резервна перевірка: TLS успішно зі стандартною перевіркою.");
-                await retryClient.DisconnectAsync(true, imapTimeout.Token);
+                await retryClient.DisconnectAsync(true, retryTimeout.Token);
             }
             catch (Exception ex)
             {
@@ -103,7 +104,7 @@ internal static class GmailConnectionService
         return string.Join("\n", result);
     }
 
-    public static async Task TestImapAsync(
+    public static async Task<bool> TestImapAsync(
         string email, string appPassword, Action<string>? progress = null)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(25));
@@ -118,6 +119,7 @@ internal static class GmailConnectionService
         progress?.Invoke("4/5: Відкриття вхідних...");
         await client.Inbox.OpenAsync(FolderAccess.ReadOnly, timeout.Token);
         await client.DisconnectAsync(true, timeout.Token);
+        return connection.RevocationFallback;
     }
 
     // Read-only: server-side sender search followed by exact From-header matching.
