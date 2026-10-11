@@ -81,6 +81,25 @@ internal static class GmailConnectionService
                 (ex.InnerException?.GetType().Name ?? "не вказано"));
         }
 
+        // A strict handshake may fail when the device cannot query CRL/OCSP.
+        // Run the same narrowly-scoped compatibility path used by the mail reader.
+        if (result.Any(line => line.StartsWith("IMAP 993: SslHandshakeException", StringComparison.Ordinal)))
+        {
+            try
+            {
+                var retryResult = await GmailTlsConnection.OpenImapAsync(imapTimeout.Token);
+                using var retryClient = retryResult.Client;
+                result.Add(retryResult.RevocationFallback
+                    ? "Резервна перевірка: TLS успішно, без недоступної CRL/OCSP перевірки. Довіра та ім'я сервера перевіряються."
+                    : "Резервна перевірка: TLS успішно зі стандартною перевіркою.");
+                await retryClient.DisconnectAsync(true, imapTimeout.Token);
+            }
+            catch (Exception ex)
+            {
+                result.Add("Резервна перевірка: " + ex.GetType().Name);
+            }
+        }
+
         return string.Join("\n", result);
     }
 
@@ -88,10 +107,12 @@ internal static class GmailConnectionService
         string email, string appPassword, Action<string>? progress = null)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(25));
-        using var client = new ImapClient();
         progress?.Invoke("1/5: Підключення до Gmail...");
-        await client.ConnectAsync("imap.gmail.com", 993, SecureSocketOptions.SslOnConnect, timeout.Token);
-        progress?.Invoke("2/5: SSL/TLS підключено");
+        var connection = await GmailTlsConnection.OpenImapAsync(timeout.Token);
+        using var client = connection.Client;
+        progress?.Invoke(connection.RevocationFallback
+            ? "2/5: SSL/TLS підключено. OCSP/CRL недоступний; перевірка довіри та імені збережена."
+            : "2/5: SSL/TLS підключено");
         progress?.Invoke("3/5: Авторизація Gmail...");
         await client.AuthenticateAsync(email, appPassword, timeout.Token);
         progress?.Invoke("4/5: Відкриття вхідних...");
@@ -110,8 +131,8 @@ internal static class GmailConnectionService
             throw new ArgumentException("Не задана коректна адреса головної Мавки.");
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(50));
-        using var client = new ImapClient();
-        await client.ConnectAsync("imap.gmail.com", 993, SecureSocketOptions.SslOnConnect, timeout.Token);
+        var connection = await GmailTlsConnection.OpenImapAsync(timeout.Token);
+        using var client = connection.Client;
         await client.AuthenticateAsync(account, appPassword, timeout.Token);
         await client.Inbox.OpenAsync(FolderAccess.ReadOnly, timeout.Token);
 
