@@ -1351,6 +1351,7 @@ public class MainActivity : Activity
         bool nameSorting = false;
         IReadOnlyList<MavkaExportFile> files = Array.Empty<MavkaExportFile>();
         string? readError = null;
+        bool fileListLoading = false;
 
         // Searching/sorting never hits ContentResolver; MediaStore is queried
         // only on entering the screen or pressing Refresh.
@@ -1415,22 +1416,34 @@ public class MainActivity : Activity
                 Text(output, "Відображено перші 100 файлів. Скористайся пошуком.", 13);
         }
 
-        void ReloadList()
+        async Task ReloadListAsync()
         {
+            if (fileListLoading) return;
+            fileListLoading = true;
+            readError = null;
+            Text(output, "Оновлюємо список файлів...", 12);
             try
             {
-                files = _exportedFiles.ListFiles();
-                readError = null;
+                // ContentResolver queries may take time on phones with large
+                // Downloads folders. Keep I/O away from the UI thread.
+                var loaded = await Task.Run(() => _exportedFiles.ListFiles());
+                if (_screen != "files") return;
+                files = loaded;
                 selected.IntersectWith(
                     files.Select(item => item.Uri.ToString()!));
             }
             catch (Exception ex)
             {
+                if (_screen != "files") return;
                 files = Array.Empty<MavkaExportFile>();
                 readError = "Не вдалося прочитати папку: " + ex.GetType().Name;
                 selected.Clear();
             }
-            RenderList();
+            finally
+            {
+                fileListLoading = false;
+                if (_screen == "files") RenderList();
+            }
         }
 
         search.TextChanged += (_, _) => RenderList();
@@ -1441,7 +1454,7 @@ public class MainActivity : Activity
             sortLabel.Text = "Сортування: " + (nameSorting ? "за назвою" : "за датою");
             RenderList();
         });
-        Button(header, "Оновити список", ReloadList);
+        Button(header, "Оновити список", () => { _ = ReloadListAsync(); });
 
         void ConfirmDeletion(bool all)
         {
@@ -1503,7 +1516,7 @@ public class MainActivity : Activity
 
         Button(header, "Видалити вибрані", () => ConfirmDeletion(false));
         Button(header, "Очистити папку", () => ConfirmDeletion(true));
-        ReloadList();
+        _ = ReloadListAsync();
     }
 
     private void ShowDrawer()
