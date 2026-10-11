@@ -43,7 +43,6 @@ internal static class ProtectedXlsxBuilder
 
             var encrypted = File.ReadAllBytes(encryptedPath);
             if (encrypted.Length < 100 ||
-                !encrypted.AsSpan(0, OleHeader.Length).SequenceEqual(OleHeader) ||
                 !encrypted.AsSpan(0, OleHeader.Length).SequenceEqual(OleHeader))
                 throw new InvalidOperationException(
                     "Захищений Excel не має очікуваного формату Microsoft Office.");
