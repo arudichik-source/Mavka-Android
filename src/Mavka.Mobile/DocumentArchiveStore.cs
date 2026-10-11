@@ -214,7 +214,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         }
         using var key = store.GetKey(KeyAlias, null)!;
         using var cipher = Cipher.GetInstance("AES/GCM/NoPadding")!;
-        cipher.Init(CipherMode.EncryptMode, key);
+        cipher.Init(Javax.Crypto.CipherMode.EncryptMode, key);
         var iv = cipher.GetIV() ?? throw new InvalidOperationException("Missing archive IV.");
         var bytes = cipher.DoFinal(Encoding.UTF8.GetBytes(text))!;
         return Convert.ToBase64String(iv) + ":" + Convert.ToBase64String(bytes);
@@ -229,7 +229,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
             throw new InvalidOperationException("Document archive Keystore key missing.");
         using var cipher = Cipher.GetInstance("AES/GCM/NoPadding")!;
         using var spec = new GCMParameterSpec(128, Convert.FromBase64String(parts[0]));
-        cipher.Init(CipherMode.DecryptMode, key, spec);
+        cipher.Init(Javax.Crypto.CipherMode.DecryptMode, key, spec);
         return Encoding.UTF8.GetString(cipher.DoFinal(Convert.FromBase64String(parts[1]))!);
     }
 
