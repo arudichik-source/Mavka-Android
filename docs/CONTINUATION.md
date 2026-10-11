@@ -359,3 +359,35 @@ offline reconnection, profile/Keystore resilience, signed install update,
 and any missing desktop counterpart. No modifications to the approved
 MAVKA exchange envelope or two-key provisioning scheme.
 ---
+
+
+## 2026-10-12 — PDF pagination and MediaStore file-manager hardening
+
+Branch: `feature/mobile-export-quality-20261012`, stacked on PR #26,
+based on green GitHub Actions #89 commit
+`c21d01bd7073c5792d47a1d18f66f48dfcc9cb65`.
+
+Safe, generic quality improvements:
+- `PdfPageFlow.cs` is a pure page cursor. Lines are individually paginated:
+  a paragraph containing more lines than an entire page can no longer
+  overflow the printable area. Header metadata is paginated once at the
+  start rather than copied/truncated on every page.
+- `ProtectedPdfBuilder` now wraps supplementary Unicode characters as
+  whole runes, not disconnected UTF-16 halves. It also reopens the
+  in-memory AES-256 PDF using the entered password to validate that the
+  exported document is readable before publishing it.
+- `tools/PdfFlowChecks` asserts that 3,000 layout lines spanning many
+  pages remain inside the printable margins; integrated into CI.
+- `MavkaExportFileStore` queries only
+  `Download/МаVКа файли/` through MediaStore with an exact relative-path
+  selection. Every file-open, share and delete action revalidates the
+  content URI, name and MIME against the same scoped list.
+- `MainActivity.ShowFiles` now caches a single MediaStore directory query
+  until explicit Refresh and filters/sorts the in-memory list, avoiding
+  ContentResolver calls on every search keystroke; sorting label updates.
+- No SQL migrations, receipt logic, network protocols, or encryption key
+  lifecycle was changed.
+- Physical-device validation of multi-page Cyrillic PDF layout,
+  MediaStore visibility/open/share/delete and Android 10+ provider semantics
+  remains necessary. Stable main stays unchanged.
+---
