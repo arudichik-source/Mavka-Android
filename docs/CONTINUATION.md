@@ -325,3 +325,37 @@ commit `5b9dd669875dc16ea0a693ce53325bccfa2a24ab`.
   complete cross-device sync and signed APK updates remain pending.
 - The approved MAVKA key package/envelope/rotation scheme was not touched.
 ---
+
+
+## 2026-10-12 — encrypted XLSX export (generic document-security stage)
+
+Branch `feature/mobile-xlsx-protected-20261012`, stacked above PR #25
+(verified GitHub Actions #87 SUCCESS).
+
+- Added Apache-2.0 `ExcelEncryptor` 2.0.5.1 for format-native Microsoft
+  Office Agile Encryption. Package defaults are AES-128/SHA-1; do not claim
+  this is AES-256. The existing offline OOXML builder remains unchanged.
+- `ProtectedXlsxBuilder.cs` works with unencrypted XLSX bytes in RAM only,
+  writes only an encrypted Office compound package to private Android cache,
+  verifies password-based decryption and byte-for-byte round-trip, and
+  zeroes in-memory plaintext before returning. Deletes the encrypted cache
+  file after use; on abrupt app termination a cache copy can remain but is
+  encrypted, not unprotected plaintext.
+- `MavkaExportFileStore.SaveProtectedXlsx` requires native OLE encrypted
+  package magic and writes with MediaStore `IS_PENDING` to the approved
+  `Download/МаVКа файли/` folder, rolling back partial copies on failure.
+- Offline document preview now offers separate PDF and Excel password
+  prompts. Passwords are not stored; file creation runs off the UI thread.
+- `tools/ProtectedXlsxChecks` tests encrypted Office container bytes,
+  incorrect-password rejection, and exact decrypted OOXML round-trip.
+  The test runs in GitHub Actions before APK publication.
+- Important: this covers generic Office encryption and protected file output,
+  not full end-to-end synchronization. Android device and desktop-Excel
+  verification remain mandatory before claiming ready for release.
+
+Still pending independent safety/quality gates: Android emulator/device
+file sharing, password interoperability in Excel and compatible viewers,
+offline reconnection, profile/Keystore resilience, signed install update,
+and any missing desktop counterpart. No modifications to the approved
+MAVKA exchange envelope or two-key provisioning scheme.
+---
