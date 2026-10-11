@@ -850,6 +850,9 @@ public class MainActivity : Activity
         var rank = ProfileInput(card, "Звання", current?.Rank);
         Text(card, "Посада", 15, true);
         var position = ProfileInput(card, "Посада користувача", current?.Position);
+        Text(card, "Номер телефону", 15, true);
+        var phone = ProfileInput(card, "+380XXXXXXXXX або міжнародний номер", current?.PhoneNumber);
+        phone.InputType = InputTypes.ClassPhone;
         Text(card, "Матеріально відповідальна особа (МВО)", 15, true);
 
         var mvoRow = new RadioGroup(this) { Orientation = Orientation.Horizontal };
@@ -879,13 +882,15 @@ public class MainActivity : Activity
             }
             try
             {
-                var stored = _profileStore.Save(u, name, r, p, yes.Checked);
+                var stored = _profileStore.Save(u, name, r, p, yes.Checked,
+                    phone.Text?.ToString());
                 status.Text = "Профіль успішно збережено на телефоні.";
                 return stored;
             }
             catch (Exception ex)
             {
-                status.Text = "Помилка збереження профілю: " + ex.GetType().Name;
+                status.Text = ex is ArgumentException ? ex.Message :
+                    "Помилка збереження профілю: " + ex.GetType().Name;
                 return null;
             }
         }
