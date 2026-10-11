@@ -380,7 +380,8 @@ public class MainActivity : Activity
                 (asset.UnitPrice.HasValue
                     ? " · " + asset.UnitPrice.Value.ToString("0.00") + " грн/од."
                     : " · ціна невідома"),
-                asset.Quantity.ToString("0.###") + " " + asset.Measure);
+                asset.Quantity.ToString("0.###") + " " + asset.Measure,
+                () => ShowAssetHistory(profile.Unit, asset.Name, asset.Measure, null));
 
         var importing = Text(header, "Початкові залишки поки не зараховано.", 12);
         Button(header, "Зарахувати початкові залишки", () =>
