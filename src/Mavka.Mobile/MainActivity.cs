@@ -1247,6 +1247,72 @@ public class MainActivity : Activity
                             }
                         }).Show();
                 });
+
+                Text(exportCard, "Excel формується як справжня книга XLSX, " +
+                    "після чого отримує парольне шифрування Microsoft Office. " +
+                    "Відкритий XLSX не записується до сховища телефону.", 12);
+                Button(exportCard, "Зберегти Excel із паролем", () =>
+                {
+                    if (_busy) return;
+                    var secret = new EditText(this)
+                    {
+                        Hint = "Пароль Excel (12–128 символів)",
+                        InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
+                    };
+                    secret.TransformationMethod =
+                        Android.Text.Method.PasswordTransformationMethod.Instance;
+                    new AlertDialog.Builder(this)
+                        .SetTitle("Пароль для захищеного Excel")
+                        .SetMessage("Пароль не зберігається у програмі. " +
+                            "Для відкриття XLSX у Excel потрібен цей пароль.")
+                        .SetView(secret)
+                        .SetNegativeButton("Скасувати", (_, _) => { })
+                        .SetPositiveButton("Створити", async (_, _) =>
+                        {
+                            var password = secret.Text?.ToString() ?? "";
+                            if (password.Length is < 12 or > 128)
+                            {
+                                exportStatus.Text = "Пароль повинен мати 12–128 символів.";
+                                return;
+                            }
+                            if (_busy) return;
+                            _busy = true;
+                            byte[]? bytes = null;
+                            try
+                            {
+                                exportStatus.Text = "Генеруємо захищений Excel...";
+                                bytes = await Task.Run(() =>
+                                    ProtectedXlsxBuilder.CreateInvoice(this, invoice, password));
+                                var cleanNumber = new string(invoice.Number.Where(ch =>
+                                    char.IsLetterOrDigit(ch) || ch is '-' or '_')
+                                    .Take(55).ToArray());
+                                if (string.IsNullOrWhiteSpace(cleanNumber))
+                                    cleanNumber = "document";
+                                var name = "Документ-" + cleanNumber + "-" +
+                                    DateTime.UtcNow.ToString("yyyyMMdd_HHmmss") + ".xlsx";
+                                var protectedBytes = bytes;
+                                await Task.Run(() =>
+                                    _exportedFiles.SaveProtectedXlsx(protectedBytes, name));
+                                if (_screen == "message")
+                                    exportStatus.Text =
+                                        "Захищений Excel збережено у МаVКа файли.";
+                            }
+                            catch (Exception ex)
+                            {
+                                if (_screen == "message")
+                                    exportStatus.Text = "Не вдалося створити XLSX: " +
+                                        ex.GetType().Name +
+                                        ". Незахищений файл не збережено.";
+                            }
+                            finally
+                            {
+                                if (bytes is not null)
+                                    System.Security.Cryptography.CryptographicOperations
+                                        .ZeroMemory(bytes);
+                                _busy = false;
+                            }
+                        }).Show();
+                });
             }
             var statuses = Card();
             Text(statuses, "Історія статусів документа", 16, true);
