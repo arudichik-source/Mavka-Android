@@ -213,7 +213,7 @@ internal static class GmailConnectionService
                 if (string.IsNullOrWhiteSpace(fileName) ||
                     !(fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
                       fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) ||
-                    attachment.Octets > 32768)
+                    attachment.Octets > 262144)
                 {
                     attachmentsComplete = false;
                     continue;
@@ -229,7 +229,7 @@ internal static class GmailConnectionService
 
                 using var stream = new MemoryStream();
                 part.Content.DecodeTo(stream);
-                if (stream.Length > 32768)
+                if (stream.Length > 262144)
                 {
                     attachmentsComplete = false;
                     continue;
