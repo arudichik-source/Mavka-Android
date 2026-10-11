@@ -124,6 +124,62 @@ internal sealed class MavkaExportFileStore
         }
     }
 
+    /// <summary>
+    /// Only an already Agile-encrypted Office compound document is eligible.
+    /// MediaStore pending semantics hide partially written output.
+    /// </summary>
+    public Android.Net.Uri SaveProtectedXlsx(byte[] encryptedXlsx, string fileName)
+    {
+        if (!IsSupported)
+            throw new NotSupportedException("Android 10+ MediaStore export required.");
+        if (!MavkaExportPolicy.Matches(MavkaExportPolicy.RelativePath, fileName) ||
+            !fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Invalid encrypted Excel export path.");
+
+        ReadOnlySpan<byte> compoundHeader =
+            [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        if (encryptedXlsx.Length is < 512 or > 20_000_000 ||
+            !encryptedXlsx.AsSpan(0, 8).SequenceEqual(compoundHeader))
+            throw new InvalidOperationException(
+                "Expected Office-encrypted OLE container, not plaintext OOXML ZIP.");
+
+        var resolver = _context.ContentResolver ??
+            throw new InvalidOperationException("Android ContentResolver unavailable.");
+        var values = new ContentValues();
+        values.Put(MediaStore.IMediaColumns.DisplayName, fileName);
+        values.Put(MediaStore.IMediaColumns.MimeType,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        values.Put(MediaStore.IMediaColumns.RelativePath, MavkaExportPolicy.RelativePath);
+        values.Put(MediaStore.IMediaColumns.IsPending, 1);
+
+        Android.Net.Uri? created = null;
+        try
+        {
+            created = resolver.Insert(MediaStore.Downloads.ExternalContentUri, values) ??
+                throw new InvalidOperationException("Cannot create protected Excel export.");
+            using (var stream = resolver.OpenOutputStream(created) ??
+                   throw new InvalidOperationException("Cannot write protected Excel export."))
+            {
+                stream.Write(encryptedXlsx, 0, encryptedXlsx.Length);
+                stream.Flush();
+            }
+            var ready = new ContentValues();
+            ready.Put(MediaStore.IMediaColumns.IsPending, 0);
+            if (resolver.Update(created, ready, null, null) != 1)
+                throw new InvalidOperationException("Cannot finalize encrypted workbook.");
+            return created;
+        }
+        catch
+        {
+            if (created is not null)
+            {
+                try { resolver.Delete(created, null, null); }
+                catch { /* Partial encrypted output stays pending/inaccessible. */ }
+            }
+            throw;
+        }
+    }
+
     public int DeleteFile(MavkaExportFile file)
     {
         // Verify the item still belongs to the dedicated export folder. Never
