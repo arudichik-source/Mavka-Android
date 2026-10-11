@@ -76,4 +76,8 @@ internal static class MavkaEncryptedEnvelope
         }
         finally { CryptographicOperations.ZeroMemory(key); }
     }
+
+    private static string? Field(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var field) &&
+        field.ValueKind == JsonValueKind.String ? field.GetString() : null;
 }
