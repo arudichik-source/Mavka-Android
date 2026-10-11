@@ -38,8 +38,12 @@ internal sealed class MavkaExportFileStore
         ];
 
         var files = new List<MavkaExportFile>();
+        // Ask MediaStore for our dedicated folder, not the entire user
+        // Downloads collection; still revalidate each returned row below.
         using var cursor = _context.ContentResolver?.Query(
-            collection, projection, null, null,
+            collection, projection,
+            MediaStore.IMediaColumns.RelativePath + " = ?",
+            new[] { MavkaExportPolicy.RelativePath },
             MediaStore.IMediaColumns.DateModified + " DESC");
         if (cursor is null) return files;
 
@@ -180,21 +184,27 @@ internal sealed class MavkaExportFileStore
         }
     }
 
-    public int DeleteFile(MavkaExportFile file)
+    private void EnsureExportedCopy(MavkaExportFile file)
     {
-        // Verify the item still belongs to the dedicated export folder. Never
-        // accept an arbitrary content Uri as authority to delete data.
+        // Every external URI action, not just deletion, must be scoped to an
+        // approved user-exported copy. Do not allow arbitrary content:// URIs.
         var matched = ListFiles().Any(item => item.Uri.ToString() == file.Uri.ToString() &&
-            string.Equals(item.Name, file.Name, StringComparison.Ordinal));
+            string.Equals(item.Name, file.Name, StringComparison.Ordinal) &&
+            string.Equals(item.MimeType, file.MimeType, StringComparison.Ordinal));
         if (!matched)
             throw new InvalidOperationException(
-                "Файл не належить до папки МаVКа файли або вже видалений.");
+                "Файл не належить до папки МаVКа файли або вже недоступний.");
+    }
 
+    public int DeleteFile(MavkaExportFile file)
+    {
+        EnsureExportedCopy(file);
         return _context.ContentResolver?.Delete(file.Uri, null, null) ?? 0;
     }
 
     public void OpenFile(MavkaExportFile file)
     {
+        EnsureExportedCopy(file);
         var intent = new Intent(Intent.ActionView);
         intent.SetDataAndType(file.Uri, file.MimeType);
         intent.AddFlags(ActivityFlags.GrantReadUriPermission);
@@ -203,6 +213,7 @@ internal sealed class MavkaExportFileStore
 
     public void ShareFile(MavkaExportFile file)
     {
+        EnsureExportedCopy(file);
         var intent = new Intent(Intent.ActionSend);
         intent.SetType(file.MimeType);
         intent.PutExtra(Intent.ExtraStream, file.Uri);
