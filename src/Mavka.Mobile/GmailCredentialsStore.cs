@@ -19,9 +19,16 @@ internal sealed class GmailCredentialsStore
     }
 
     public string GetEmail() => _prefs.GetString("email", "") ?? "";
-    public string GetMainMavkaEmail()
+public string GetMainMavkaEmail()
 {
-    return _prefs.GetString("main_mavka_email", "") ?? "";
+    const string defaultEmail = "mavkaoblik@gmail.com";
+
+    var savedEmail = _prefs.GetString(
+        "main_mavka_email", null);
+
+    return string.IsNullOrWhiteSpace(savedEmail)
+        ? defaultEmail
+        : savedEmail.Trim();
 }
 
 public void SaveMainMavkaEmail(string email)
