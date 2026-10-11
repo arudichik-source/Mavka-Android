@@ -258,8 +258,13 @@ public class MainActivity : Activity
                 Text(localRows, $"Локальних позицій: {filtered.Count} із {all.Count}", 14);
                 foreach (var asset in filtered)
                 {
-                    Text(localRows, asset.Name + " — " + asset.Quantity.ToString("0.###") +
-                        " " + asset.Unit + (string.IsNullOrEmpty(asset.Nsn) ? "" : " · " + asset.Nsn), 14);
+                    var current = asset;
+                    AddAssetRow(localRows, asset.Name,
+                        (string.IsNullOrEmpty(asset.Nsn) ? "Локально підтверджено" :
+                            "NSN: " + asset.Nsn),
+                        asset.Quantity.ToString("0.###") + " " + asset.Unit,
+                        () => ShowAssetHistory(profile.Unit, current.Name,
+                            current.Unit, current.Nsn));
                 }
                 if (all.Count == 0)
                     Text(localRows, "Ще немає підтверджених накладних.", 14);
@@ -303,11 +308,41 @@ public class MainActivity : Activity
         Text(header, "Позицій: " + snapshot.Items.Count, 14);
         Text(header, "Перегляд отриманого знімка. Не є підтвердженим залишком у головній базі.", 13);
 
+        var rows = Card();
+        Text(rows, "Номенклатура зі знімка", 16, true);
         foreach (var asset in snapshot.Items)
+            AddAssetRow(rows, asset.Name, "Із ГОЛОВНОЇ МАВКИ",
+                asset.Quantity.ToString("0.###") + " " + asset.Measure);
+    }
+
+    private void ShowAssetHistory(string unit, string name,
+        string measure, string? nsn)
+    {
+        try
         {
-            var card = Card();
-            Text(card, asset.Name, 16, true);
-            Text(card, asset.Quantity.ToString("0.###") + " " + asset.Measure, 15);
+            var entries = _ledger.ListMovements(unit, name, measure, nsn);
+            var lines = entries
+                .Select(m => "Накладна № " + m.Number + "  •  " + m.Date +
+                             "\nНадійшло: " + m.Quantity.ToString("0.###") + " " + measure)
+                .ToList();
+            if (lines.Count == 0) lines.Add("Локальних надходжень поки немає.");
+
+            // Acts of write-off are not part of the current local ledger.
+            // Do not claim they exist unless actually imported from desktop Mavka.
+            lines.Add("Акти списання: поки не імпортовано з ГОЛОВНОЇ МАВКИ.");
+            new AlertDialog.Builder(this)
+                .SetTitle(name + " — рух майна")
+                .SetMessage(string.Join("\n\n", lines))
+                .SetPositiveButton("Закрити", (_, _) => { })
+                .Show();
+        }
+        catch (Exception ex)
+        {
+            new AlertDialog.Builder(this)
+                .SetTitle("Історія майна")
+                .SetMessage("Помилка читання рухів: " + ex.GetType().Name)
+                .SetPositiveButton("Закрити", (_, _) => { })
+                .Show();
         }
     }
 
