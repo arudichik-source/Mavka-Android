@@ -155,6 +155,21 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         return cursor.MoveToFirst();
     }
 
+    // Existing durable receipt statuses also act as an offline sending queue.
+    // They survive process termination without any extra in-memory job list.
+    public IReadOnlyList<string> ListPendingReceiptIds(int limit = 25)
+    {
+        var ids = new List<string>();
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            @"SELECT document_id FROM receipts
+              WHERE mail_status = 'pending'
+              ORDER BY confirmed_utc ASC LIMIT ?",
+            new[] { Math.Clamp(limit, 1, 100).ToString(CultureInfo.InvariantCulture) });
+        while (cursor.MoveToNext()) ids.Add(cursor.GetString(0));
+        return ids;
+    }
+
     public string? GetMailStatus(string documentId)
     {
         using var database = ReadableDatabase;
