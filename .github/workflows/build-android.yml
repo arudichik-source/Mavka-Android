@@ -46,6 +46,9 @@ jobs:
       - name: Verify historical ledger arithmetic
         run: dotnet run --project tools/LedgerChecks/LedgerChecks.csproj
 
+      - name: Verify XLSX document generation
+        run: dotnet run --project tools/XlsxChecks/XlsxChecks.csproj
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
