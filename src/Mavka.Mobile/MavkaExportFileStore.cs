@@ -69,6 +69,61 @@ internal sealed class MavkaExportFileStore
         return files;
     }
 
+    /// <summary>
+    /// Publishes only a completed, password-encrypted PDF to the user-visible
+    /// folder. MediaStore IS_PENDING keeps a partially written copy hidden.
+    /// No plaintext PDF is ever written to the public storage location.
+    /// </summary>
+    public Android.Net.Uri SaveProtectedPdf(byte[] encryptedPdf, string fileName)
+    {
+        if (!IsSupported)
+            throw new NotSupportedException("Android 10+ MediaStore export required.");
+        if (!MavkaExportPolicy.Matches(MavkaExportPolicy.RelativePath, fileName))
+            throw new ArgumentException("Invalid export filename.");
+        if (!fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Only protected PDF is supported for export.");
+        if (encryptedPdf.Length is < 200 or > 20_000_000 ||
+            System.Text.Encoding.ASCII.GetString(encryptedPdf, 0, 5) != "%PDF-" ||
+            !System.Text.Encoding.Latin1.GetString(encryptedPdf)
+                .Contains("/Encrypt", StringComparison.Ordinal))
+            throw new InvalidOperationException("Export must be a password-encrypted PDF.");
+
+        var resolver = _context.ContentResolver ??
+            throw new InvalidOperationException("Android ContentResolver unavailable.");
+        var values = new ContentValues();
+        values.Put(MediaStore.IMediaColumns.DisplayName, fileName);
+        values.Put(MediaStore.IMediaColumns.MimeType, "application/pdf");
+        values.Put(MediaStore.IMediaColumns.RelativePath, MavkaExportPolicy.RelativePath);
+        values.Put(MediaStore.IMediaColumns.IsPending, 1);
+
+        Android.Net.Uri? created = null;
+        try
+        {
+            created = resolver.Insert(MediaStore.Downloads.ExternalContentUri, values) ??
+                throw new InvalidOperationException("Cannot create export in Downloads.");
+            using (var stream = resolver.OpenOutputStream(created) ??
+                   throw new InvalidOperationException("Cannot write protected PDF."))
+            {
+                stream.Write(encryptedPdf, 0, encryptedPdf.Length);
+                stream.Flush();
+            }
+            var ready = new ContentValues();
+            ready.Put(MediaStore.IMediaColumns.IsPending, 0);
+            if (resolver.Update(created, ready, null, null) != 1)
+                throw new InvalidOperationException("Cannot finalize protected export.");
+            return created;
+        }
+        catch
+        {
+            if (created is not null)
+            {
+                try { resolver.Delete(created, null, null); }
+                catch { /* Keep the original failure; never expose partial data. */ }
+            }
+            throw;
+        }
+    }
+
     public int DeleteFile(MavkaExportFile file)
     {
         // Verify the item still belongs to the dedicated export folder. Never
