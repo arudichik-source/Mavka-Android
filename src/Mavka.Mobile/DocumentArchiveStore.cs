@@ -9,6 +9,10 @@ using System.Text;
 
 namespace Mavka.Mobile;
 
+internal sealed record ArchivedDocumentSummary(
+    string DocumentId, string Kind, string Number, string Unit, string DocumentDate,
+    string SavedUtc, string Status);
+
 internal sealed record ArchivedDocument(
     string DocumentId, string Kind, string Number, string Unit, string DocumentDate,
     string ReceivedUtc, string SavedUtc, string Status, string ContentSha256,
@@ -113,6 +117,29 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
                      received_utc, saved_utc, status, content_sha256, file_name, sealed_json
               FROM documents WHERE document_id = ?", new[] { documentId });
         return cursor.MoveToFirst() ? Read(cursor) : null;
+    }
+
+    public int CountDocuments(string unit)
+    {
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            "SELECT COUNT(*) FROM documents WHERE unit = ? COLLATE NOCASE", new[] { unit });
+        return cursor.MoveToFirst() ? cursor.GetInt(0) : 0;
+    }
+
+    public IReadOnlyList<ArchivedDocumentSummary> ListSummaries(string unit)
+    {
+        var results = new List<ArchivedDocumentSummary>();
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            @"SELECT document_id, kind, number, unit, document_date, saved_utc, status
+              FROM documents WHERE unit = ? COLLATE NOCASE
+              ORDER BY saved_utc DESC LIMIT 500", new[] { unit });
+        while (cursor.MoveToNext())
+            results.Add(new ArchivedDocumentSummary(cursor.GetString(0), cursor.GetString(1),
+                cursor.GetString(2), cursor.GetString(3), cursor.GetString(4),
+                cursor.GetString(5), cursor.GetString(6)));
+        return results;
     }
 
     public IReadOnlyList<ArchivedDocument> ListDocuments(string unit)
