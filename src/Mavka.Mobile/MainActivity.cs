@@ -1009,6 +1009,15 @@ public class MainActivity : Activity
             }
             try
             {
+                if (current is not null &&
+                    !string.Equals(current.Unit, u, StringComparison.OrdinalIgnoreCase) &&
+                    (_ledger.HasReceipts(current.Unit) ||
+                     _archive.CountDocuments(current.Unit) > 0))
+                {
+                    status.Text = "Зміна підрозділу заблокована: вже є документи або " +
+                        "локальний облік. Потрібна окрема звірка.";
+                    return null;
+                }
                 var stored = _profileStore.Save(u, name, r, p, yes.Checked,
                     phone.Text?.ToString());
                 status.Text = "Профіль успішно збережено на телефоні.";
