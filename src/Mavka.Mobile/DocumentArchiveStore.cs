@@ -11,12 +11,14 @@ namespace Mavka.Mobile;
 
 internal sealed record ArchivedDocumentSummary(
     string DocumentId, string Kind, string Number, string Unit, string DocumentDate,
-    string SavedUtc, string Status);
+    string SavedUtc, string Status,
+    string PostingStatus, string DeliveryStatus, string SyncStatus);
 
 internal sealed record ArchivedDocument(
     string DocumentId, string Kind, string Number, string Unit, string DocumentDate,
     string ReceivedUtc, string SavedUtc, string Status, string ContentSha256,
-    string FileName, string Json);
+    string FileName, string Json,
+    string PostingStatus, string DeliveryStatus, string SyncStatus);
 
 /// <summary>
 /// Independent on-device archive. A Gmail message may be moved only after every
@@ -28,7 +30,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
     private const string KeyAlias = "mavka_document_archive_aes_v1";
 
     public DocumentArchiveStore(Context context)
-        : base(context, "mavka_document_archive_v1.db", null, 1) { }
+        : base(context, "mavka_document_archive_v1.db", null, 2) { }
 
     public override void OnCreate(SQLiteDatabase db)
     {
@@ -43,8 +45,12 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
             status TEXT NOT NULL,
             content_sha256 TEXT NOT NULL,
             file_name TEXT NOT NULL,
-            sealed_json TEXT NOT NULL)");
+            sealed_json TEXT NOT NULL,
+            posting_status TEXT NOT NULL DEFAULT 'not_posted',
+            delivery_status TEXT NOT NULL DEFAULT 'not_queued',
+            sync_status TEXT NOT NULL DEFAULT 'not_synced')");
         db.ExecSQL("CREATE INDEX idx_document_unit_date ON documents(unit, document_date)");
+        CreateStatusTable(db);
         db.ExecSQL(@"CREATE TABLE mail_processing(
             uid_validity TEXT NOT NULL,
             uid TEXT NOT NULL,
@@ -55,7 +61,82 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
     }
 
     public override void OnUpgrade(SQLiteDatabase db, int oldVersion, int newVersion)
-        => throw new InvalidOperationException("Unsupported document archive migration.");
+    {
+        if (oldVersion != 1 || newVersion != 2)
+            throw new InvalidOperationException("Unsupported document archive migration.");
+        // Append-only: preserve every previously saved encrypted document.
+        db.ExecSQL("ALTER TABLE documents ADD COLUMN posting_status TEXT NOT NULL DEFAULT 'not_posted'");
+        db.ExecSQL("ALTER TABLE documents ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'not_queued'");
+        db.ExecSQL("ALTER TABLE documents ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'not_synced'");
+        CreateStatusTable(db);
+        db.ExecSQL(@"INSERT INTO document_status_history
+             (document_id, domain, state, changed_utc)
+             SELECT document_id, 'archive', status, saved_utc FROM documents");
+    }
+
+    private static void CreateStatusTable(SQLiteDatabase db)
+    {
+        db.ExecSQL(@"CREATE TABLE document_status_history(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            state TEXT NOT NULL,
+            changed_utc TEXT NOT NULL)");
+        db.ExecSQL("CREATE INDEX idx_document_status_id ON document_status_history(document_id,id)");
+    }
+
+    private void UpdateStatus(string documentId, string column, string state)
+    {
+        if (column is not ("posting_status" or "delivery_status" or "sync_status"))
+            throw new ArgumentException("Invalid status field.");
+        if (string.IsNullOrWhiteSpace(documentId) || state.Length > 64 ||
+            string.IsNullOrWhiteSpace(state))
+            throw new ArgumentException("Invalid document status.");
+
+        using var db = WritableDatabase;
+        db.BeginTransaction();
+        try
+        {
+            using var previous = db.RawQuery(
+                "SELECT " + column + " FROM documents WHERE document_id = ?",
+                new[] { documentId });
+            if (!previous.MoveToFirst())
+                throw new InvalidOperationException("Document not archived.");
+            if (!string.Equals(previous.GetString(0), state, StringComparison.Ordinal))
+            {
+                var update = new ContentValues();
+                update.Put(column, state);
+                if (db.Update("documents", update, "document_id = ?", new[] { documentId }) != 1)
+                    throw new InvalidOperationException("Cannot change archive status.");
+                var eventData = new ContentValues();
+                eventData.Put("document_id", documentId);
+                eventData.Put("domain", column);
+                eventData.Put("state", state);
+                eventData.Put("changed_utc", DateTimeOffset.UtcNow.ToString("O"));
+                db.InsertOrThrow("document_status_history", null, eventData);
+            }
+            db.SetTransactionSuccessful();
+        }
+        finally { db.EndTransaction(); }
+    }
+
+    public void MarkPosted(string documentId) => UpdateStatus(documentId, "posting_status", "posted");
+    public void MarkDeliveryQueued(string documentId) => UpdateStatus(documentId, "delivery_status", "pending");
+    public void MarkDeliverySent(string documentId) => UpdateStatus(documentId, "delivery_status", "sent");
+
+    public IReadOnlyList<string> ListStatusHistory(string documentId)
+    {
+        var changes = new List<string>();
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            @"SELECT domain, state, changed_utc FROM document_status_history
+              WHERE document_id = ? ORDER BY id",
+            new[] { documentId });
+        while (cursor.MoveToNext())
+            changes.Add(cursor.GetString(2) + " · " + cursor.GetString(0) +
+                " → " + cursor.GetString(1));
+        return changes;
+    }
 
     public bool SaveDocument(string documentId, string kind, string number,
         string unit, string documentDate, string fileName, string json)
@@ -97,6 +178,12 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
                 values.Put("file_name", Path.GetFileName(fileName));
                 values.Put("sealed_json", Seal(json));
                 db.InsertOrThrow("documents", null, values);
+                var eventData = new ContentValues();
+                eventData.Put("document_id", documentId);
+                eventData.Put("domain", "archive");
+                eventData.Put("state", "saved");
+                eventData.Put("changed_utc", now);
+                db.InsertOrThrow("document_status_history", null, eventData);
                 db.SetTransactionSuccessful();
             }
             finally { db.EndTransaction(); }
@@ -114,7 +201,8 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         using var db = ReadableDatabase;
         using var cursor = db.RawQuery(
             @"SELECT document_id, kind, number, unit, document_date,
-                     received_utc, saved_utc, status, content_sha256, file_name, sealed_json
+                     received_utc, saved_utc, status, content_sha256, file_name, sealed_json,
+                     posting_status, delivery_status, sync_status
               FROM documents WHERE document_id = ?", new[] { documentId });
         return cursor.MoveToFirst() ? Read(cursor) : null;
     }
@@ -132,13 +220,15 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         var results = new List<ArchivedDocumentSummary>();
         using var db = ReadableDatabase;
         using var cursor = db.RawQuery(
-            @"SELECT document_id, kind, number, unit, document_date, saved_utc, status
+            @"SELECT document_id, kind, number, unit, document_date, saved_utc, status,
+                     posting_status, delivery_status, sync_status
               FROM documents WHERE unit = ? COLLATE NOCASE
               ORDER BY saved_utc DESC LIMIT 500", new[] { unit });
         while (cursor.MoveToNext())
             results.Add(new ArchivedDocumentSummary(cursor.GetString(0), cursor.GetString(1),
                 cursor.GetString(2), cursor.GetString(3), cursor.GetString(4),
-                cursor.GetString(5), cursor.GetString(6)));
+                cursor.GetString(5), cursor.GetString(6), cursor.GetString(7),
+                cursor.GetString(8), cursor.GetString(9)));
         return results;
     }
 
@@ -148,7 +238,8 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         using var db = ReadableDatabase;
         using var cursor = db.RawQuery(
             @"SELECT document_id, kind, number, unit, document_date,
-                     received_utc, saved_utc, status, content_sha256, file_name, sealed_json
+                     received_utc, saved_utc, status, content_sha256, file_name, sealed_json,
+                     posting_status, delivery_status, sync_status
               FROM documents WHERE unit = ? COLLATE NOCASE
               ORDER BY saved_utc DESC LIMIT 1000", new[] { unit });
         while (cursor.MoveToNext()) results.Add(Read(cursor));
@@ -164,7 +255,8 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         return new ArchivedDocument(cursor.GetString(0), cursor.GetString(1),
             cursor.GetString(2), cursor.GetString(3), cursor.GetString(4),
             cursor.GetString(5), cursor.GetString(6), cursor.GetString(7),
-            cursor.GetString(8), cursor.GetString(9), json);
+            cursor.GetString(8), cursor.GetString(9), json,
+            cursor.GetString(11), cursor.GetString(12), cursor.GetString(13));
     }
 
     // A durable marker means every relevant part of the mail was saved, or a key
