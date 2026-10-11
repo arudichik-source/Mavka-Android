@@ -223,3 +223,45 @@ Branch: `feature/mobile-snapshot-reconciliation-20261011`.
 - Потрібні CI + тест на реальному Android та десктопне підтвердження
   семантики `asOf`; відсутній повноцінний ACK-цикл ГОЛОВНОЇ МАВКИ.
 ---
+
+
+## 2026-10-12 — Reliability: legacy outbox + 200-position intake
+
+Working branch: `feature/mobile-reliability-20261012`, based on green #79
+commit `0348fdb35ce8b4edb60ef8fb76f54109acb98ba9`.
+Do not merge until the new PR CI and real Android checks pass.
+
+Changes:
+- `PropertyLedgerStore.LoadConfirmedInvoice(documentId)` reconstructs exact
+  stored rows and prices from original SQLite receipts. Pending confirmations
+  created before `DocumentArchiveStore` existed can now be resent without
+  a Gmail letter and **without posting inventory a second time**.
+- `MainActivity.SendPendingReceiptsAsync` uses the authoritative receipt
+  ledger, validates MVO/unit, sends in bounded batches (3 per attempt), and
+  exposes a manual retry on Home. SMTP status transitions must be durable.
+- `PropertyLedgerStore.MarkMailSent` rejects an update that affects no row.
+- `MainActivity.ShowArchivedDocument` reconciles posting/delivery flags
+  from the authoritative receipt ledger after a partial crash across the
+  two independent SQLite stores. This affects only displayed statuses.
+- Confirmation UI distinguishes SMTP accepted from a failed local status
+  update, so a sent-but-unrecorded confirmation is not called "Gmail offline".
+  Server idempotency on documentId is still required for ambiguous retries.
+- Increase bounded document sizes (not the encryption/key formats):
+  IMAP TXT/JSON attachment 32 KiB → 256 KiB; encrypted envelope JSON
+  up to 256K chars with ciphertext up to 192 KiB; invoice/snapshot/history
+  JSON parse up to 192K chars. Still at most 3 recognized attachments per mail
+  for automatic Trash; unsupported or incomplete mail remains in Inbox.
+- 200-row invoice UI now renders up to 25 positions per tap, rather than
+  creating 200+ rows immediately; raw JSON dialogs limited to 8,000 chars.
+- `tools/ArchiveChecks` regression covers a >65KB 200-position invoice.
+
+Do not change `MAVKA_KEY_PACKAGE_V1`, `MAVKA_ENCRYPTED_V1`,
+AES-256-GCM, PBKDF2, or the 2-key rotation rules. No historical keys retained.
+
+Pending: Android CI, compatibility tests with Gmail key rotation, restoring a
+pre-archive SQLite fixture on a physical phone, real offline/reconnect,
+full PDFs/password-protected XLSX export, desktop ACK/confirmation parser.
+Known limitation: SMTP has an inherent ambiguous success window before local
+sent-status commits; desktop receipt handling must dedupe by ClientId and
+documentId to guarantee exactly-once accounting.
+---
