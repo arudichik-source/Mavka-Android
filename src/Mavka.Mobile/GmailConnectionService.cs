@@ -205,8 +205,8 @@ internal static class GmailConnectionService
                 ? date.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm")
                 : "Без дати";
             var textAttachments = new List<MavkaTextAttachment>();
-            bool attachmentsComplete = summary.Attachments.Count > 0 &&
-                summary.Attachments.Count <= 3;
+            bool attachmentsComplete = summary.Attachments.Any() &&
+                summary.Attachments.Count() <= 3;
             foreach (var attachment in summary.Attachments.Take(10))
             {
                 var fileName = attachment.FileName;
@@ -322,7 +322,7 @@ internal static class GmailConnectionService
             result.Add(new MavkaMailItem(
                 summary.Envelope?.Subject ?? "(без теми)", dateText, body, textAttachments,
                 summary.UniqueId.Id, client.Inbox.UidValidity,
-                attachmentsComplete && textAttachments.Count == summary.Attachments.Count));
+                attachmentsComplete && textAttachments.Count == summary.Attachments.Count()));
         }
 
         await client.DisconnectAsync(true, timeout.Token);
