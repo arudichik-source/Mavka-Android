@@ -18,6 +18,7 @@ public class MainActivity : Activity
     private Button _home = null!, _inbox = null!, _settings = null!;
     private string _screen = "home";
     private bool _busy;
+    private IReadOnlyList<MavkaMailItem> _messages = Array.Empty<MavkaMailItem>();
 
     protected override void OnCreate(Bundle? state)
     {
@@ -50,7 +51,7 @@ public class MainActivity : Activity
         Title = "Мавка Mobile — " + title;
         _body.RemoveAllViews();
         _home.Enabled = screen != "home";
-        _inbox.Enabled = screen != "inbox";
+        _inbox.Enabled = screen != "inbox" && screen != "message";
         _settings.Enabled = screen != "settings" && screen != "mail";
         Text(_body, title, 25, true);
     }
@@ -60,41 +61,106 @@ public class MainActivity : Activity
         Begin("home", "Головна");
         var card = Card();
         Text(card, "Синхронізація", 20, true);
-        var status = Text(card, _store.HasCredentials ? "Gmail налаштовано" : "Gmail не підключено", 16);
-        Button(card, "Оновити", async () =>
-        {
-            if (!_store.HasCredentials)
-            {
-                status.Text = "Підключи пошту в Налаштування → Пошта Gmail.";
-                return;
-            }
-            if (_busy) return;
-            _busy = true;
-            status.Text = "Перевірка Gmail…";
-            try
-            {
-                await GmailConnectionService.TestImapAsync(_store.GetEmail(), _store.GetPassword()!);
-                status.Text = "Gmail доступний. Імпорт документів ще не реалізовано.";
-            }
-            catch (MailKit.Security.AuthenticationException) { status.Text = "Gmail відхилив вхід. Перевір налаштування."; }
-            catch (System.OperationCanceledException) { status.Text = "Час з’єднання минув."; }
-            catch (Exception) { status.Text = "Не вдалося зв’язатися з Gmail."; }
-            finally { _busy = false; }
-        });
+        var status = Text(card,
+            _store.HasCredentials ? "Gmail налаштовано" : "Gmail не підключено", 16);
+        Button(card, "Оновити", async () => await RefreshMessagesAsync(status));
         card = Card();
-        Text(card, "Нові документи", 20, true);
-        Text(card, "Документи ще не синхронізовано", 16);
-        Text(_body, "Останні документи", 20, true);
-        Text(_body, "Після налаштування формату обміну документи будуть тут.", 15);
+        Text(card, "Службові повідомлення", 20, true);
+        Text(card, $"Завантажено: {_messages.Count}", 18);
+        Button(card, "Перейти до вхідних", ShowInbox);
+        Text(_body, "Дозволений відправник", 18, true);
+        Text(_body, _store.GetMainMavkaEmail(), 15);
+        Text(_body, "Пошук лише у «Вхідних» Gmail, без зміни стану листів.", 13);
     }
 
     private void ShowInbox()
     {
         Begin("inbox", "Вхідні");
         var card = Card();
-        Text(card, "Вхідні документи", 20, true);
-        Text(card, "Отримання службових листів Мавки додамо наступним етапом.", 16);
-        Text(card, "Особиста пошта автоматично не завантажується.", 14);
+        Text(card, "Листи ГОЛОВНОЇ МАВКИ", 18, true);
+        Text(card, "Адреса: " + _store.GetMainMavkaEmail(), 14);
+        var status = Text(card, _store.HasCredentials
+            ? "Листи доступні після синхронізації."
+            : "Спочатку підключи Gmail у Налаштуваннях.", 14);
+        Button(card, "Оновити листи", async () =>
+        {
+            await RefreshMessagesAsync(status);
+            if (_screen == "inbox") ShowInboxContent();
+        });
+        ShowInboxContent();
+    }
+
+    private void ShowInboxContent()
+    {
+        // The two first child views are the title and controls card.
+        while (_body.ChildCount > 2)
+            _body.RemoveViewAt(2);
+        if (_messages.Count == 0)
+        {
+            Text(_body, "Службових листів поки немає.", 16);
+            return;
+        }
+        foreach (var mail in _messages)
+        {
+            var card = Card();
+            Text(card, mail.Subject, 17, true);
+            Text(card, mail.DateText, 13);
+            Button(card, "Читати повідомлення", () => ShowMessage(mail));
+        }
+    }
+
+    private void ShowMessage(MavkaMailItem mail)
+    {
+        Begin("message", "Повідомлення");
+        var card = Card();
+        Text(card, mail.Subject, 19, true);
+        Text(card, mail.DateText, 14);
+        Text(card, mail.Body, 15);
+        Button(_body, "← До вхідних", ShowInbox);
+    }
+
+    private async Task RefreshMessagesAsync(TextView status)
+    {
+        if (_busy) return;
+        if (!_store.HasCredentials)
+        {
+            status.Text = "Підключи Gmail у меню «Налаштування → Пошта Gmail».";
+            return;
+        }
+        var sender = _store.GetMainMavkaEmail();
+        if (string.IsNullOrWhiteSpace(sender))
+        {
+            status.Text = "У налаштуваннях не задана адреса ГОЛОВНОЇ МАВКИ.";
+            return;
+        }
+        _busy = true;
+        status.Text = "Перевірка службових листів...";
+        try
+        {
+            var password = _store.GetPassword();
+            if (string.IsNullOrEmpty(password))
+                throw new InvalidOperationException("Пароль не збережений.");
+            _messages = await GmailConnectionService.ReadFromSenderAsync(
+                _store.GetEmail(), password, sender);
+            if (_screen is "home" or "inbox")
+                status.Text = $"Завантажено листів: {_messages.Count}. Тільки від дозволеної адреси.";
+        }
+        catch (MailKit.Security.AuthenticationException)
+        {
+            if (_screen is "home" or "inbox")
+                status.Text = "Google відхилив авторизацію. Перевір пароль застосунку.";
+        }
+        catch (System.OperationCanceledException)
+        {
+            if (_screen is "home" or "inbox")
+                status.Text = "Перевищено час очікування з’єднання.";
+        }
+        catch (Exception ex)
+        {
+            if (_screen is "home" or "inbox")
+                status.Text = $"Помилка читання пошти: {ex.GetType().Name}";
+        }
+        finally { _busy = false; }
     }
 
     private void ShowSettings()
@@ -105,8 +171,8 @@ public class MainActivity : Activity
         Text(card, _store.HasCredentials ? _store.GetEmail() : "Не підключено", 16);
         Button(card, "Пошта Gmail →", ShowMail);
         card = Card();
-        Text(card, "Профіль Мавки", 20, true);
-        Text(card, "Ім’я користувача та ID Мавки додамо пізніше.", 15);
+        Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 18, true);
+        Text(card, _store.GetMainMavkaEmail(), 16);
     }
 
     private void ShowMail()
@@ -122,56 +188,47 @@ public class MainActivity : Activity
         };
         email.SetSingleLine(true);
         card.AddView(email);
+
         Text(card, "Пароль застосунку Google", 15, true);
         var secret = new EditText(this)
         {
-            Hint = _store.HasCredentials ? "Збережений пароль (можна не вводити)" : "16 символів",
+            Hint = _store.HasCredentials ? "Збережений пароль (вводити знову не потрібно)" : "16 символів",
             InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
         };
         secret.SetSingleLine(true);
-        secret.TransformationMethod =
-    Android.Text.Method.PasswordTransformationMethod.Instance;
+        secret.TransformationMethod = Android.Text.Method.PasswordTransformationMethod.Instance;
         card.AddView(secret);
-        Text(card, "Вводь лише пароль застосунку, а не основний пароль Google.", 13);
+        Text(card, "Пароль вводиться лише на телефоні й зберігається захищено.", 13);
         var status = Text(card, "Підключення ще не перевірялося.", 14);
+
         Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 15, true);
+        var mainMavkaEmail = new EditText(this)
+        {
+            Hint = "Адреса службової пошти",
+            Text = _store.GetMainMavkaEmail(),
+            InputType = InputTypes.ClassText | InputTypes.TextVariationEmailAddress
+        };
+        mainMavkaEmail.SetSingleLine(true);
+        card.AddView(mainMavkaEmail);
 
-var mainMavkaEmail = new EditText(this)
-{
-    Hint = "Адреса службової пошти",
-    Text = _store.GetMainMavkaEmail(),
-    InputType = InputTypes.ClassText |
-                InputTypes.TextVariationEmailAddress
-};
+        Button(card, "Зберегти адресу ГОЛОВНОЇ МАВКИ", () =>
+        {
+            var address = (mainMavkaEmail.Text ?? "").Trim();
+            if (!System.Net.Mail.MailAddress.TryCreate(address, out var parsed) ||
+                !string.Equals(parsed?.Address, address, StringComparison.OrdinalIgnoreCase))
+            {
+                status.Text = "Введи правильну адресу головної Мавки.";
+                return;
+            }
+            try
+            {
+                _store.SaveMainMavkaEmail(address);
+                _messages = Array.Empty<MavkaMailItem>(); // Do not retain messages after sender change.
+                status.Text = "Адресу головної Мавки збережено.";
+            }
+            catch { status.Text = "Не вдалося зберегти адресу."; }
+        });
 
-mainMavkaEmail.SetSingleLine(true);
-card.AddView(mainMavkaEmail);
-
-Button(card, "Зберегти адресу ГОЛОВНОЇ МАВКИ", () =>
-{
-    var address = (mainMavkaEmail.Text ?? "").Trim();
-
-    if (!System.Net.Mail.MailAddress.TryCreate(
-            address, out var parsed) ||
-        !string.Equals(
-            parsed?.Address,
-            address,
-            StringComparison.OrdinalIgnoreCase))
-    {
-        status.Text = "Введи правильну електронну адресу.";
-        return;
-    }
-
-    try
-    {
-        _store.SaveMainMavkaEmail(address);
-        status.Text = "Адресу ГОЛОВНОЇ МАВКИ збережено.";
-    }
-    catch
-    {
-        status.Text = "Не вдалося зберегти адресу.";
-    }
-});
         var save = new Button(this) { Text = "Перевірити й зберегти" };
         card.AddView(save);
         save.Click += async (_, _) =>
@@ -179,74 +236,61 @@ Button(card, "Зберегти адресу ГОЛОВНОЇ МАВКИ", () =>
             if (_busy) return;
             var address = (email.Text ?? "").Trim();
             var password = (secret.Text ?? "").Replace(" ", "").Trim();
-            if (!address.EndsWith("@gmail.com", StringComparison.OrdinalIgnoreCase) || address.Contains(' '))
+            if (!address.EndsWith("@gmail.com", StringComparison.OrdinalIgnoreCase) ||
+                !System.Net.Mail.MailAddress.TryCreate(address, out var parsed) ||
+                !string.Equals(parsed.Address, address, StringComparison.OrdinalIgnoreCase))
             {
-                status.Text = "Введи адресу Gmail.";
+                status.Text = "Введи коректну адресу Gmail.";
                 return;
             }
             if (password.Length == 0 && _store.HasCredentials &&
                 string.Equals(address, _store.GetEmail(), StringComparison.OrdinalIgnoreCase))
             {
                 try { password = _store.GetPassword() ?? ""; }
-                catch { status.Text = "Не вдалося прочитати збережений пароль. Введи його знову."; return; }
+                catch { status.Text = "Не вдалося відкрити збережений пароль."; return; }
             }
             if (password.Length == 0) { status.Text = "Введи пароль застосунку Google."; return; }
+
             _busy = true;
             save.Enabled = false;
-            status.Text = "Перевіряємо з’єднання з Gmail…";
             string stage = "1/5: Підключення до Gmail";
-
             try
-{
-    await GmailConnectionService.TestImapAsync(
-        address,
-        password,
-        message =>
-        {
-            stage = message;
-            status.Text = message;
-        });
-
-    stage = "5/5: Захищене збереження Android";
-    status.Text = stage;
-
-    _store.Save(address, password);
-
-    secret.Text = "";
-    secret.Hint = "Пароль збережено";
-
-    status.Text = "Gmail успішно підключено!";
-}
-catch (MailKit.Security.AuthenticationException)
-{
-    status.Text =
-        "Помилка авторизації Gmail. Перевір пароль застосунку.";
-}
-catch (System.OperationCanceledException)
-{
-    status.Text =
-        $"Перевищено час очікування. Етап: {stage}";
-}
-catch (Exception ex)
-{
-    status.Text =
-        $"Помилка на етапі {stage}: {ex.GetType().Name}";
-}
-finally
-{
-    _busy = false;
-    save.Enabled = true;
-}
+            {
+                await GmailConnectionService.TestImapAsync(
+                    address, password, text => { stage = text; status.Text = text; });
+                stage = "5/5: Захищене збереження Android";
+                status.Text = stage;
+                _store.Save(address, password);
+                _messages = Array.Empty<MavkaMailItem>();
+                secret.Text = "";
+                secret.Hint = "Збережений пароль (вводити знову не потрібно)";
+                status.Text = "Gmail підключено. Можна читати службові листи.";
+            }
+            catch (MailKit.Security.AuthenticationException)
+            {
+                status.Text = "Google відхилив вхід. Перевір пароль застосунку.";
+            }
+            catch (System.OperationCanceledException)
+            {
+                status.Text = $"Час очікування минув. Етап: {stage}";
+            }
+            catch (Exception ex)
+            {
+                status.Text = $"Помилка на етапі {stage}: {ex.GetType().Name}";
+            }
+            finally { _busy = false; save.Enabled = true; }
         };
+
         Button(card, "Відключити Gmail", () =>
         {
             try
             {
                 _store.Clear();
-                email.Text = "";
+                _messages = Array.Empty<MavkaMailItem>();
+                email.Text = _store.GetEmail();
                 secret.Text = "";
                 secret.Hint = "16 символів";
-                status.Text = "Пошта відключена від цього телефона.";
+                status.Text = "Gmail відключено, адреса ГОЛОВНОЇ МАВКИ збережена.";
             }
             catch { status.Text = "Не вдалося очистити налаштування."; }
         });
@@ -256,6 +300,7 @@ finally
     public override void OnBackPressed()
     {
         if (_screen == "mail") { ShowSettings(); return; }
+        if (_screen == "message") { ShowInbox(); return; }
         if (_screen != "home") { ShowHome(); return; }
         base.OnBackPressed();
     }

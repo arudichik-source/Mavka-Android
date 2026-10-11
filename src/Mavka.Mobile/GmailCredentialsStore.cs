@@ -18,7 +18,8 @@ internal sealed class GmailCredentialsStore
         _prefs = context.GetSharedPreferences(PrefsName, FileCreationMode.Private)!;
     }
 
-    public string GetEmail() => _prefs.GetString("email", "") ?? "";
+    // Convenience for a single-device trial; not an authentication secret.
+    public string GetEmail() => _prefs.GetString("email", "arudichik@gmail.com") ?? "arudichik@gmail.com";
 public string GetMainMavkaEmail()
 {
     const string defaultEmail = "mavkaoblik@gmail.com";
