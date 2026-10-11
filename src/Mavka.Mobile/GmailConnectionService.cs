@@ -6,10 +6,12 @@ using MimeKit;
 
 namespace Mavka.Mobile;
 
-internal sealed record MavkaTextAttachment(string FileName, string Text); // TXT or JSON text preview
+internal sealed record MavkaTextAttachment(
+    string FileName, string Text, string? RawJson = null);
 
 internal sealed record MavkaMailItem(
-    string Subject, string DateText, string Body, IReadOnlyList<MavkaTextAttachment> Attachments);
+    string Subject, string DateText, string Body,
+    IReadOnlyList<MavkaTextAttachment> Attachments, uint MessageUid, uint UidValidity);
 
 internal static class GmailConnectionService
 {
@@ -203,15 +205,48 @@ internal static class GmailConnectionService
                     ? MavkaJsonPreview.Format(contents)
                     : contents;
                 textAttachments.Add(new MavkaTextAttachment(
-                    Path.GetFileName(fileName), display));
+                    Path.GetFileName(fileName), display,
+                    fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? contents : null));
                 if (textAttachments.Count >= 3) break;
             }
 
             result.Add(new MavkaMailItem(
-                summary.Envelope?.Subject ?? "(без теми)", dateText, body, textAttachments));
+                summary.Envelope?.Subject ?? "(без теми)", dateText, body, textAttachments,
+                summary.UniqueId.Id, client.Inbox.UidValidity));
         }
 
         await client.DisconnectAsync(true, timeout.Token);
         return result;
+    }
+
+    // Move only a previously displayed message to Gmail Trash, never permanently expunge it.
+    // UIDVALIDITY and the *exact* authorized sender are rechecked immediately before moving.
+    public static async Task MoveToTrashAsync(
+        string account, string password, string authorizedSender, MavkaMailItem mail)
+    {
+        if (mail.MessageUid == 0 || mail.UidValidity == 0)
+            throw new InvalidOperationException("Не вдалося підтвердити ідентифікатор листа.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+        var opened = await GmailTlsConnection.OpenImapAsync(timeout.Token);
+        using var client = opened.Client;
+        await client.AuthenticateAsync(account, password, timeout.Token);
+        await client.Inbox.OpenAsync(FolderAccess.ReadWrite, timeout.Token);
+
+        if (client.Inbox.UidValidity != mail.UidValidity)
+            throw new InvalidOperationException("Поштова папка змінилася. Онови список листів.");
+
+        var uid = new UniqueId(mail.MessageUid);
+        var summary = (await client.Inbox.FetchAsync(
+            new[] { uid }, MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope,
+            timeout.Token)).FirstOrDefault();
+
+        if (summary?.Envelope?.From?.Mailboxes.Any(m =>
+                string.Equals(m.Address, authorizedSender,
+                    StringComparison.OrdinalIgnoreCase)) != true)
+            throw new InvalidOperationException("Відправник не пройшов повторну перевірку.");
+
+        var trash = client.GetFolder(SpecialFolder.Trash);
+        await client.Inbox.MoveToAsync(uid, trash, timeout.Token);
+        await client.DisconnectAsync(true, timeout.Token);
     }
 }
