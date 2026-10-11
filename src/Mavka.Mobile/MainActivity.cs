@@ -194,10 +194,9 @@ Button(card, "Зберегти адресу ГОЛОВНОЇ МАВКИ", () =>
             _busy = true;
             save.Enabled = false;
             status.Text = "Перевіряємо з’єднання з Gmail…";
-            try
-         string stage = "1/5: Підключення до Gmail";
+            string stage = "1/5: Підключення до Gmail";
 
-try
+            try
 {
     await GmailConnectionService.TestImapAsync(
         address,
