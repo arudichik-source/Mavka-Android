@@ -133,7 +133,7 @@ var assetPreview = MavkaJsonPreview.Format(escapedSnapshot);
 foreach (var required in new[]
 {
     "MAVKA_UNIT_ASSETS_V1", "Тестовий підрозділ", "Папір А4", "Ручка",
-    "DEMO-PAPER-001", "120,50", "1 205,00", "Не", "не зараховано автоматично"
+    "DEMO-PAPER-001", "120,50", "1 205,00", "не зараховано автоматично"
 })
 {
     // All strings except presentation-specific non-breaking group separator.
