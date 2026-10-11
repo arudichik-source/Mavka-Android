@@ -777,6 +777,11 @@ public class MainActivity : Activity
                             // SQLite transaction commits receipt and its items atomically.
                             // The document ID is unique; retrying must never double inventory.
                             bool added = _ledger.AddConfirmedInvoice(invoice);
+                            if (_archive.FindDocument(invoice.DocumentId) is not null)
+                            {
+                                _archive.MarkPosted(invoice.DocumentId);
+                                _archive.MarkDeliveryQueued(invoice.DocumentId);
+                            }
                             status.Text = added
                                 ? "Майно зараховано локально. Надсилаємо підтвердження..."
                                 : "Накладну вже зараховано. Повторно надсилаємо підтвердження...";
@@ -787,6 +792,8 @@ public class MainActivity : Activity
                                 _store.GetEmail(), password, _store.GetMainMavkaEmail(),
                                 profile, invoice, _exchangeKeys);
                             _ledger.MarkMailSent(invoice.DocumentId);
+                            if (_archive.FindDocument(invoice.DocumentId) is not null)
+                                _archive.MarkDeliverySent(invoice.DocumentId);
                             if (_screen == "message")
                                 status.Text = "Майно зараховано в локальну базу. " +
                                     "Лист-підтвердження надіслано. " +
@@ -883,6 +890,8 @@ public class MainActivity : Activity
                 await RegistrationMailService.SendReceiptAsync(
                     _store.GetEmail(), password, sender, profile, invoice, _exchangeKeys);
                 _ledger.MarkMailSent(id);
+                if (_archive.FindDocument(id) is not null)
+                    _archive.MarkDeliverySent(id);
                 sent++;
             }
             catch (Exception)
@@ -1001,7 +1010,10 @@ public class MainActivity : Activity
                     rows.AddView(tile);
                     Text(tile, item.Kind + " № " + item.Number, 16, true);
                     Text(tile, item.DocumentDate + " · " + item.Unit +
-                        " · Збережено локально", 13);
+                        " · " + item.Status, 13);
+                    Text(tile, "Облік: " + item.PostingStatus +
+                        " · Передавання: " + item.DeliveryStatus +
+                        " · Синхронізація: " + item.SyncStatus, 12);
                     Button(tile, "Переглянути документ", () => ShowArchivedDocument(item.DocumentId));
                 }
             }
@@ -1029,6 +1041,10 @@ public class MainActivity : Activity
                 new[] { attachment }, 0, 0);
             _viewingArchivedDocument = true;
             ShowMessage(local);
+            var statuses = Card();
+            Text(statuses, "Історія статусів документа", 16, true);
+            foreach (var change in _archive.ListStatusHistory(documentId))
+                Text(statuses, change, 12);
         }
         catch (Exception ex)
         {
