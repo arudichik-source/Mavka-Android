@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/Mavka.Mobile/AssetIconClassifier.cs" Link="AssetIconClassifier.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MavkaMovementJournal.cs" Link="MavkaMovementJournal.cs" />
   </ItemGroup>
 </Project>

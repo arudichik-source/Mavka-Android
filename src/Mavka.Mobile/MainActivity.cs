@@ -380,7 +380,8 @@ public class MainActivity : Activity
                 (asset.UnitPrice.HasValue
                     ? " · " + asset.UnitPrice.Value.ToString("0.00") + " грн/од."
                     : " · ціна невідома"),
-                asset.Quantity.ToString("0.###") + " " + asset.Measure);
+                asset.Quantity.ToString("0.###") + " " + asset.Measure,
+                () => ShowAssetHistory(profile.Unit, asset.Name, asset.Measure, null));
 
         var importing = Text(header, "Початкові залишки поки не зараховано.", 12);
         Button(header, "Зарахувати початкові залишки", () =>
@@ -425,19 +426,62 @@ public class MainActivity : Activity
     {
         try
         {
-            var entries = _ledger.ListMovements(unit, name, measure, nsn);
-            var lines = entries
-                .Select(m => "Накладна № " + m.Number + "  •  " + m.Date +
-                             "\nНадійшло: " + m.Quantity.ToString("0.###") + " " + measure +
-                             (m.UnitPrice.HasValue
-                                 ? "\nЦіна: " + m.UnitPrice.Value.ToString("0.00") + " грн"
-                                 : "\nЦіна не зазначена"))
-                .ToList();
-            if (lines.Count == 0) lines.Add("Локальних надходжень поки немає.");
+            var local = _ledger.ListMovements(unit, name, measure, nsn);
+            var lines = new List<string>
+            {
+                "Локальна історія (підтверджене майно):"
+            };
+            foreach (var entry in local)
+            {
+                var label = entry.Number == "ПОЧАТКОВІ ЗАЛИШКИ"
+                    ? "Початкові залишки"
+                    : "Накладна № " + entry.Number;
+                lines.Add(label + " · " + entry.Date +
+                    "\nНадійшло: " + entry.Quantity.ToString("0.###") + " " + measure +
+                    (entry.UnitPrice.HasValue
+                        ? "\nЦіна: " + entry.UnitPrice.Value.ToString("0.00") + " грн"
+                        : "\nЦіна не зазначена"));
+            }
+            if (local.Count == 0)
+                lines.Add("Локальних рухів ще немає.");
 
-            // Acts of write-off are not part of the current local ledger.
-            // Do not claim they exist unless actually imported from desktop Mavka.
-            lines.Add("Акти списання: поки не імпортовано з ГОЛОВНОЇ МАВКИ.");
+            // Reference history is read from authorized Gmail documents
+            // and kept separate from SQLite accounting and local quantities.
+            var remote = _messages.SelectMany(mail => mail.Attachments)
+                .Where(attachment => attachment.RawJson is not null)
+                .Select(attachment =>
+                    MavkaMovementJournal.TryRead(attachment.RawJson, out var journal)
+                        ? journal : null)
+                .Where(journal => journal is not null)
+                .SelectMany(journal => MavkaMovementJournal.ForAsset(
+                    journal!, unit, name, measure, nsn))
+                .GroupBy(entry => (entry.DocumentId, entry.Name, entry.Kind))
+                .Select(group => group.First())
+                .OrderByDescending(entry => entry.Date, StringComparer.Ordinal)
+                .ToList();
+
+            lines.Add("Рухи за документами ГОЛОВНОЇ МАВКИ (довідково):");
+            foreach (var movement in remote)
+            {
+                var documentKind = movement.Kind switch
+                {
+                    "writeoff" => "Акт списання",
+                    "invoice" => "Накладна",
+                    "transfer" => "Документ переміщення",
+                    "adjustment" => "Коригування",
+                    _ => "Документ"
+                };
+                lines.Add(documentKind + " № " + movement.DocumentNumber +
+                    " · " + movement.Date +
+                    "\nКількість: " + movement.Quantity.ToString("0.###") + " " + measure +
+                    (movement.UnitPrice.HasValue
+                        ? "\nЦіна: " + movement.UnitPrice.Value.ToString("0.00") + " грн"
+                        : "\nЦіна не зазначена"));
+            }
+            if (remote.Count == 0)
+                lines.Add("Історію актів та інших документів ще не отримано.");
+
+            lines.Add("Довідкові рухи не змінюють локальний залишок.");
             new AlertDialog.Builder(this)
                 .SetTitle(name + " — рух майна")
                 .SetMessage(string.Join("\n\n", lines))
