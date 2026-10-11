@@ -6,7 +6,10 @@ using MimeKit;
 
 namespace Mavka.Mobile;
 
-internal sealed record MavkaMailItem(string Subject, string DateText, string Body);
+internal sealed record MavkaTextAttachment(string FileName, string Text);
+
+internal sealed record MavkaMailItem(
+    string Subject, string DateText, string Body, IReadOnlyList<MavkaTextAttachment> Attachments);
 
 internal static class GmailConnectionService
 {
@@ -82,8 +85,32 @@ internal static class GmailConnectionService
             var dateText = date.HasValue
                 ? date.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm")
                 : "Без дати";
+            var textAttachments = new List<MavkaTextAttachment>();
+            foreach (var attachment in summary.Attachments.Take(10))
+            {
+                var fileName = attachment.FileName;
+                if (string.IsNullOrWhiteSpace(fileName) ||
+                    !fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
+                    attachment.Octets > 32768)
+                    continue;
+
+                var entity = await client.Inbox.GetBodyPartAsync(
+                    summary.UniqueId, attachment, timeout.Token);
+                if (entity is not MimePart part) continue;
+
+                using var stream = new MemoryStream();
+                part.Content.DecodeTo(stream);
+                if (stream.Length > 32768) continue;
+
+                // Never interpret attachment content as HTML or executable code.
+                var contents = System.Text.Encoding.UTF8.GetString(stream.ToArray()).TrimStart('\uFEFF');
+                textAttachments.Add(new MavkaTextAttachment(
+                    Path.GetFileName(fileName), contents));
+                if (textAttachments.Count >= 3) break;
+            }
+
             result.Add(new MavkaMailItem(
-                summary.Envelope?.Subject ?? "(без теми)", dateText, body));
+                summary.Envelope?.Subject ?? "(без теми)", dateText, body, textAttachments));
         }
 
         await client.DisconnectAsync(true, timeout.Token);
