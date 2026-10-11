@@ -59,17 +59,24 @@ jobs:
       - name: Build side-by-side test APK (independent data)
         shell: bash
         run: |
+          # Clean intermediate Android packaging files to avoid reusing the
+          # production APK manifest when ApplicationId changes in one job.
+          dotnet clean src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release
           mkdir -p "$GITHUB_WORKSPACE/preview-apk"
           dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj \
             -f net10.0-android -c Release \
             -p:ApplicationId=ua.mavka.mobile.preview \
             -p:ApplicationTitle="Mavka-Mobile-TEST" \
             -p:PublishDir="$GITHUB_WORKSPACE/preview-apk/"
+          echo "Preview APK output files:"
+          find "$GITHUB_WORKSPACE/preview-apk" -maxdepth 1 -type f -print
           test -n "$(find "$GITHUB_WORKSPACE/preview-apk" -maxdepth 1 -name '*.apk' -print -quit)"
           aapt_binary="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name aapt -type f | sort -V | tail -n 1)"
           test -x "$aapt_binary"
           for apk in "$GITHUB_WORKSPACE"/preview-apk/*.apk; do
-            "$aapt_binary" dump badging "$apk" | grep -F "package: name='ua.mavka.mobile.preview'"
+            actual="$("$aapt_binary" dump badging "$apk" | grep '^package:')"
+            echo "APK manifest: $actual"
+            echo "$actual" | grep -F "package: name='ua.mavka.mobile.preview'"
           done
 
       - name: Upload side-by-side test APK
