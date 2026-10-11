@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Mavka.Mobile;
 
 if (args.Length == 2 && args[0] == "create-key")
 {
@@ -57,6 +58,65 @@ else if (args.Length == 4 && args[0] == "encrypt")
     }
     finally { CryptographicOperations.ZeroMemory(key); }
 }
+else if (args.Length == 6 && args[0] == "package")
+{
+    // package current.key future.key CLIENT_ID GENERATION output.json
+    var current = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
+    var future = Convert.FromBase64String(File.ReadAllText(args[2]).Trim());
+    try
+    {
+        if (!int.TryParse(args[4], out var generation) || generation < 1)
+            throw new ArgumentException("Invalid generation.");
+        if (File.Exists(args[5]))
+            throw new InvalidOperationException("Output file already exists.");
+        string password = ReadDocumentPassword();
+        var json = MavkaKeyPackage.Create(
+            new MavkaKeyPair(generation, args[3], current, future), password);
+        File.WriteAllText(args[5], json);
+        Console.WriteLine("Password-protected pair ready. Current ID: " +
+            MavkaKeyPackage.Id(current) + ", future ID: " + MavkaKeyPackage.Id(future));
+    }
+    finally
+    {
+        CryptographicOperations.ZeroMemory(current);
+        CryptographicOperations.ZeroMemory(future);
+    }
+}
+else if (args.Length == 1 && args[0] == "selftest")
+{
+    var a = RandomNumberGenerator.GetBytes(32);
+    var b = RandomNumberGenerator.GetBytes(32);
+    try
+    {
+        var original = new MavkaKeyPair(1, "DEMO-CLIENT-123456", a, b);
+        var blob = MavkaKeyPackage.Create(original, "090699");
+        var restored = MavkaKeyPackage.Open(blob, "090699");
+        try
+        {
+            if (restored.Generation != 1 ||
+                restored.RecipientClientId != original.RecipientClientId ||
+                !restored.CurrentKey.SequenceEqual(a) ||
+                !restored.FutureKey.SequenceEqual(b))
+                throw new Exception("Key package round-trip failed");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(restored.CurrentKey);
+            CryptographicOperations.ZeroMemory(restored.FutureKey);
+        }
+        bool rejected = false;
+        try { MavkaKeyPackage.Open(blob, "WRONG-PASSWORD"); }
+        catch (CryptographicException) { rejected = true; }
+        if (!rejected)
+            throw new Exception("Wrong password was not rejected.");
+        Console.WriteLine("Passworded key-pair package round-trip + wrong-password rejection: PASS");
+    }
+    finally
+    {
+        CryptographicOperations.ZeroMemory(a);
+        CryptographicOperations.ZeroMemory(b);
+    }
+}
 else
 {
     Console.WriteLine("Usage:");
@@ -66,3 +126,30 @@ else
 
 static string KeyId(byte[] key) =>
     Convert.ToHexString(SHA256.HashData(key)).Substring(0, 16).ToLowerInvariant();
+
+
+static string ReadDocumentPassword()
+{
+    // Use hidden console input. For unattended local tests only, an environment
+    // variable can supply the password; never print or commit that value.
+    var fromEnv = Environment.GetEnvironmentVariable("MAVKA_DOCUMENT_PASSWORD");
+    if (!string.IsNullOrEmpty(fromEnv)) return fromEnv;
+    if (Console.IsInputRedirected)
+        throw new InvalidOperationException("Interactive console required for password entry.");
+    Console.Write("Document-file password: ");
+    var input = new StringBuilder();
+    while (true)
+    {
+        var key = Console.ReadKey(intercept: true);
+        if (key.Key == ConsoleKey.Enter) break;
+        if (key.Key == ConsoleKey.Backspace)
+        {
+            if (input.Length > 0) input.Length--;
+            continue;
+        }
+        if (!char.IsControl(key.KeyChar) && input.Length < 128)
+            input.Append(key.KeyChar);
+    }
+    Console.WriteLine();
+    return input.ToString();
+}
