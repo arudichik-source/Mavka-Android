@@ -29,6 +29,7 @@ jobs:
         shell: bash
         run: |
           dotnet build tools/MavkaEncrypt/MavkaEncrypt.csproj -c Release
+          dotnet run --project tools/MavkaEncrypt -- selftest
           tmp_dir="$(mktemp -d)"
           trap 'rm -rf "$tmp_dir"' EXIT
           echo '{"format":"MAVKA_DOCUMENT_V1","type":"invoice","documentId":"TEST"}' > "$tmp_dir/input.json"
