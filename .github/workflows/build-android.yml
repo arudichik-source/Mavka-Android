@@ -51,3 +51,25 @@ jobs:
         with:
           name: Mavka-Mobile-APK
           path: src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk
+
+      # GitHub-hosted runners generate a fresh debug signing key, which is
+      # incompatible with an APK installed from a previous run. A distinct
+      # app ID lets users test new UI without uninstalling or wiping the
+      # already installed Mavka Mobile and its local database.
+      - name: Build side-by-side test APK (independent data)
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/preview-apk"
+          dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj \
+            -f net10.0-android -c Release \
+            -p:ApplicationId=ua.mavka.mobile.preview \
+            -p:ApplicationTitle="Mavka-Mobile-TEST" \
+            -p:PublishDir="$GITHUB_WORKSPACE/preview-apk/"
+          test -n "$(find "$GITHUB_WORKSPACE/preview-apk" -maxdepth 1 -name '*.apk' -print -quit)"
+
+      - name: Upload side-by-side test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mavka-Mobile-TEST-APK
+          path: preview-apk/*.apk
+          if-no-files-found: error
