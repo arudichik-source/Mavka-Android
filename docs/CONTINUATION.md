@@ -412,3 +412,16 @@ Safe, generic quality improvements:
 - The latest proposed changes remain in stacked draft PR #27; main is
   unchanged. Await final GitHub Actions success for the branch head.
 ---
+
+
+### Final pre-device quality follow-up (same PR)
+
+- MediaStore listing now uses `Task.Run` and refreshes the view after
+  asynchronous completion. Filter/sort stay in-memory on the UI thread.
+- Encrypted PDF trailer inspection searches the byte span directly instead
+  of allocating an additional string as large as the entire PDF.
+- PR build workflow now has per-PR concurrency: newer commits cancel
+  obsolete runs from the same PR only; unrelated PRs and `main` are
+  unaffected. Only the latest branch-head CI is authoritative.
+- Check `docs/ANDROID_DEVICE_ACCEPTANCE.md` before any on-device install.
+  No production upgrade key exists in GitHub Actions at this stage.
