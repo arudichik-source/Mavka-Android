@@ -23,6 +23,7 @@ public class MainActivity : Activity
     private PropertyLedgerStore _ledger = null!;
     private DocumentArchiveStore _archive = null!;
     private bool _viewingArchivedDocument;
+    private DateOnly _assetsAsOf = DateOnly.FromDateTime(DateTime.Today);
     private AssetIconProvider _assetIcons = null!;
     private ExchangeKeyStore _exchangeKeys = null!;
     private DocumentPasswordStore _documentPasswords = null!;
@@ -286,6 +287,25 @@ public class MainActivity : Activity
         var profile = LoadUserProfile();
         Text(top, "Підрозділ: " + (profile?.Unit ?? "не визначений у профілі"), 17, true);
         Button(top, "Перевірити іконки (демо)", ShowIconGallery);
+        var dateLabel = Text(top, "Обліковий залишок на кінець дня: " +
+            _assetsAsOf.ToString("dd.MM.yyyy"), 14, true);
+        Button(top, "📅 Вибрати облікову дату", () =>
+        {
+            new DatePickerDialog(this, (_, date) =>
+            {
+                _assetsAsOf = new DateOnly(date.Year, date.Month + 1, date.DayOfMonth);
+                dateLabel.Text = "Обліковий залишок на кінець дня: " +
+                    _assetsAsOf.ToString("dd.MM.yyyy");
+                RenderAssets();
+            }, _assetsAsOf.Year, _assetsAsOf.Month - 1, _assetsAsOf.Day).Show();
+        });
+        Button(top, "Сьогодні", () =>
+        {
+            _assetsAsOf = DateOnly.FromDateTime(DateTime.Today);
+            dateLabel.Text = "Обліковий залишок на кінець дня: " +
+                _assetsAsOf.ToString("dd.MM.yyyy");
+            RenderAssets();
+        });
         var status = Text(top, "Джерело: JSON-лист ГОЛОВНОЇ МАВКИ (MAVKA_UNIT_ASSETS_V1).", 13);
         Button(top, "Оновити дані з пошти", async () =>
         {
@@ -352,7 +372,7 @@ public class MainActivity : Activity
             localRows.RemoveAllViews();
             try
             {
-                var all = _ledger.ListHoldings(profile.Unit);
+                var all = _ledger.ListHoldingsAsOf(profile.Unit, _assetsAsOf);
                 var query = (search.Text ?? "").Trim();
                 var filtered = all.Where(x => query.Length == 0 ||
                     x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
@@ -391,6 +411,21 @@ public class MainActivity : Activity
 
         // Only snapshots received from the configured sender are present in _messages.
         // Never merge snapshots from different units or add quantities from separate dates.
+        // Consult independently archived snapshots first: their Gmail letters may
+        // already have been moved to Trash after durable storage.
+        UnitAssetsSnapshot? offlineSnapshot = null;
+        try
+        {
+            foreach (var summary in _archive.ListSummaries(profile.Unit)
+                         .Where(s => s.Kind == "Знімок залишків"))
+            {
+                var archived = _archive.FindDocument(summary.DocumentId);
+                if (MavkaExchangeParser.TryAssets(archived?.Json, out offlineSnapshot) &&
+                    offlineSnapshot is not null)
+                    break;
+            }
+        }
+        catch (Exception) { /* Archive errors must not fake a valid snapshot. */ }
         var latest = _messages.SelectMany(mail => mail.Attachments
                 .Where(a => a.RawJson is not null)
                 .Select(a => new { mail, attachment = a }))
@@ -405,13 +440,13 @@ public class MainActivity : Activity
             .OrderByDescending(entry => entry.mail.MessageUid)
             .FirstOrDefault();
 
-        if (latest?.parsed is null)
+        if (latest?.parsed is null && offlineSnapshot is null)
         {
             Text(_body, "Окремого знімка майна з ГОЛОВНОЇ МАВКИ наразі немає.", 14);
             return;
         }
 
-        var snapshot = latest.parsed;
+        var snapshot = offlineSnapshot ?? latest!.parsed!;
         var header = Card();
         Text(header, "Окремий знімок із ГОЛОВНОЇ МАВКИ (не сумується з локальним)", 16, true);
         Text(header, "Підрозділ: " + snapshot.Unit, 17, true);
@@ -495,10 +530,16 @@ public class MainActivity : Activity
 
             // Reference history is read from authorized Gmail documents
             // and kept separate from SQLite accounting and local quantities.
-            var remote = _messages.SelectMany(mail => mail.Attachments)
-                .Where(attachment => attachment.RawJson is not null)
-                .Select(attachment =>
-                    MavkaMovementJournal.TryRead(attachment.RawJson, out var journal)
+            var offlineHistory = _archive.ListSummaries(unit)
+                .Where(s => s.Kind == "Довідкова історія")
+                .Select(s => _archive.FindDocument(s.DocumentId)?.Json)
+                .Where(json => json is not null);
+            var incomingHistory = _messages.SelectMany(mail => mail.Attachments)
+                .Select(attachment => attachment.RawJson)
+                .Where(json => json is not null);
+            var remote = offlineHistory.Concat(incomingHistory)
+                .Select(json =>
+                    MavkaMovementJournal.TryRead(json, out var journal)
                         ? journal : null)
                 .Where(journal => journal is not null)
                 .SelectMany(journal => MavkaMovementJournal.ForAsset(
