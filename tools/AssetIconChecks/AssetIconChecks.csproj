@@ -9,5 +9,6 @@
     <Compile Include="../../src/Mavka.Mobile/AssetIconClassifier.cs" Link="AssetIconClassifier.cs" />
     <Compile Include="../../src/Mavka.Mobile/MavkaMovementJournal.cs" Link="MavkaMovementJournal.cs" />
     <Compile Include="../../src/Mavka.Mobile/MavkaExchangeParser.cs" Link="MavkaExchangeParser.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MavkaJsonPreview.cs" Link="MavkaJsonPreview.cs" />
   </ItemGroup>
 </Project>
