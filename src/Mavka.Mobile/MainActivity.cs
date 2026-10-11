@@ -17,6 +17,7 @@ public class MainActivity : Activity
     private GmailCredentialsStore _store = null!;
     private UserProfileStore _profileStore = null!;
     private PropertyLedgerStore _ledger = null!;
+    private ExchangeKeyStore _exchangeKeys = null!;
     private FrameLayout _drawerOverlay = null!;
     private Button _home = null!, _inbox = null!, _settings = null!;
     private string _screen = "home";
@@ -31,6 +32,7 @@ public class MainActivity : Activity
         _store = new GmailCredentialsStore(this);
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
+        _exchangeKeys = new ExchangeKeyStore(this);
         var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
         root.SetBackgroundColor(Color.Rgb(248, 247, 245));
         root.SetOnApplyWindowInsetsListener(new SafeInsets(Dp(14), Dp(10), Dp(10)));
@@ -82,6 +84,7 @@ public class MainActivity : Activity
         Button(sidePanel, "Вхідні", () => { CloseDrawer(); ShowInbox(); });
         Button(sidePanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
         Button(sidePanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
+        Button(sidePanel, "Ключ обміну", () => { CloseDrawer(); ShowExchangeKey(); });
         Button(sidePanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
         Button(sidePanel, "Закрити меню", CloseDrawer);
 
@@ -482,7 +485,7 @@ public class MainActivity : Activity
             if (string.IsNullOrEmpty(password))
                 throw new InvalidOperationException("Пароль не збережений.");
             _messages = await GmailConnectionService.ReadFromSenderAsync(
-                _store.GetEmail(), password, sender);
+                _store.GetEmail(), password, sender, _exchangeKeys);
             if (_screen is "home" or "inbox" or "assets")
                 status.Text = $"Завантажено листів: {_messages.Count}. Тільки від дозволеної адреси.";
         }
@@ -660,6 +663,87 @@ public class MainActivity : Activity
         return field;
     }
 
+    private void ShowExchangeKey()
+    {
+        Begin("exchange-key", "Ключ обміну");
+        var panel = Card();
+
+        Text(panel, "Захищене отримання файлів", 19, true);
+        Text(panel, "ГОЛОВНА МАВКА створює випадковий ключ AES-256. " +
+            "Передай його на цей телефон окремим захищеним каналом, а не тим самим листом, " +
+            "що й зашифровані документи.", 14);
+
+        Text(panel, _exchangeKeys.HasKey
+            ? "Ключ установлено. Ідентифікатор: " + _exchangeKeys.KeyId
+            : "Ключ ще не встановлено.", 15, true);
+
+        var entry = new EditText(this)
+        {
+            Hint = "Встав сюди 32-байтовий ключ у Base64",
+            InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
+        };
+        ConfigureKeyboard(entry, password: true);
+        entry.TransformationMethod = Android.Text.Method.PasswordTransformationMethod.Instance;
+        panel.AddView(entry);
+
+        var status = Text(panel, "Ключ не надсилається до GitHub або Gmail.", 13);
+        Button(panel, "Зберегти ключ на цьому телефоні", () =>
+        {
+            var raw = (entry.Text ?? "").Trim();
+            if (string.IsNullOrEmpty(raw))
+            {
+                status.Text = "Встав ключ у форматі Base64.";
+                return;
+            }
+            try
+            {
+                var id = _exchangeKeys.ImportBase64(raw);
+                entry.Text = "";
+                _messages = Array.Empty<MavkaMailItem>(); // Clear previously decrypted in-memory documents.
+                status.Text = "Ключ збережено в Android Keystore. ID: " + id +
+                    ". Онови «Вхідні», щоб розшифрувати файли.";
+            }
+            catch (FormatException)
+            {
+                status.Text = "Некоректний Base64. Необхідно 32 випадкові байти.";
+            }
+            catch (ArgumentException)
+            {
+                status.Text = "Неправильна довжина ключа. Потрібно рівно 32 байти.";
+            }
+            catch (Exception ex)
+            {
+                status.Text = "Помилка захищеного збереження: " + ex.GetType().Name;
+            }
+        });
+
+        Button(panel, "Забути ключ на цьому телефоні", () =>
+            new AlertDialog.Builder(this)
+                .SetTitle("Видалити ключ обміну?")
+                .SetMessage("Після видалення старі зашифровані вкладення не вдасться " +
+                    "відкрити до повторного введення ключа. Локальне майно не стирається.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("Видалити ключ", (_, _) =>
+                {
+                    try
+                    {
+                        _exchangeKeys.Clear();
+                        _messages = Array.Empty<MavkaMailItem>();
+                        entry.Text = "";
+                        status.Text = "Ключ видалено. Перезапусти пошук листів.";
+                    }
+                    catch (Exception ex)
+                    {
+                        status.Text = "Помилка: " + ex.GetType().Name;
+                    }
+                }).Show());
+
+        Text(_body, "Для перевірки після збереження ключа зайди в «Вхідні» " +
+            "та натисни «Оновити листи». Шифрування працює для вкладень JSON " +
+            "формату MAVKA_ENCRYPTED_V1.", 13);
+        Button(_body, "← До налаштувань", ShowSettings);
+    }
+
     private void ShowSettings()
     {
         Begin("settings", "Налаштування");
@@ -667,6 +751,7 @@ public class MainActivity : Activity
         Text(card, "Пошта Gmail", 20, true);
         Text(card, _store.HasCredentials ? _store.GetEmail() : "Не підключено", 16);
         Button(card, "Пошта Gmail →", ShowMail);
+        Button(card, "Ключ обміну →", ShowExchangeKey);
         card = Card();
         Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 18, true);
         Text(card, _store.GetMainMavkaEmail(), 16);
