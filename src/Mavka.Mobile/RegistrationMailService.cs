@@ -30,9 +30,8 @@ internal static class RegistrationMailService
         message.Subject = "MAVKA_MOBILE_REGISTRATION_V1";
         message.Body = new TextPart("plain") { Text = BuildBody(profile, sender) };
 
-        using var client = new SmtpClient();
-        await client.ConnectAsync("smtp.gmail.com", 465,
-            SecureSocketOptions.SslOnConnect, timeout.Token);
+        var connection = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
+        using var client = connection.Client;
         await client.AuthenticateAsync(sender, appPassword, timeout.Token);
         await client.SendAsync(message, timeout.Token);
         await client.DisconnectAsync(true, timeout.Token);
