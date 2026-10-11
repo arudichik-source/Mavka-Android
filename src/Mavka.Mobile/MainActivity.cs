@@ -1177,6 +1177,77 @@ public class MainActivity : Activity
                 new[] { attachment }, 0, 0);
             _viewingArchivedDocument = true;
             ShowMessage(local);
+            if (MavkaExchangeParser.TryInvoice(doc.Json, out var invoice) &&
+                invoice is not null && _exportedFiles.IsSupported)
+            {
+                var exportCard = Card();
+                Text(exportCard, "Захищений PDF", 17, true);
+                Text(exportCard, "PDF формується з локальної копії накладної, " +
+                    "шифрується паролем AES-256 та зберігається у " +
+                    "Download/МаVКа файли. Незахищена копія не створюється.", 12);
+                var exportStatus = Text(exportCard, "Файл ще не сформовано.", 13);
+                Button(exportCard, "Зберегти PDF із паролем", () =>
+                {
+                    if (_busy) return;
+                    var secret = new EditText(this)
+                    {
+                        Hint = "Пароль PDF (12–128 символів)",
+                        InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
+                    };
+                    secret.TransformationMethod =
+                        Android.Text.Method.PasswordTransformationMethod.Instance;
+                    new AlertDialog.Builder(this)
+                        .SetTitle("Пароль для захищеного PDF")
+                        .SetMessage("Пароль не зберігається у програмі. " +
+                            "Без нього експортований PDF неможливо відкрити.")
+                        .SetView(secret)
+                        .SetNegativeButton("Скасувати", (_, _) => { })
+                        .SetPositiveButton("Створити", async (_, _) =>
+                        {
+                            var password = secret.Text?.ToString() ?? "";
+                            if (password.Length is < 12 or > 128)
+                            {
+                                exportStatus.Text = "Пароль повинен мати 12–128 символів.";
+                                return;
+                            }
+                            if (_busy) return;
+                            _busy = true;
+                            byte[]? bytes = null;
+                            try
+                            {
+                                exportStatus.Text = "Шифруємо PDF...";
+                                bytes = await Task.Run(() =>
+                                    ProtectedPdfBuilder.CreateInvoice(invoice, password));
+                                var cleanNumber = new string(invoice.Number.Where(ch =>
+                                    char.IsLetterOrDigit(ch) || ch is '-' or '_')
+                                    .Take(55).ToArray());
+                                if (string.IsNullOrWhiteSpace(cleanNumber))
+                                    cleanNumber = "document";
+                                var name = "Накладна-" + cleanNumber + "-" +
+                                    DateTime.UtcNow.ToString("yyyyMMdd_HHmmss") + ".pdf";
+                                var protectedBytes = bytes;
+                                await Task.Run(() =>
+                                    _exportedFiles.SaveProtectedPdf(protectedBytes, name));
+                                if (_screen == "message")
+                                    exportStatus.Text = "Захищений PDF збережено у МаVКа файли.";
+                            }
+                            catch (Exception ex)
+                            {
+                                if (_screen == "message")
+                                    exportStatus.Text = "Не вдалося експортувати PDF: " +
+                                        ex.GetType().Name +
+                                        ". Незахищений файл не збережено.";
+                            }
+                            finally
+                            {
+                                if (bytes is not null)
+                                    System.Security.Cryptography.CryptographicOperations
+                                        .ZeroMemory(bytes);
+                                _busy = false;
+                            }
+                        }).Show();
+                });
+            }
             var statuses = Card();
             Text(statuses, "Історія статусів документа", 16, true);
             foreach (var change in _archive.ListStatusHistory(documentId))
