@@ -91,6 +91,52 @@ public class MainActivity : Activity
 
         SetContentView(host);
         ShowHome();
+        StartWelcomeSplash(host);
+    }
+
+    private async void StartWelcomeSplash(FrameLayout host)
+    {
+        // Approved artwork is bundled inside the APK; no download at startup.
+        var welcome = new FrameLayout(this);
+        welcome.SetBackgroundColor(Color.Rgb(12, 55, 41));
+
+        try
+        {
+            using var stream = Assets!.Open("mavka_splash.webp");
+            var bitmap = BitmapFactory.DecodeStream(stream);
+            if (bitmap is not null)
+            {
+                var picture = new ImageView(this)
+                {
+                    ScaleType = ImageView.ScaleType.CenterCrop
+                };
+                picture.SetImageBitmap(bitmap);
+                welcome.AddView(picture, new FrameLayout.LayoutParams(-1, -1));
+            }
+        }
+        catch (Java.IO.IOException)
+        {
+            var fallback = new TextView(this)
+            {
+                Text = "Mavka Mobile\n\nВас вітає компанія RAM Systems",
+                TextSize = 24,
+                Gravity = GravityFlags.Center
+            };
+            fallback.SetTextColor(Color.White);
+            welcome.AddView(fallback, new FrameLayout.LayoutParams(-1, -1));
+        }
+
+        host.AddView(welcome, new FrameLayout.LayoutParams(-1, -1));
+        welcome.BringToFront();
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(3500));
+        }
+        finally
+        {
+            if (welcome.Parent == host)
+                host.RemoveView(welcome);
+        }
     }
 
     private void Begin(string screen, string title)
