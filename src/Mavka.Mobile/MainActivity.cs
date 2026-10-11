@@ -497,7 +497,7 @@ public class MainActivity : Activity
             string stage = "1/5: Підключення до Gmail";
             try
             {
-                await GmailConnectionService.TestImapAsync(
+                var revocationFallback = await GmailConnectionService.TestImapAsync(
                     address, password, text => { stage = text; status.Text = text; });
                 stage = "5/5: Захищене збереження Android";
                 status.Text = stage;
@@ -505,7 +505,9 @@ public class MainActivity : Activity
                 _messages = Array.Empty<MavkaMailItem>();
                 secret.Text = "";
                 secret.Hint = "Збережений пароль (вводити знову не потрібно)";
-                status.Text = "Gmail підключено. Можна читати службові листи.";
+                status.Text = revocationFallback
+                    ? "Gmail підключено. Увага: перевірка відкликання сертифіката (OCSP/CRL) недоступна; інші перевірки TLS збережено."
+                    : "Gmail підключено. Можна читати службові листи.";
             }
             catch (MailKit.Security.SslHandshakeException)
             {
