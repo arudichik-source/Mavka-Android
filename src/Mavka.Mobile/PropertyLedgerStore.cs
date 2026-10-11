@@ -4,7 +4,9 @@ using System.Globalization;
 
 namespace Mavka.Mobile;
 
-internal sealed record InventoryHolding(string Name, string Unit, string? Nsn, decimal Quantity);
+internal sealed record InventoryHolding(
+    string Name, string Unit, string? Nsn, decimal Quantity,
+    decimal? UnitPrice, decimal? TotalValue);
 
 /// <summary>
 /// Local, transactional receipt ledger. The same document ID cannot add inventory twice.
@@ -13,7 +15,7 @@ internal sealed record InventoryHolding(string Name, string Unit, string? Nsn, d
 internal sealed class PropertyLedgerStore : SQLiteOpenHelper
 {
     public PropertyLedgerStore(Context context)
-        : base(context, "mavka_property_ledger_v1.db", null, 1) { }
+        : base(context, "mavka_property_ledger_v1.db", null, 2) { }
 
     public override void OnCreate(SQLiteDatabase db)
     {
@@ -32,6 +34,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
             unit TEXT NOT NULL,
             nsn TEXT,
             quantity TEXT NOT NULL,
+            unit_price TEXT,
             PRIMARY KEY(document_id, line_number),
             FOREIGN KEY(document_id) REFERENCES receipts(document_id)
         )");
@@ -40,8 +43,11 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
 
     public override void OnUpgrade(SQLiteDatabase db, int oldVersion, int newVersion)
     {
-        // No destructive migration. Future versions must supply incremental migrations.
-        if (newVersion != oldVersion)
+        // Non-destructive migration preserves all previously confirmed movements.
+        // Historical records receive NULL (unknown) prices.
+        if (oldVersion == 1 && newVersion >= 2)
+            db.ExecSQL("ALTER TABLE receipt_items ADD COLUMN unit_price TEXT");
+        else if (newVersion != oldVersion)
             throw new InvalidOperationException("Unsupported ledger schema version.");
     }
 
@@ -85,6 +91,10 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                 values.Put("unit", item.Unit);
                 values.Put("nsn", item.Nsn ?? "");
                 values.Put("quantity", item.Quantity.ToString(CultureInfo.InvariantCulture));
+                if (item.UnitPrice.HasValue)
+                    values.Put("unit_price", item.UnitPrice.Value.ToString(CultureInfo.InvariantCulture));
+                else
+                    values.PutNull("unit_price");
                 database.InsertOrThrow("receipt_items", null, values);
             }
 
@@ -107,7 +117,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         var lines = new List<InventoryHolding>();
         using var database = ReadableDatabase;
         using var cursor = database.RawQuery(
-            @"SELECT i.name, i.unit, i.nsn, i.quantity
+            @"SELECT i.name, i.unit, i.nsn, i.quantity, i.unit_price
               FROM receipt_items i
               INNER JOIN receipts r ON r.document_id = i.document_id
               WHERE r.recipient = ? COLLATE NOCASE
@@ -115,14 +125,21 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         while (cursor.MoveToNext())
         {
             var quantity = decimal.Parse(cursor.GetString(3), CultureInfo.InvariantCulture);
+            decimal? price = cursor.IsNull(4)
+                ? null
+                : decimal.Parse(cursor.GetString(4), CultureInfo.InvariantCulture);
             lines.Add(new InventoryHolding(cursor.GetString(0), cursor.GetString(1),
-                cursor.IsNull(2) ? null : cursor.GetString(2), quantity));
+                cursor.IsNull(2) ? null : cursor.GetString(2), quantity,
+                price, price.HasValue ? quantity * price.Value : null));
         }
 
         return lines
-            .GroupBy(v => (v.Name, v.Unit, v.Nsn))
+            // Equal name but different price must remain separate accounting lots.
+            .GroupBy(v => (v.Name, v.Unit, v.Nsn, v.UnitPrice))
             .Select(group => new InventoryHolding(group.Key.Name, group.Key.Unit,
-                group.Key.Nsn, group.Sum(v => v.Quantity)))
+                group.Key.Nsn, group.Sum(v => v.Quantity), group.Key.UnitPrice,
+                group.Key.UnitPrice.HasValue
+                    ? group.Sum(v => v.TotalValue ?? 0m) : null))
             .OrderBy(v => v.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }
