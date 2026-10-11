@@ -1,6 +1,7 @@
 using Android.App;
 using Android.Content;
 using Android.Graphics;
+using Android.Graphics.Drawables;
 using Android.OS;
 using Android.Text;
 using Android.Views;
@@ -20,9 +21,10 @@ public class MainActivity : Activity
     private GmailCredentialsStore _store = null!;
     private UserProfileStore _profileStore = null!;
     private PropertyLedgerStore _ledger = null!;
+    private AssetIconProvider _assetIcons = null!;
     private ExchangeKeyStore _exchangeKeys = null!;
     private FrameLayout _drawerOverlay = null!;
-    private Button _home = null!, _inbox = null!, _settings = null!;
+    private Button _home = null!, _inbox = null!, _assets = null!, _settings = null!;
     private string _screen = "home";
     private bool _busy;
     private IReadOnlyList<MavkaMailItem> _messages = Array.Empty<MavkaMailItem>();
@@ -35,20 +37,25 @@ public class MainActivity : Activity
         _store = new GmailCredentialsStore(this);
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
+        _assetIcons = new AssetIconProvider(this);
         _exchangeKeys = new ExchangeKeyStore(this);
         var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
-        root.SetBackgroundColor(Color.Rgb(248, 247, 245));
+        root.SetBackgroundColor(Color.Rgb(249, 247, 242));
         root.SetOnApplyWindowInsetsListener(new SafeInsets(Dp(14), Dp(10), Dp(10)));
 
         var topBar = new LinearLayout(this) { Orientation = Orientation.Horizontal };
         topBar.SetGravity(GravityFlags.CenterVertical);
-        var brand = new TextView(this) { Text = "Мавка Mobile", TextSize = 21 };
-        brand.SetTextColor(Color.Rgb(31, 36, 36));
+        topBar.SetPadding(Dp(10), 0, Dp(8), 0);
+        topBar.SetBackgroundColor(Color.Rgb(13, 55, 36));
+        var brand = new TextView(this) { Text = "❧  Мавка Mobile", TextSize = 20 };
+        brand.SetTextColor(Color.White);
         brand.SetTypeface(null, TypefaceStyle.Bold);
         topBar.AddView(brand, new LinearLayout.LayoutParams(0, Dp(52), 1));
         brand.Gravity = GravityFlags.CenterVertical;
         var hamburger = new Android.Widget.Button(this) { Text = "☰", TextSize = 23 };
         hamburger.SetSingleLine(true);
+        hamburger.SetTextColor(Color.White);
+        hamburger.Background = Rounded(Color.Rgb(25, 82, 53), 12);
         hamburger.SetPadding(0, 0, 0, 0);
         topBar.AddView(hamburger, new LinearLayout.LayoutParams(Dp(58), Dp(52)));
         hamburger.Click += (_, _) => ShowDrawer();
@@ -60,12 +67,16 @@ public class MainActivity : Activity
         _body.SetPadding(0, Dp(8), 0, Dp(12));
         scroll.AddView(_body);
         var nav = new LinearLayout(this) { Orientation = Orientation.Horizontal };
-        _home = Nav("Головна", ShowHome);
-        _inbox = Nav("Вхідні", ShowInbox);
-        _settings = Nav("Налашт.", ShowSettings);
+        _home = Nav("⌂\nГоловна", ShowHome);
+        _inbox = Nav("✉\nВхідні", ShowInbox);
+        _assets = Nav("▣\nМайно", ShowAssets);
+        _settings = Nav("⚙\nНалаштування", ShowSettings);
         nav.AddView(_home);
         nav.AddView(_inbox);
+        nav.AddView(_assets);
         nav.AddView(_settings);
+        nav.SetPadding(Dp(2), Dp(3), Dp(2), Dp(3));
+        nav.SetBackgroundColor(Color.White);
         root.AddView(scroll);
         root.AddView(nav);
 
@@ -79,7 +90,7 @@ public class MainActivity : Activity
 
         var sidePanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
         sidePanel.Clickable = true;
-        sidePanel.SetBackgroundColor(Color.White);
+        sidePanel.SetBackgroundColor(Color.Rgb(249, 247, 242));
         sidePanel.SetPadding(Dp(14), Dp(50), Dp(14), Dp(30));
         Text(sidePanel, "Мавка Mobile", 22, true);
         Text(sidePanel, "Меню", 15);
@@ -151,10 +162,12 @@ public class MainActivity : Activity
         _screen = screen;
         Title = "Мавка Mobile — " + title;
         _body.RemoveAllViews();
-        _home.Enabled = screen != "home";
-        _inbox.Enabled = screen != "inbox" && screen != "message";
-        _settings.Enabled = screen != "settings" && screen != "mail";
-        Text(_body, title, 25, true);
+        // Keep all tabs clickable; a selected tab is highlighted rather than disabled.
+        StyleNav(_home, screen == "home");
+        StyleNav(_inbox, screen is "inbox" or "message");
+        StyleNav(_assets, screen == "assets");
+        StyleNav(_settings, screen is "settings" or "mail" or "profile" or "exchange-key");
+        Text(_body, title, 24, true);
     }
 
     private void ShowHome()
@@ -938,13 +951,24 @@ public class MainActivity : Activity
         field.SetSelectAllOnFocus(false);
     }
 
+    private GradientDrawable Rounded(Color fill, float radius, Color? border = null)
+    {
+        var drawable = new GradientDrawable();
+        drawable.SetColor(fill);
+        drawable.SetCornerRadius(Dp(radius));
+        if (border.HasValue)
+            drawable.SetStroke(Dp(1), border.Value);
+        return drawable;
+    }
+
     private LinearLayout Card()
     {
         var card = new LinearLayout(this) { Orientation = Orientation.Vertical };
-        card.SetPadding(Dp(16), Dp(14), Dp(16), Dp(14));
-        card.SetBackgroundColor(Color.White);
+        card.SetPadding(Dp(15), Dp(13), Dp(15), Dp(13));
+        card.Background = Rounded(Color.White, 18, Color.Rgb(238, 235, 227));
+        card.Elevation = Dp(2);
         var lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.SetMargins(0, Dp(7), 0, Dp(10));
+        lp.SetMargins(Dp(2), Dp(7), Dp(2), Dp(8));
         _body.AddView(card, lp);
         return card;
     }
@@ -952,28 +976,83 @@ public class MainActivity : Activity
     private TextView Text(LinearLayout parent, string caption, float size, bool bold = false)
     {
         var view = new TextView(this) { Text = caption, TextSize = size };
-        view.SetTextColor(bold ? Color.Rgb(34, 34, 36) : Color.Rgb(90, 86, 87));
+        view.SetTextColor(bold ? Color.Rgb(20, 47, 33) : Color.Rgb(92, 100, 94));
         if (bold) view.SetTypeface(null, TypefaceStyle.Bold);
-        view.SetPadding(0, Dp(5), 0, Dp(10));
+        view.SetPadding(0, Dp(3), 0, Dp(7));
         parent.AddView(view);
         return view;
     }
 
     private void Button(LinearLayout parent, string text, Action callback)
     {
-        var view = new Button(this) { Text = text };
+        var view = new Button(this) { Text = text, TextSize = 14 };
+        view.SetAllCaps(false);
+        var isSecondary = text.StartsWith("←") || text.StartsWith("Закрити") ||
+                          text.StartsWith("Забути") || text.StartsWith("Видалити");
+        view.SetTextColor(isSecondary ? Color.Rgb(21, 69, 44) : Color.White);
+        view.Background = Rounded(isSecondary ? Color.Rgb(230, 240, 231) :
+            Color.Rgb(9, 83, 50), 13);
+        var layout = new LinearLayout.LayoutParams(-1, Dp(47));
+        layout.SetMargins(0, Dp(4), 0, Dp(5));
+        parent.AddView(view, layout);
         view.Click += (_, _) => callback();
-        parent.AddView(view);
     }
 
     private Button Nav(string title, Action action)
     {
         var view = new Button(this) { Text = title, TextSize = 12 };
-        view.SetSingleLine(true);
-        view.SetPadding(0, 0, 0, 0);
-        view.LayoutParameters = new LinearLayout.LayoutParams(0, Dp(52), 1f);
+        view.SetAllCaps(false);
+        view.SetSingleLine(false);
+        view.SetPadding(0, Dp(2), 0, Dp(1));
+        view.LayoutParameters = new LinearLayout.LayoutParams(0, Dp(61), 1f);
         view.Click += (_, _) => action();
         return view;
+    }
+
+    private void StyleNav(Button item, bool selected)
+    {
+        item.SetTextColor(selected ? Color.Rgb(11, 78, 47) : Color.Rgb(105, 112, 106));
+        item.Background = Rounded(selected ? Color.Rgb(230, 241, 231) : Color.White, 13);
+    }
+
+    private void AddAssetRow(LinearLayout parent, string name, string description,
+        string quantity, Action? showHistory = null)
+    {
+        var row = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        row.SetGravity(GravityFlags.CenterVertical);
+        row.SetPadding(Dp(9), Dp(9), Dp(8), Dp(9));
+        row.Background = Rounded(Color.Rgb(250, 249, 245), 14,
+            Color.Rgb(238, 235, 227));
+        var layout = new LinearLayout.LayoutParams(-1, -2);
+        layout.SetMargins(0, Dp(4), 0, Dp(4));
+        parent.AddView(row, layout);
+
+        row.AddView(_assetIcons.Create(name, 57));
+        var details = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        var detailLayout = new LinearLayout.LayoutParams(0, -2, 1);
+        detailLayout.SetMargins(Dp(9), 0, Dp(6), 0);
+        row.AddView(details, detailLayout);
+        var primary = Text(details, name, 13, true);
+        primary.SetPadding(0, 0, 0, Dp(2));
+        var secondary = Text(details, description, 11);
+        secondary.SetPadding(0, 0, 0, 0);
+
+        var amount = new TextView(this)
+        {
+            Text = quantity, TextSize = 13,
+            Gravity = GravityFlags.CenterVertical | GravityFlags.Right
+        };
+        amount.SetTextColor(Color.Rgb(15, 47, 32));
+        amount.SetTypeface(null, TypefaceStyle.Bold);
+        row.AddView(amount, new LinearLayout.LayoutParams(Dp(82), -2));
+
+        if (showHistory is not null)
+        {
+            row.Clickable = true;
+            row.Click += (_, _) => showHistory();
+            row.LongClickable = true;
+            row.LongClick += (_, _) => showHistory();
+        }
     }
 
     private int Dp(float value) => (int)(value * Resources!.DisplayMetrics!.Density + 0.5f);
