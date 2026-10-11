@@ -201,6 +201,30 @@ public class MainActivity : Activity
         var status = Text(card,
             _store.HasCredentials ? "Gmail налаштовано" : "Gmail не підключено", 16);
         Button(card, "Оновити", async () => await RefreshMessagesAsync(status));
+        Button(card, "Повторити надсилання підтверджень", async () =>
+        {
+            if (_busy) return;
+            if (!_store.HasCredentials || string.IsNullOrWhiteSpace(_store.GetMainMavkaEmail()))
+            {
+                status.Text = "Спочатку підключи Gmail і задай адресу ГОЛОВНОЇ МАВКИ.";
+                return;
+            }
+            _busy = true;
+            status.Text = "Повторно надсилаємо збережені підтвердження...";
+            try
+            {
+                var password = _store.GetPassword() ??
+                    throw new InvalidOperationException("Пароль Gmail відсутній.");
+                var result = await SendPendingReceiptsAsync(password, _store.GetMainMavkaEmail());
+                if (_screen == "home") status.Text = result;
+            }
+            catch (Exception ex)
+            {
+                if (_screen == "home")
+                    status.Text = "Помилка надсилання: " + ex.GetType().Name;
+            }
+            finally { _busy = false; }
+        });
         try
         {
             var pending = _ledger.ListPendingReceiptIds();
@@ -919,14 +943,15 @@ public class MainActivity : Activity
             return "Для синхронізації підтверджень потрібен профіль МВО.";
 
         int sent = 0, deferred = 0;
-        foreach (var id in _ledger.ListPendingReceiptIds())
+        // A bounded batch avoids a long chain of sequential SMTP timeouts.
+        foreach (var id in _ledger.ListPendingReceiptIds(limit: 3))
         {
             try
             {
-                var document = _archive.FindDocument(id);
-                if (document is null ||
-                    !MavkaExchangeParser.TryInvoice(document.Json, out var invoice) ||
-                    invoice is null ||
+                // The ledger is the authoritative immutable record of confirmed
+                // positions. Pre-archive receipts are therefore still resendable.
+                var invoice = _ledger.LoadConfirmedInvoice(id);
+                if (invoice is null ||
                     !string.Equals(invoice.Recipient, profile.Unit,
                         StringComparison.OrdinalIgnoreCase))
                 {
