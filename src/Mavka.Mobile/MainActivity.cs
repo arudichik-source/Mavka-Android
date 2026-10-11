@@ -416,6 +416,30 @@ public class MainActivity : Activity
         Text(card, "Пароль вводиться лише на телефоні й зберігається захищено.", 13);
         var status = Text(card, "Підключення ще не перевірялося.", 14);
 
+        Button(card, "Діагностика SSL/TLS (без пароля)", async () =>
+        {
+            if (_busy) return;
+            _busy = true;
+            status.Text = "Перевірка HTTPS та IMAP...";
+            try
+            {
+                var diagnostic = await GmailConnectionService.DiagnoseTlsAsync();
+                if (_screen != "mail") return;
+                status.Text = "Діагностика завершена. Результати відкрито нижче.";
+                new AlertDialog.Builder(this)
+                    .SetTitle("Перевірка SSL/TLS (пароль не потрібен)")
+                    .SetMessage(diagnostic)
+                    .SetPositiveButton("Закрити", (_, _) => { })
+                    .Show();
+            }
+            catch (Exception ex)
+            {
+                if (_screen == "mail")
+                    status.Text = "Діагностика: " + ex.GetType().Name;
+            }
+            finally { _busy = false; }
+        });
+
         Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 15, true);
         var mainMavkaEmail = new EditText(this)
         {
@@ -480,6 +504,10 @@ public class MainActivity : Activity
                 secret.Text = "";
                 secret.Hint = "Збережений пароль (вводити знову не потрібно)";
                 status.Text = "Gmail підключено. Можна читати службові листи.";
+            }
+            catch (MailKit.Security.SslHandshakeException)
+            {
+                status.Text = "SSL/TLS не вдалося встановити. Натисни «Діагностика SSL/TLS (без пароля)», щоб дізнатися причину.";
             }
             catch (MailKit.Security.AuthenticationException)
             {
