@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Mavka.Mobile;
 
 internal sealed record UnitAsset(
-    string Name, string Measure, decimal Quantity, decimal? UnitPrice);
+    string Name, string Measure, decimal Quantity, decimal? UnitPrice, string? Nsn);
 internal sealed record UnitAssetsSnapshot(
     string Unit, string AsOf, IReadOnlyList<UnitAsset> Items);
 internal sealed record IncomingPosition(
@@ -48,7 +48,7 @@ internal static class MavkaExchangeParser
                         return false;
                     unitPrice = value;
                 }
-                values.Add(new UnitAsset(name, measure, n, unitPrice));
+                values.Add(new UnitAsset(name, measure, n, unitPrice, String(item, "nsn")));
             }
 
             snapshot = new UnitAssetsSnapshot(unit, String(root, "asOf") ?? "", values);
