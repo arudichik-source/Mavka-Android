@@ -1053,7 +1053,7 @@ public class MainActivity : Activity
                 if (current is not null &&
                     !string.Equals(current.Unit, u, StringComparison.OrdinalIgnoreCase) &&
                     (_ledger.HasReceipts(current.Unit) ||
-                     _archive.CountDocuments(current.Unit)))
+                     _archive.CountDocuments(current.Unit) > 0))
                 {
                     status.Text = "Зміна підрозділу заблокована: наявні локальні документи " +
                         "або облікові записи. Потрібна окрема звірка, аби не змішати майно.";
