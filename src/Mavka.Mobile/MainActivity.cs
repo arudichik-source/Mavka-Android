@@ -195,6 +195,12 @@ public class MainActivity : Activity
         var status = Text(card,
             _store.HasCredentials ? "Gmail налаштовано" : "Gmail не підключено", 16);
         Button(card, "Оновити", async () => await RefreshMessagesAsync(status));
+        try
+        {
+            var pending = _ledger.ListPendingReceiptIds();
+            Text(card, "Підтвердження в черзі: " + pending.Count, 14);
+        }
+        catch (Exception ex) { Text(card, "Черга: " + ex.GetType().Name, 12); }
         card = Card();
         Text(card, "Службові повідомлення", 20, true);
         Text(card, $"Завантажено: {_messages.Count}", 18);
@@ -771,9 +777,9 @@ public class MainActivity : Activity
                         catch (Exception ex)
                         {
                             if (_screen == "message")
-                                status.Text = "Помилка: " + ex.GetType().Name +
-                                    ". Якщо майно вже зараховано локально, воно не буде " +
-                                    "зараховане вдруге. Повтори надсилання підтвердження.";
+                                status.Text = "Gmail зараз недоступний: " + ex.GetType().Name +
+                                    ". Проведений документ не буде зарахований вдруге. " +
+                                    "Підтвердження збережено в черзі для повторного надсилання.";
                         }
                         finally { _busy = false; }
                     })
@@ -812,8 +818,10 @@ public class MainActivity : Activity
                 _store.GetEmail(), password, sender, _exchangeKeys,
                 _documentPasswords, LoadUserProfile()?.ClientId);
             var report = await ArchiveAndCleanupAsync(password, sender);
+            var syncReport = await SendPendingReceiptsAsync(password, sender);
             if (_screen is "home" or "inbox" or "assets")
-                status.Text = $"Листів у вхідних: {_messages.Count}. " + report;
+                status.Text = $"Листів у вхідних: {_messages.Count}. " + report +
+                    " " + syncReport;
         }
         catch (MailKit.Security.AuthenticationException)
         {
@@ -831,6 +839,42 @@ public class MainActivity : Activity
                 status.Text = $"Помилка читання пошти: {ex.GetType().Name}";
         }
         finally { _busy = false; }
+    }
+
+    private async Task<string> SendPendingReceiptsAsync(string password, string sender)
+    {
+        var profile = LoadUserProfile();
+        if (profile is null || !profile.IsMvo)
+            return "Для синхронізації підтверджень потрібен профіль МВО.";
+
+        int sent = 0, deferred = 0;
+        foreach (var id in _ledger.ListPendingReceiptIds())
+        {
+            try
+            {
+                var document = _archive.FindDocument(id);
+                if (document is null ||
+                    !MavkaExchangeParser.TryInvoice(document.Json, out var invoice) ||
+                    invoice is null ||
+                    !string.Equals(invoice.Recipient, profile.Unit,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    deferred++;
+                    continue;
+                }
+                await RegistrationMailService.SendReceiptAsync(
+                    _store.GetEmail(), password, sender, profile, invoice, _exchangeKeys);
+                _ledger.MarkMailSent(id);
+                sent++;
+            }
+            catch (Exception)
+            {
+                // Keep mail_status=pending, preserving the item across reboots.
+                // Server-side handling must remain idempotent by documentId.
+                deferred++;
+            }
+        }
+        return $"Надіслано підтверджень: {sent}; залишено в черзі: {deferred}.";
     }
 
     private async Task<string> ArchiveAndCleanupAsync(string password, string sender)
