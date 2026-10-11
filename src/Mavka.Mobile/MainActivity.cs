@@ -25,6 +25,8 @@ public class MainActivity : Activity
     protected override void OnCreate(Bundle? state)
     {
         base.OnCreate(state);
+        // Keep the editable fields visible above the soft keyboard.
+        Window?.SetSoftInputMode(SoftInput.AdjustResize | SoftInput.StateAlwaysHidden);
         _store = new GmailCredentialsStore(this);
         _profileStore = new UserProfileStore(this);
         var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
@@ -161,12 +163,12 @@ public class MainActivity : Activity
         Text(card, mail.Body, 15);
         if (mail.Attachments.Count > 0)
         {
-            Text(_body, "Вкладення TXT", 19, true);
+            Text(_body, "Вкладення TXT / JSON", 19, true);
             foreach (var attachment in mail.Attachments)
             {
                 var fileCard = Card();
                 Text(fileCard, attachment.FileName, 16, true);
-                Text(fileCard, "Текстовий файл — перегляд без збереження на диск", 13);
+                Text(fileCard, "Перегляд без збереження й автоматичного імпорту", 13);
                 Button(fileCard, "Переглянути файл", () =>
                     new AlertDialog.Builder(this)
                         .SetTitle(attachment.FileName)
@@ -373,7 +375,7 @@ public class MainActivity : Activity
             Text = value ?? "",
             InputType = InputTypes.ClassText | InputTypes.TextFlagCapSentences
         };
-        field.SetSingleLine(true);
+        ConfigureKeyboard(field);
         parent.AddView(field);
         return field;
     }
@@ -401,7 +403,7 @@ public class MainActivity : Activity
             Text = _store.GetEmail(),
             InputType = InputTypes.ClassText | InputTypes.TextVariationEmailAddress
         };
-        email.SetSingleLine(true);
+        ConfigureKeyboard(email);
         card.AddView(email);
 
         Text(card, "Пароль застосунку Google", 15, true);
@@ -410,7 +412,7 @@ public class MainActivity : Activity
             Hint = _store.HasCredentials ? "Збережений пароль (вводити знову не потрібно)" : "16 символів",
             InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
         };
-        secret.SetSingleLine(true);
+        ConfigureKeyboard(secret, password: true);
         secret.TransformationMethod = Android.Text.Method.PasswordTransformationMethod.Instance;
         card.AddView(secret);
         Text(card, "Пароль вводиться лише на телефоні й зберігається захищено.", 13);
@@ -447,7 +449,7 @@ public class MainActivity : Activity
             Text = _store.GetMainMavkaEmail(),
             InputType = InputTypes.ClassText | InputTypes.TextVariationEmailAddress
         };
-        mainMavkaEmail.SetSingleLine(true);
+        ConfigureKeyboard(mainMavkaEmail);
         card.AddView(mainMavkaEmail);
 
         Button(card, "Зберегти адресу ГОЛОВНОЇ МАВКИ", () =>
@@ -547,6 +549,20 @@ public class MainActivity : Activity
         if (_screen == "message") { ShowInbox(); return; }
         if (_screen != "home") { ShowHome(); return; }
         base.OnBackPressed();
+    }
+
+    private void ConfigureKeyboard(EditText field, bool password = false)
+    {
+        field.SetSingleLine(true);
+        // Some Android keyboards show a full-screen editor in landscape mode.
+        // NO_FULLSCREEN requests the ordinary embedded keyboard instead.
+        const int noFullscreen = 0x02000000;
+        const int noPersonalizedLearning = 0x01000000;
+        field.ImeOptions = (Android.Views.InputMethods.ImeAction)(
+            (int)Android.Views.InputMethods.ImeAction.Done |
+            noFullscreen |
+            (password ? noPersonalizedLearning : 0));
+        field.SetSelectAllOnFocus(false);
     }
 
     private LinearLayout Card()
