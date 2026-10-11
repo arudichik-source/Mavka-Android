@@ -66,6 +66,11 @@ jobs:
             -p:ApplicationTitle="Mavka-Mobile-TEST" \
             -p:PublishDir="$GITHUB_WORKSPACE/preview-apk/"
           test -n "$(find "$GITHUB_WORKSPACE/preview-apk" -maxdepth 1 -name '*.apk' -print -quit)"
+          aapt_binary="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name aapt -type f | sort -V | tail -n 1)"
+          test -x "$aapt_binary"
+          for apk in "$GITHUB_WORKSPACE"/preview-apk/*.apk; do
+            "$aapt_binary" dump badging "$apk" | grep -F "package: name='ua.mavka.mobile.preview'"
+          done
 
       - name: Upload side-by-side test APK
         uses: actions/upload-artifact@v4
