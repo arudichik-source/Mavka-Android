@@ -310,13 +310,23 @@ public class MainActivity : Activity
                 var filtered = all.Where(x => query.Length == 0 ||
                     x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                     (x.Nsn?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)).ToList();
-                Text(localRows, $"Локальних позицій: {filtered.Count} із {all.Count}", 14);
+                Text(localRows, $"Локальних облікових позицій: {filtered.Count} із {all.Count}", 14);
+                var knownTotal = all.Where(x => x.TotalValue.HasValue)
+                    .Sum(x => x.TotalValue ?? 0m);
+                Text(localRows, "Вартість позицій із відомою ціною: " +
+                    knownTotal.ToString("0.00") + " грн", 13);
+                if (all.Any(x => !x.UnitPrice.HasValue))
+                    Text(localRows, "Є позиції з невідомою ціною; їхню вартість не враховано.", 12);
                 foreach (var asset in filtered)
                 {
                     var current = asset;
                     AddAssetRow(localRows, asset.Name,
                         (string.IsNullOrEmpty(asset.Nsn) ? "Локально підтверджено" :
-                            "NSN: " + asset.Nsn),
+                            "NSN: " + asset.Nsn) +
+                        (asset.UnitPrice.HasValue
+                            ? " · ціна " + asset.UnitPrice.Value.ToString("0.00") +
+                              " грн · вартість " + asset.TotalValue!.Value.ToString("0.00") + " грн"
+                            : " · ціна не зазначена"),
                         asset.Quantity.ToString("0.###") + " " + asset.Unit,
                         () => ShowAssetHistory(profile.Unit, current.Name,
                             current.Unit, current.Nsn));
@@ -366,8 +376,48 @@ public class MainActivity : Activity
         var rows = Card();
         Text(rows, "Номенклатура зі знімка", 16, true);
         foreach (var asset in snapshot.Items)
-            AddAssetRow(rows, asset.Name, "Із ГОЛОВНОЇ МАВКИ",
+            AddAssetRow(rows, asset.Name, "Із ГОЛОВНОЇ МАВКИ" +
+                (asset.UnitPrice.HasValue
+                    ? " · " + asset.UnitPrice.Value.ToString("0.00") + " грн/од."
+                    : " · ціна невідома"),
                 asset.Quantity.ToString("0.###") + " " + asset.Measure);
+
+        var importing = Text(header, "Початкові залишки поки не зараховано.", 12);
+        Button(header, "Зарахувати початкові залишки", () =>
+        {
+            if (snapshot.Items.Count == 0)
+            {
+                importing.Text = "Знімок порожній.";
+                return;
+            }
+            new AlertDialog.Builder(this)
+                .SetTitle("Зарахувати початкові залишки?")
+                .SetMessage("Підрозділ: " + snapshot.Unit +
+                    "\nСтаном на: " + snapshot.AsOf +
+                    "\nПозицій: " + snapshot.Items.Count +
+                    "\n\nЗарахування можливе лише один раз і тільки до першої накладної. " +
+                    "Інакше існує ризик подвійного обліку.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("Зарахувати", (_, _) =>
+                {
+                    try
+                    {
+                        var changed = _ledger.AddOpeningBalances(snapshot);
+                        importing.Text = changed
+                            ? "Початкові залишки зараховано. Перевідкрий вкладку «Майно»."
+                            : "Початкові залишки вже були зараховані; дубль відхилено.";
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        importing.Text = "Зарахування відхилено: у підрозділі вже є рухи. " +
+                            "Потрібна окрема звірка з ГОЛОВНОЮ МАВКОЮ.";
+                    }
+                    catch (Exception ex)
+                    {
+                        importing.Text = "Помилка локальної бази: " + ex.GetType().Name;
+                    }
+                }).Show();
+        });
     }
 
     private void ShowAssetHistory(string unit, string name,
@@ -378,7 +428,10 @@ public class MainActivity : Activity
             var entries = _ledger.ListMovements(unit, name, measure, nsn);
             var lines = entries
                 .Select(m => "Накладна № " + m.Number + "  •  " + m.Date +
-                             "\nНадійшло: " + m.Quantity.ToString("0.###") + " " + measure)
+                             "\nНадійшло: " + m.Quantity.ToString("0.###") + " " + measure +
+                             (m.UnitPrice.HasValue
+                                 ? "\nЦіна: " + m.UnitPrice.Value.ToString("0.00") + " грн"
+                                 : "\nЦіна не зазначена"))
                 .ToList();
             if (lines.Count == 0) lines.Add("Локальних надходжень поки немає.");
 
@@ -505,7 +558,10 @@ public class MainActivity : Activity
                 AddAssetRow(info, position.Name,
                     string.IsNullOrWhiteSpace(position.Nsn) ? "Номенклатура" :
                     "NSN: " + position.Nsn,
-                    position.Quantity.ToString("0.###") + " " + position.Unit);
+                    position.Quantity.ToString("0.###") + " " + position.Unit +
+                    (position.UnitPrice.HasValue
+                        ? "\n" + position.UnitPrice.Value.ToString("0.00") + " грн/од."
+                        : ""));
             Text(info, "Перевір усі позиції перед підтвердженням отримання.", 12);
             Button(info, "Підтвердити отримання майна", () =>
             {
