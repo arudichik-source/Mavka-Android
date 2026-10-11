@@ -40,6 +40,8 @@ public class MainActivity : Activity
         base.OnCreate(state);
         // Keep the editable fields visible above the soft keyboard.
         Window?.SetSoftInputMode(SoftInput.AdjustResize | SoftInput.StateAlwaysHidden);
+        Window?.SetStatusBarColor(Color.Rgb(13, 55, 36));
+        Window?.SetNavigationBarColor(Color.White);
         _store = new GmailCredentialsStore(this);
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
@@ -119,7 +121,11 @@ public class MainActivity : Activity
         Button(sidePanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
         Button(sidePanel, "Закрити меню", CloseDrawer);
 
-        _drawerOverlay.AddView(sidePanel,
+        // The menu scrolls on short phones instead of losing lower actions.
+        var drawerScroll = new ScrollView(this) { FillViewport = true };
+        drawerScroll.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        drawerScroll.AddView(sidePanel);
+        _drawerOverlay.AddView(drawerScroll,
             new FrameLayout.LayoutParams(Dp(292), -1, GravityFlags.Right));
         host.AddView(_drawerOverlay, new FrameLayout.LayoutParams(-1, -1));
 
@@ -215,7 +221,6 @@ public class MainActivity : Activity
         }
         Text(_body, "Дозволений відправник", 18, true);
         Text(_body, _store.GetMainMavkaEmail(), 15);
-        Text(_body, "Пошук лише у «Вхідних» Gmail, без зміни стану листів.", 13);
     }
 
     private void ShowInbox()
@@ -292,7 +297,6 @@ public class MainActivity : Activity
         var top = Card();
         var profile = LoadUserProfile();
         Text(top, "Підрозділ: " + (profile?.Unit ?? "не визначений у профілі"), 17, true);
-        Button(top, "Перевірити іконки (демо)", ShowIconGallery);
         var dateLabel = Text(top, "Обліковий залишок на кінець дня: " +
             _assetsAsOf.ToString("dd.MM.yyyy"), 14, true);
         Button(top, "📅 Вибрати облікову дату", () =>
@@ -577,11 +581,25 @@ public class MainActivity : Activity
                 lines.Add("Історію актів та інших документів ще не отримано.");
 
             lines.Add("Довідкові рухи не змінюють локальний залишок.");
-            new AlertDialog.Builder(this)
-                .SetTitle(name + " — рух майна")
-                .SetMessage(string.Join("\n\n", lines))
-                .SetPositiveButton("Закрити", (_, _) => { })
-                .Show();
+            Begin("asset-history", "Історія майна");
+            var identity = Card();
+            Text(identity, name, 19, true);
+            Text(identity, "Підрозділ: " + unit, 13);
+            Text(identity, "Одиниця: " + measure +
+                (string.IsNullOrWhiteSpace(nsn) ? "" : " · NSN: " + nsn), 13);
+            var historyCard = Card();
+            foreach (var line in lines)
+                Text(historyCard, line, 14);
+            foreach (var item in local)
+            {
+                if (_archive.FindDocument(item.DocumentId) is not null)
+                {
+                    var id = item.DocumentId;
+                    Button(historyCard, "Відкрити документ № " + item.Number,
+                        () => ShowArchivedDocument(id));
+                }
+            }
+            Button(_body, "← До майна", ShowAssets);
         }
         catch (Exception ex)
         {
@@ -1316,6 +1334,9 @@ public class MainActivity : Activity
         card = Card();
         Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 18, true);
         Text(card, _store.GetMainMavkaEmail(), 16);
+        var diagnostics = Card();
+        Text(diagnostics, "Діагностика", 17, true);
+        Button(diagnostics, "Галерея іконок (демо)", ShowIconGallery);
     }
 
     private void ShowMail()
@@ -1475,6 +1496,7 @@ public class MainActivity : Activity
         if (_drawerOverlay.Visibility == ViewStates.Visible) { CloseDrawer(); return; }
         if (_screen is "mail" or "exchange-key" or "document-password") { ShowSettings(); return; }
         if (_screen == "message") { if (_viewingArchivedDocument) ShowDocuments(); else ShowInbox(); return; }
+        if (_screen == "asset-history") { ShowAssets(); return; }
         if (_screen != "home") { ShowHome(); return; }
         base.OnBackPressed();
     }
