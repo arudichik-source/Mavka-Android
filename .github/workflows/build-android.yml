@@ -58,6 +58,9 @@ jobs:
       - name: Verify export-folder safety policy
         run: dotnet run --project tools/FilePolicyChecks/FilePolicyChecks.csproj
 
+      - name: Verify AES-256 PDF password compatibility
+        run: dotnet run --project tools/ProtectedPdfChecks/ProtectedPdfChecks.csproj
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
