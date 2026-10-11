@@ -1,6 +1,7 @@
 using Android.App;
 using Android.Content;
 using Android.Graphics;
+using Android.Graphics.Drawables;
 using Android.OS;
 using Android.Text;
 using Android.Views;
@@ -20,10 +21,13 @@ public class MainActivity : Activity
     private GmailCredentialsStore _store = null!;
     private UserProfileStore _profileStore = null!;
     private PropertyLedgerStore _ledger = null!;
+    private AssetIconProvider _assetIcons = null!;
     private ExchangeKeyStore _exchangeKeys = null!;
     private FrameLayout _drawerOverlay = null!;
-    private Button _home = null!, _inbox = null!, _settings = null!;
+    private Button _home = null!, _inbox = null!, _assets = null!, _settings = null!;
     private string _screen = "home";
+    private string _inboxQuery = "";
+    private string _mailFilter = "all";
     private bool _busy;
     private IReadOnlyList<MavkaMailItem> _messages = Array.Empty<MavkaMailItem>();
 
@@ -35,20 +39,25 @@ public class MainActivity : Activity
         _store = new GmailCredentialsStore(this);
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
+        _assetIcons = new AssetIconProvider(this);
         _exchangeKeys = new ExchangeKeyStore(this);
         var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
-        root.SetBackgroundColor(Color.Rgb(248, 247, 245));
+        root.SetBackgroundColor(Color.Rgb(249, 247, 242));
         root.SetOnApplyWindowInsetsListener(new SafeInsets(Dp(14), Dp(10), Dp(10)));
 
         var topBar = new LinearLayout(this) { Orientation = Orientation.Horizontal };
         topBar.SetGravity(GravityFlags.CenterVertical);
-        var brand = new TextView(this) { Text = "Мавка Mobile", TextSize = 21 };
-        brand.SetTextColor(Color.Rgb(31, 36, 36));
+        topBar.SetPadding(Dp(10), 0, Dp(8), 0);
+        topBar.SetBackgroundColor(Color.Rgb(13, 55, 36));
+        var brand = new TextView(this) { Text = "❧  Мавка Mobile", TextSize = 20 };
+        brand.SetTextColor(Color.White);
         brand.SetTypeface(null, TypefaceStyle.Bold);
         topBar.AddView(brand, new LinearLayout.LayoutParams(0, Dp(52), 1));
         brand.Gravity = GravityFlags.CenterVertical;
         var hamburger = new Android.Widget.Button(this) { Text = "☰", TextSize = 23 };
         hamburger.SetSingleLine(true);
+        hamburger.SetTextColor(Color.White);
+        hamburger.Background = Rounded(Color.Rgb(25, 82, 53), 12);
         hamburger.SetPadding(0, 0, 0, 0);
         topBar.AddView(hamburger, new LinearLayout.LayoutParams(Dp(58), Dp(52)));
         hamburger.Click += (_, _) => ShowDrawer();
@@ -60,12 +69,16 @@ public class MainActivity : Activity
         _body.SetPadding(0, Dp(8), 0, Dp(12));
         scroll.AddView(_body);
         var nav = new LinearLayout(this) { Orientation = Orientation.Horizontal };
-        _home = Nav("Головна", ShowHome);
-        _inbox = Nav("Вхідні", ShowInbox);
-        _settings = Nav("Налашт.", ShowSettings);
+        _home = Nav("⌂\nГоловна", ShowHome);
+        _inbox = Nav("✉\nВхідні", ShowInbox);
+        _assets = Nav("▣\nМайно", ShowAssets);
+        _settings = Nav("⚙\nНалаштування", ShowSettings);
         nav.AddView(_home);
         nav.AddView(_inbox);
+        nav.AddView(_assets);
         nav.AddView(_settings);
+        nav.SetPadding(Dp(2), Dp(3), Dp(2), Dp(3));
+        nav.SetBackgroundColor(Color.White);
         root.AddView(scroll);
         root.AddView(nav);
 
@@ -79,7 +92,7 @@ public class MainActivity : Activity
 
         var sidePanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
         sidePanel.Clickable = true;
-        sidePanel.SetBackgroundColor(Color.White);
+        sidePanel.SetBackgroundColor(Color.Rgb(249, 247, 242));
         sidePanel.SetPadding(Dp(14), Dp(50), Dp(14), Dp(30));
         Text(sidePanel, "Мавка Mobile", 22, true);
         Text(sidePanel, "Меню", 15);
@@ -151,10 +164,12 @@ public class MainActivity : Activity
         _screen = screen;
         Title = "Мавка Mobile — " + title;
         _body.RemoveAllViews();
-        _home.Enabled = screen != "home";
-        _inbox.Enabled = screen != "inbox" && screen != "message";
-        _settings.Enabled = screen != "settings" && screen != "mail";
-        Text(_body, title, 25, true);
+        // Keep all tabs clickable; a selected tab is highlighted rather than disabled.
+        StyleNav(_home, screen == "home");
+        StyleNav(_inbox, screen is "inbox" or "message");
+        StyleNav(_assets, screen == "assets");
+        StyleNav(_settings, screen is "settings" or "mail" or "profile" or "exchange-key");
+        Text(_body, title, 24, true);
     }
 
     private void ShowHome()
@@ -179,11 +194,61 @@ public class MainActivity : Activity
     {
         Begin("inbox", "Вхідні");
         var card = Card();
-        Text(card, "Листи ГОЛОВНОЇ МАВКИ", 18, true);
-        Text(card, "Адреса: " + _store.GetMainMavkaEmail(), 14);
+        Text(card, "Листи ГОЛОВНОЇ МАВКИ", 17, true);
+        Text(card, "Лише від " + _store.GetMainMavkaEmail(), 12);
+
+        var search = new EditText(this)
+        {
+            Hint = "Пошук за номером, датою або типом",
+            Text = _inboxQuery,
+            TextSize = 14
+        };
+        search.SetSingleLine(true);
+        search.SetPadding(Dp(12), Dp(7), Dp(12), Dp(7));
+        search.Background = Rounded(Color.Rgb(248, 248, 245), 12,
+            Color.Rgb(234, 236, 229));
+        ConfigureKeyboard(search);
+        card.AddView(search, new LinearLayout.LayoutParams(-1, Dp(43)));
+        search.TextChanged += (_, _) =>
+        {
+            _inboxQuery = search.Text ?? "";
+            if (_screen == "inbox") ShowInboxContent();
+        };
+
+        var filters = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        filters.SetPadding(0, Dp(8), 0, Dp(6));
+        card.AddView(filters);
+        foreach (var (label, value) in new[]
+        {
+            ("Усі", "all"), ("Накладні", "invoices"), ("Інші", "other")
+        })
+        {
+            var filter = new Button(this) { Text = label, TextSize = 12 };
+            filter.SetAllCaps(false);
+            filter.SetTextColor(value == _mailFilter ? Color.White : Color.Rgb(31, 73, 47));
+            filter.Background = Rounded(value == _mailFilter
+                ? Color.Rgb(9, 84, 50) : Color.Rgb(235, 240, 235), 11);
+            var layout = new LinearLayout.LayoutParams(0, Dp(37), 1);
+            layout.SetMargins(Dp(2), 0, Dp(2), 0);
+            filters.AddView(filter, layout);
+            filter.Click += (_, _) =>
+            {
+                _mailFilter = value;
+                foreach (var child in Enumerable.Range(0, filters.ChildCount)
+                    .Select(index => filters.GetChildAt(index)).OfType<Button>())
+                {
+                    bool active = child.Text == label;
+                    child.SetTextColor(active ? Color.White : Color.Rgb(31, 73, 47));
+                    child.Background = Rounded(active ? Color.Rgb(9, 84, 50) :
+                        Color.Rgb(235, 240, 235), 11);
+                }
+                ShowInboxContent();
+            };
+        }
+
         var status = Text(card, _store.HasCredentials
-            ? "Листи доступні після синхронізації."
-            : "Спочатку підключи Gmail у Налаштуваннях.", 14);
+            ? "Онови пошту, щоб перевірити нові документи."
+            : "Підключи Gmail у Налаштуваннях.", 12);
         Button(card, "Оновити листи", async () =>
         {
             await RefreshMessagesAsync(status);
@@ -245,8 +310,13 @@ public class MainActivity : Activity
                 Text(localRows, $"Локальних позицій: {filtered.Count} із {all.Count}", 14);
                 foreach (var asset in filtered)
                 {
-                    Text(localRows, asset.Name + " — " + asset.Quantity.ToString("0.###") +
-                        " " + asset.Unit + (string.IsNullOrEmpty(asset.Nsn) ? "" : " · " + asset.Nsn), 14);
+                    var current = asset;
+                    AddAssetRow(localRows, asset.Name,
+                        (string.IsNullOrEmpty(asset.Nsn) ? "Локально підтверджено" :
+                            "NSN: " + asset.Nsn),
+                        asset.Quantity.ToString("0.###") + " " + asset.Unit,
+                        () => ShowAssetHistory(profile.Unit, current.Name,
+                            current.Unit, current.Nsn));
                 }
                 if (all.Count == 0)
                     Text(localRows, "Ще немає підтверджених накладних.", 14);
@@ -290,30 +360,107 @@ public class MainActivity : Activity
         Text(header, "Позицій: " + snapshot.Items.Count, 14);
         Text(header, "Перегляд отриманого знімка. Не є підтвердженим залишком у головній базі.", 13);
 
+        var rows = Card();
+        Text(rows, "Номенклатура зі знімка", 16, true);
         foreach (var asset in snapshot.Items)
+            AddAssetRow(rows, asset.Name, "Із ГОЛОВНОЇ МАВКИ",
+                asset.Quantity.ToString("0.###") + " " + asset.Measure);
+    }
+
+    private void ShowAssetHistory(string unit, string name,
+        string measure, string? nsn)
+    {
+        try
         {
-            var card = Card();
-            Text(card, asset.Name, 16, true);
-            Text(card, asset.Quantity.ToString("0.###") + " " + asset.Measure, 15);
+            var entries = _ledger.ListMovements(unit, name, measure, nsn);
+            var lines = entries
+                .Select(m => "Накладна № " + m.Number + "  •  " + m.Date +
+                             "\nНадійшло: " + m.Quantity.ToString("0.###") + " " + measure)
+                .ToList();
+            if (lines.Count == 0) lines.Add("Локальних надходжень поки немає.");
+
+            // Acts of write-off are not part of the current local ledger.
+            // Do not claim they exist unless actually imported from desktop Mavka.
+            lines.Add("Акти списання: поки не імпортовано з ГОЛОВНОЇ МАВКИ.");
+            new AlertDialog.Builder(this)
+                .SetTitle(name + " — рух майна")
+                .SetMessage(string.Join("\n\n", lines))
+                .SetPositiveButton("Закрити", (_, _) => { })
+                .Show();
+        }
+        catch (Exception ex)
+        {
+            new AlertDialog.Builder(this)
+                .SetTitle("Історія майна")
+                .SetMessage("Помилка читання рухів: " + ex.GetType().Name)
+                .SetPositiveButton("Закрити", (_, _) => { })
+                .Show();
         }
     }
 
     private void ShowInboxContent()
     {
-        // The two first child views are the title and controls card.
+        // The header and filter card stay in place while searching.
         while (_body.ChildCount > 2)
             _body.RemoveViewAt(2);
-        if (_messages.Count == 0)
+
+        var visible = _messages.Where(mail =>
         {
-            Text(_body, "Службових листів поки немає.", 16);
+            bool invoice = mail.Attachments.Any(a =>
+                MavkaExchangeParser.TryInvoice(a.RawJson, out _));
+            if (_mailFilter == "invoices" && !invoice) return false;
+            if (_mailFilter == "other" && invoice) return false;
+            if (_inboxQuery.Length == 0) return true;
+            return mail.Subject.Contains(_inboxQuery, StringComparison.OrdinalIgnoreCase) ||
+                   mail.DateText.Contains(_inboxQuery, StringComparison.OrdinalIgnoreCase) ||
+                   mail.Body.Contains(_inboxQuery, StringComparison.OrdinalIgnoreCase) ||
+                   mail.Attachments.Any(a => a.FileName.Contains(
+                       _inboxQuery, StringComparison.OrdinalIgnoreCase));
+        }).ToList();
+
+        if (visible.Count == 0)
+        {
+            var empty = Card();
+            Text(empty, _messages.Count == 0
+                ? "Службових листів поки немає. Натисни «Оновити листи»."
+                : "За цим пошуком листів не знайдено.", 15);
             return;
         }
-        foreach (var mail in _messages)
+
+        foreach (var mail in visible)
         {
+            var invoice = mail.Attachments
+                .Select(a => MavkaExchangeParser.TryInvoice(a.RawJson, out var item)
+                    ? item : null).FirstOrDefault(x => x is not null);
             var card = Card();
-            Text(card, mail.Subject, 17, true);
-            Text(card, mail.DateText, 13);
-            Button(card, "Читати повідомлення", () => ShowMessage(mail));
+            var row = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+            row.SetGravity(GravityFlags.CenterVertical);
+            card.AddView(row);
+
+            var glyph = new TextView(this)
+            {
+                Text = invoice is null ? "✉" : "▤",
+                TextSize = 25, Gravity = GravityFlags.Center
+            };
+            glyph.SetTextColor(invoice is null ?
+                Color.Rgb(32, 91, 59) : Color.Rgb(191, 92, 42));
+            glyph.Background = Rounded(invoice is null
+                ? Color.Rgb(231, 242, 233) : Color.Rgb(252, 237, 224), 12);
+            row.AddView(glyph, new LinearLayout.LayoutParams(Dp(48), Dp(48)));
+
+            var data = new LinearLayout(this) { Orientation = Orientation.Vertical };
+            var lp = new LinearLayout.LayoutParams(0, -2, 1);
+            lp.SetMargins(Dp(11), 0, Dp(5), 0);
+            row.AddView(data, lp);
+            Text(data, invoice?.Number ?? mail.Subject, 14, true);
+            Text(data, invoice is null ? "Службове повідомлення" :
+                "Накладна · " + invoice.Recipient, 12);
+            Text(data, mail.DateText, 11);
+
+            var arrow = Text(row, "›", 27, true);
+            arrow.SetTextColor(Color.Rgb(48, 81, 58));
+            row.Clickable = true;
+            row.Click += (_, _) => ShowMessage(mail);
         }
     }
 
@@ -349,6 +496,14 @@ public class MainActivity : Activity
             var info = Card();
             Text(info, "Накладна № " + invoice.Number, 17, true);
             Text(info, "Отримувач: " + invoice.Recipient, 14);
+            Text(info, "Дата: " + invoice.Date + "  ·  ID: " + invoice.DocumentId, 13);
+            Text(info, "Позицій: " + invoice.Positions.Count, 14, true);
+            foreach (var position in invoice.Positions)
+                AddAssetRow(info, position.Name,
+                    string.IsNullOrWhiteSpace(position.Nsn) ? "Номенклатура" :
+                    "NSN: " + position.Nsn,
+                    position.Quantity.ToString("0.###") + " " + position.Unit);
+            Text(info, "Перевір усі позиції перед підтвердженням отримання.", 12);
             Button(info, "Підтвердити отримання майна", () =>
             {
                 if (_busy) return;
@@ -938,13 +1093,24 @@ public class MainActivity : Activity
         field.SetSelectAllOnFocus(false);
     }
 
+    private GradientDrawable Rounded(Color fill, float radius, Color? border = null)
+    {
+        var drawable = new GradientDrawable();
+        drawable.SetColor(fill);
+        drawable.SetCornerRadius(Dp(radius));
+        if (border.HasValue)
+            drawable.SetStroke(Dp(1), border.Value);
+        return drawable;
+    }
+
     private LinearLayout Card()
     {
         var card = new LinearLayout(this) { Orientation = Orientation.Vertical };
-        card.SetPadding(Dp(16), Dp(14), Dp(16), Dp(14));
-        card.SetBackgroundColor(Color.White);
+        card.SetPadding(Dp(15), Dp(13), Dp(15), Dp(13));
+        card.Background = Rounded(Color.White, 18, Color.Rgb(238, 235, 227));
+        card.Elevation = Dp(2);
         var lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.SetMargins(0, Dp(7), 0, Dp(10));
+        lp.SetMargins(Dp(2), Dp(7), Dp(2), Dp(8));
         _body.AddView(card, lp);
         return card;
     }
@@ -952,28 +1118,83 @@ public class MainActivity : Activity
     private TextView Text(LinearLayout parent, string caption, float size, bool bold = false)
     {
         var view = new TextView(this) { Text = caption, TextSize = size };
-        view.SetTextColor(bold ? Color.Rgb(34, 34, 36) : Color.Rgb(90, 86, 87));
+        view.SetTextColor(bold ? Color.Rgb(20, 47, 33) : Color.Rgb(92, 100, 94));
         if (bold) view.SetTypeface(null, TypefaceStyle.Bold);
-        view.SetPadding(0, Dp(5), 0, Dp(10));
+        view.SetPadding(0, Dp(3), 0, Dp(7));
         parent.AddView(view);
         return view;
     }
 
     private void Button(LinearLayout parent, string text, Action callback)
     {
-        var view = new Button(this) { Text = text };
+        var view = new Button(this) { Text = text, TextSize = 14 };
+        view.SetAllCaps(false);
+        var isSecondary = text.StartsWith("←") || text.StartsWith("Закрити") ||
+                          text.StartsWith("Забути") || text.StartsWith("Видалити");
+        view.SetTextColor(isSecondary ? Color.Rgb(21, 69, 44) : Color.White);
+        view.Background = Rounded(isSecondary ? Color.Rgb(230, 240, 231) :
+            Color.Rgb(9, 83, 50), 13);
+        var layout = new LinearLayout.LayoutParams(-1, Dp(47));
+        layout.SetMargins(0, Dp(4), 0, Dp(5));
+        parent.AddView(view, layout);
         view.Click += (_, _) => callback();
-        parent.AddView(view);
     }
 
     private Button Nav(string title, Action action)
     {
         var view = new Button(this) { Text = title, TextSize = 12 };
-        view.SetSingleLine(true);
-        view.SetPadding(0, 0, 0, 0);
-        view.LayoutParameters = new LinearLayout.LayoutParams(0, Dp(52), 1f);
+        view.SetAllCaps(false);
+        view.SetSingleLine(false);
+        view.SetPadding(0, Dp(2), 0, Dp(1));
+        view.LayoutParameters = new LinearLayout.LayoutParams(0, Dp(61), 1f);
         view.Click += (_, _) => action();
         return view;
+    }
+
+    private void StyleNav(Button item, bool selected)
+    {
+        item.SetTextColor(selected ? Color.Rgb(11, 78, 47) : Color.Rgb(105, 112, 106));
+        item.Background = Rounded(selected ? Color.Rgb(230, 241, 231) : Color.White, 13);
+    }
+
+    private void AddAssetRow(LinearLayout parent, string name, string description,
+        string quantity, Action? showHistory = null)
+    {
+        var row = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        row.SetGravity(GravityFlags.CenterVertical);
+        row.SetPadding(Dp(9), Dp(9), Dp(8), Dp(9));
+        row.Background = Rounded(Color.Rgb(250, 249, 245), 14,
+            Color.Rgb(238, 235, 227));
+        var layout = new LinearLayout.LayoutParams(-1, -2);
+        layout.SetMargins(0, Dp(4), 0, Dp(4));
+        parent.AddView(row, layout);
+
+        row.AddView(_assetIcons.Create(name, 57));
+        var details = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        var detailLayout = new LinearLayout.LayoutParams(0, -2, 1);
+        detailLayout.SetMargins(Dp(9), 0, Dp(6), 0);
+        row.AddView(details, detailLayout);
+        var primary = Text(details, name, 13, true);
+        primary.SetPadding(0, 0, 0, Dp(2));
+        var secondary = Text(details, description, 11);
+        secondary.SetPadding(0, 0, 0, 0);
+
+        var amount = new TextView(this)
+        {
+            Text = quantity, TextSize = 13,
+            Gravity = GravityFlags.CenterVertical | GravityFlags.Right
+        };
+        amount.SetTextColor(Color.Rgb(15, 47, 32));
+        amount.SetTypeface(null, TypefaceStyle.Bold);
+        row.AddView(amount, new LinearLayout.LayoutParams(Dp(82), -2));
+
+        if (showHistory is not null)
+        {
+            row.Clickable = true;
+            row.Click += (_, _) => showHistory();
+            row.LongClickable = true;
+            row.LongClick += (_, _) => showHistory();
+        }
     }
 
     private int Dp(float value) => (int)(value * Resources!.DisplayMetrics!.Density + 0.5f);

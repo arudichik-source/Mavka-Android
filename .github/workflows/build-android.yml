@@ -36,6 +36,9 @@ jobs:
           dotnet run --project tools/MavkaEncrypt -- encrypt "$tmp_dir/demo.mavka-key" "$tmp_dir/input.json" "$tmp_dir/crypted.json"
           grep -q 'MAVKA_ENCRYPTED_V1' "$tmp_dir/crypted.json"
 
+      - name: Verify asset icon categories
+        run: dotnet run --project tools/AssetIconChecks/AssetIconChecks.csproj
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 

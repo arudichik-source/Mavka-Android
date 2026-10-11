@@ -5,6 +5,7 @@ using System.Globalization;
 namespace Mavka.Mobile;
 
 internal sealed record InventoryHolding(string Name, string Unit, string? Nsn, decimal Quantity);
+internal sealed record InventoryMovement(string DocumentId, string Number, string Date, decimal Quantity);
 
 /// <summary>
 /// Local, transactional receipt ledger. The same document ID cannot add inventory twice.
@@ -100,6 +101,27 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         var values = new ContentValues();
         values.Put("mail_status", "sent");
         database.Update("receipts", values, "document_id = ?", new[] { documentId });
+    }
+
+    /// <summary>Read-only movement history of locally confirmed receipts for one exact item.</summary>
+    public IReadOnlyList<InventoryMovement> ListMovements(
+        string recipient, string name, string unit, string? nsn)
+    {
+        var result = new List<InventoryMovement>();
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            @"SELECT r.document_id, r.document_number, r.document_date, i.quantity
+              FROM receipt_items i
+              INNER JOIN receipts r ON r.document_id = i.document_id
+              WHERE r.recipient = ? COLLATE NOCASE
+                AND i.name = ? AND i.unit = ? AND COALESCE(i.nsn, '') = ?
+              ORDER BY r.document_date DESC, r.document_id DESC",
+            new[] { recipient, name, unit, nsn ?? "" });
+        while (cursor.MoveToNext())
+            result.Add(new InventoryMovement(cursor.GetString(0), cursor.GetString(1),
+                cursor.GetString(2), decimal.Parse(cursor.GetString(3),
+                    CultureInfo.InvariantCulture)));
+        return result;
     }
 
     public IReadOnlyList<InventoryHolding> ListHoldings(string unit)

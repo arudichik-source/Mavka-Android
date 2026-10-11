@@ -2,10 +2,13 @@ using System.Text.Json;
 
 namespace Mavka.Mobile;
 
-internal sealed record UnitAsset(string Name, string Measure, decimal Quantity);
+internal sealed record UnitAsset(
+    string Name, string Measure, decimal Quantity, decimal? UnitPrice);
 internal sealed record UnitAssetsSnapshot(
     string Unit, string AsOf, IReadOnlyList<UnitAsset> Items);
-internal sealed record IncomingPosition(int LineNo, string Name, string Unit, decimal Quantity, string? Nsn);
+internal sealed record IncomingPosition(
+    int LineNo, string Name, string Unit, decimal Quantity,
+    string? Nsn, decimal? UnitPrice);
 internal sealed record IncomingInvoice(
     string DocumentId, string Number, string Recipient,
     string Date, IReadOnlyList<IncomingPosition> Positions);
@@ -36,7 +39,16 @@ internal static class MavkaExchangeParser
                     !item.TryGetProperty("quantity", out var qty) ||
                     qty.ValueKind != JsonValueKind.Number ||
                     !qty.TryGetDecimal(out var n) || n < 0) return false;
-                values.Add(new UnitAsset(name, measure, n));
+                decimal? unitPrice = null;
+                if (item.TryGetProperty("price", out var priceElement))
+                {
+                    if (priceElement.ValueKind != JsonValueKind.Number ||
+                        !priceElement.TryGetDecimal(out var value) ||
+                        value < 0 || value > 1000000000000m)
+                        return false;
+                    unitPrice = value;
+                }
+                values.Add(new UnitAsset(name, measure, n, unitPrice));
             }
 
             snapshot = new UnitAssetsSnapshot(unit, String(root, "asOf") ?? "", values);
@@ -86,8 +98,17 @@ internal static class MavkaExchangeParser
                     !quantity.TryGetDecimal(out decimal amount) ||
                     amount <= 0 || amount > 1000000000)
                     return false;
+                decimal? price = null;
+                if (item.TryGetProperty("price", out var priceElement))
+                {
+                    if (priceElement.ValueKind != JsonValueKind.Number ||
+                        !priceElement.TryGetDecimal(out var value) ||
+                        value < 0 || value > 1000000000000m)
+                        return false;
+                    price = value;
+                }
                 parsed.Add(new IncomingPosition(++line, name, unit, amount,
-                    String(item, "nsn")));
+                    String(item, "nsn"), price));
             }
             invoice = new IncomingInvoice(id, number, recipient,
                 String(root, "documentDate") ?? String(root, "date") ?? "",
