@@ -260,16 +260,25 @@ internal static class GmailConnectionService
                             bool changed = exchangeKeys.ImportPackage(
                                 contents, filePassword, recipientClientId);
                             // An installed package must also be readable from Keystore.
-                            var current = exchangeKeys.CurrentKeyId is string cid
-                                ? exchangeKeys.GetKey(cid) : null;
-                            var future = exchangeKeys.FutureKeyId is string fid
-                                ? exchangeKeys.GetKey(fid) : null;
-                            installedKey = exchangeKeys.HasKeyPair &&
-                                current is { Length: 32 } && future is { Length: 32 };
-                            if (current is not null)
-                                System.Security.Cryptography.CryptographicOperations.ZeroMemory(current);
-                            if (future is not null)
-                                System.Security.Cryptography.CryptographicOperations.ZeroMemory(future);
+                            byte[]? current = null, future = null;
+                            try
+                            {
+                                current = exchangeKeys.CurrentKeyId is string cid
+                                    ? exchangeKeys.GetKey(cid) : null;
+                                future = exchangeKeys.FutureKeyId is string fid
+                                    ? exchangeKeys.GetKey(fid) : null;
+                                installedKey = exchangeKeys.HasKeyPair &&
+                                    current is { Length: 32 } && future is { Length: 32 };
+                            }
+                            finally
+                            {
+                                // Never leave an unwrapped key in memory if reading
+                                // the second key throws halfway through validation.
+                                if (current is not null)
+                                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(current);
+                                if (future is not null)
+                                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(future);
+                            }
                             if (!installedKey)
                                 throw new InvalidOperationException("Cannot verify persisted keys.");
                             display = changed
