@@ -55,6 +55,9 @@ jobs:
       - name: Verify old SQLite schema migrations
         run: python3 tools/sqlite_migration_smoke.py
 
+      - name: Verify export-folder safety policy
+        run: dotnet run --project tools/FilePolicyChecks/FilePolicyChecks.csproj
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
