@@ -132,6 +132,44 @@ public class MainActivity : Activity
         card.AddView(secret);
         Text(card, "Вводь лише пароль застосунку, а не основний пароль Google.", 13);
         var status = Text(card, "Підключення ще не перевірялося.", 14);
+        Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 15, true);
+
+var mainMavkaEmail = new EditText(this)
+{
+    Hint = "Адреса службової пошти",
+    Text = _store.GetMainMavkaEmail(),
+    InputType = InputTypes.ClassText |
+                InputTypes.TextVariationEmailAddress
+};
+
+mainMavkaEmail.SetSingleLine(true);
+card.AddView(mainMavkaEmail);
+
+Button(card, "Зберегти адресу ГОЛОВНОЇ МАВКИ", () =>
+{
+    var address = (mainMavkaEmail.Text ?? "").Trim();
+
+    if (!System.Net.Mail.MailAddress.TryCreate(
+            address, out var parsed) ||
+        !string.Equals(
+            parsed?.Address,
+            address,
+            StringComparison.OrdinalIgnoreCase))
+    {
+        status.Text = "Введи правильну електронну адресу.";
+        return;
+    }
+
+    try
+    {
+        _store.SaveMainMavkaEmail(address);
+        status.Text = "Адресу ГОЛОВНОЇ МАВКИ збережено.";
+    }
+    catch
+    {
+        status.Text = "Не вдалося зберегти адресу.";
+    }
+});
         var save = new Button(this) { Text = "Перевірити й зберегти" };
         card.AddView(save);
         save.Click += async (_, _) =>
