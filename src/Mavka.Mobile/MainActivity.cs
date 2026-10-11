@@ -77,7 +77,7 @@ public class MainActivity : Activity
                 status.Text = "Gmail доступний. Імпорт документів ще не реалізовано.";
             }
             catch (MailKit.Security.AuthenticationException) { status.Text = "Gmail відхилив вхід. Перевір налаштування."; }
-            catch (OperationCanceledException) { status.Text = "Час з’єднання минув."; }
+            catch (System.OperationCanceledException) { status.Text = "Час з’єднання минув."; }
             catch (Exception) { status.Text = "Не вдалося зв’язатися з Gmail."; }
             finally { _busy = false; }
         });
@@ -163,7 +163,7 @@ public class MainActivity : Activity
                 status.Text = "Gmail підключено! IMAP перевірено.";
             }
             catch (MailKit.Security.AuthenticationException) { status.Text = "Google відхилив вхід. Перевір адресу й пароль застосунку."; }
-            catch (OperationCanceledException) { status.Text = "Час з’єднання минув. Перевір Інтернет."; }
+            catch (System.OperationCanceledException) { status.Text = "Час з’єднання минув. Перевір Інтернет."; }
             catch (Exception) { status.Text = "Помилка з’єднання або захищеного збереження. Спробуй ще раз."; }
             finally { _busy = false; save.Enabled = true; }
         };
