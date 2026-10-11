@@ -73,6 +73,17 @@ jobs:
       - name: Build APK
         run: dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release
 
+      - name: Inspect production APK identity (no installation)
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apks=(src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk)
+          test "${#apks[@]}" -ge 1
+          for apk in "${apks[@]}"; do
+            pwsh -NoProfile -File tools/Inspect-Android-Apk.ps1 \
+              -ApkPath "$apk" -ExpectedPackage ua.mavka.mobile
+          done
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -104,6 +115,17 @@ jobs:
             actual="$("$aapt_binary" dump badging "$apk" | grep '^package:')"
             echo "APK manifest: $actual"
             echo "$actual" | grep -F "package: name='ua.mavka.mobile.preview'"
+          done
+
+      - name: Inspect preview APK identity (no installation)
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apks=(preview-apk/*.apk)
+          test "${#apks[@]}" -ge 1
+          for apk in "${apks[@]}"; do
+            pwsh -NoProfile -File tools/Inspect-Android-Apk.ps1 \
+              -ApkPath "$apk" -ExpectedPackage ua.mavka.mobile.preview
           done
 
       - name: Upload side-by-side test APK
