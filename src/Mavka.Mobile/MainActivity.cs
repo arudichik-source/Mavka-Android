@@ -757,8 +757,9 @@ public class MainActivity : Activity
             {
                 var clipboard = (Android.Content.ClipboardManager?)
                     GetSystemService(Android.Content.Context.ClipboardService);
-                clipboard?.SetPrimaryClip(Android.Content.ClipData.NewPlainText(
-                    "Mavka Client ID", current.ClientId));
+                if (clipboard is not null)
+                    clipboard.PrimaryClip = Android.Content.ClipData.NewPlainText(
+                        "Mavka Client ID", current.ClientId);
             });
 
         Text(card, "Підрозділ", 15, true);
