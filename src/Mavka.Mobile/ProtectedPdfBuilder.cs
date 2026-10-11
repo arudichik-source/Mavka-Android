@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using Android.Graphics;
 using Android.Graphics.Pdf;
 using PdfSharp.Pdf.IO;
@@ -72,15 +73,14 @@ internal static class ProtectedPdfBuilder
 
         Android.Graphics.Pdf.PdfDocument.Page? active = null;
         Canvas? canvas = null;
-        float y = 0;
-        int pageNumber = 0;
+        var pageFlow = new PdfPageFlow(bottom, line);
 
         void FinishPage()
         {
             if (active is null || canvas is null) return;
             canvas.DrawLine(margin, bottom + 3, pageWidth - margin,
                 bottom + 3, small);
-            canvas.DrawText("Мавка Mobile • сторінка " + pageNumber,
+            canvas.DrawText("Мавка Mobile • сторінка " + pageFlow.PageNumber,
                 margin, bottom + 20, small);
             document.FinishPage(active);
             active = null;
@@ -90,43 +90,34 @@ internal static class ProtectedPdfBuilder
         void NewPage()
         {
             FinishPage();
-            pageNumber++;
+            pageFlow.BeginPage(93);
             var info = new PdfDocument.PageInfo.Builder(
-                pageWidth, pageHeight, pageNumber).Create();
+                pageWidth, pageHeight, pageFlow.PageNumber).Create();
             active = document.StartPage(info);
             canvas = active.Canvas;
-            y = 55;
-            canvas!.DrawText("МАВКА MOBILE — НАКЛАДНА", margin, y, bold);
-            y += 23;
-            canvas.DrawText("№ " + invoice.Number, margin, y, body);
-            y += 18;
-            canvas.DrawText("Дата: " + invoice.Date, margin, y, body);
-            y += 18;
-            foreach (var row in WrapText(
-                body, "Отримувач: " + invoice.Recipient, pageWidth - 2 * margin))
-            {
-                canvas.DrawText(row, margin, y, body);
-                y += line;
-            }
-            y += 10;
-            canvas.DrawLine(margin, y, pageWidth - margin, y, small);
-            y += 21;
+            canvas!.DrawText("МАВКА MOBILE — ДОКУМЕНТ", margin, 55, bold);
+            canvas.DrawLine(margin, 71, pageWidth - margin, 71, small);
         }
 
         void Paragraph(string text, Paint paint, float spacingAfter = 9)
         {
             var lines = WrapText(paint, text, pageWidth - 2 * margin);
-            if (y + lines.Count * line + spacingAfter > bottom)
-                NewPage();
             foreach (var row in lines)
             {
-                canvas!.DrawText(row, margin, y, paint);
-                y += line;
+                // A single paragraph may be longer than an entire page.
+                // Pagination must happen between individual lines, rather
+                // than checking the whole paragraph just once.
+                if (!pageFlow.CanWriteLine)
+                    NewPage();
+                canvas!.DrawText(row, margin, pageFlow.TakeLine(), paint);
             }
-            y += spacingAfter;
+            pageFlow.AddSpacing(spacingAfter);
         }
 
         NewPage();
+        Paragraph("Номер: " + invoice.Number, bold, 4);
+        Paragraph("Дата: " + invoice.Date, body, 4);
+        Paragraph("Отримувач: " + invoice.Recipient, body, 14);
         decimal knownValue = 0;
         int unknownPrices = 0;
         foreach (var item in invoice.Positions)
@@ -182,15 +173,18 @@ internal static class ProtectedPdfBuilder
                 current = "";
             }
             // A very long word must not escape the page margins.
-            foreach (char letter in word)
+            // Unicode scalar values keep emoji and supplementary Unicode
+            // characters intact. UTF-16 char-by-char splitting corrupts them.
+            foreach (var scalar in word.EnumerateRunes())
             {
-                var next = current + letter;
+                var glyph = scalar.ToString();
+                var next = current + glyph;
                 if (paint.MeasureText(next) > maxWidth && current.Length > 0)
                 {
                     lines.Add(current);
                     current = "";
                 }
-                current += letter;
+                current += glyph;
             }
         }
         if (current.Length > 0) lines.Add(current);
