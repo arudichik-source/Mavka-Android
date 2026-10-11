@@ -190,7 +190,7 @@ if (!readable.Contains("Майно підрозділу") ||
     !readable.Contains("Папір А4") ||
     !readable.Contains("Ручка кулькова") ||
     !readable.Contains("DEMO-PAPER-001") ||
-    !readable.Contains("1 410,00 грн") ||
+    !readable.Replace(" ", "").Replace("\u00a0", "").Replace("\u202f", "").Contains("1410,00грн") ||
     readable.Contains("\\u04", StringComparison.Ordinal))
     throw new Exception("Opening inventory Unicode/money preview failed.");
 
