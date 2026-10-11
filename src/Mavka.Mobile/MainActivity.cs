@@ -739,6 +739,8 @@ public class MainActivity : Activity
             Text(data, invoice is null ? "Службове повідомлення" :
                 "Накладна · " + invoice.Recipient, 12);
             Text(data, mail.DateText, 11);
+            if (!string.IsNullOrWhiteSpace(mail.ProcessingIssue))
+                Text(data, mail.ProcessingIssue, 11);
 
             var arrow = Text(row, "›", 27, true);
             arrow.SetTextColor(Color.Rgb(48, 81, 58));
@@ -754,7 +756,8 @@ public class MainActivity : Activity
         Text(card, mail.Subject, 19, true);
         Text(card, mail.DateText, 14);
         Text(card, mail.Body, 15);
-        var status = Text(card, "Лист із налаштованої адреси ГОЛОВНОЇ МАВКИ.", 13);
+        var status = Text(card, mail.ProcessingIssue ??
+            "Лист із налаштованої адреси ГОЛОВНОЇ МАВКИ.", 13);
         if (mail.Attachments.Count > 0)
         {
             Text(_body, "Вкладення TXT / JSON", 19, true);
@@ -1016,11 +1019,17 @@ public class MainActivity : Activity
             // Never discard mail if any attachment is unread, unsupported or corrupt.
             if (!mail.AttachmentsComplete || mail.Attachments.Count == 0)
             {
-                remaining.Add(mail);
+                remaining.Add(mail with
+                {
+                    ProcessingIssue = mail.Attachments.Count == 0
+                        ? "Немає придатного вкладення для збереження. Лист залишено."
+                        : "Частина вкладень не прочитана або не підтримується. Лист залишено."
+                });
                 kept++;
                 continue;
             }
             bool ready = true;
+            string problem = "";
             foreach (var attachment in mail.Attachments)
             {
                 if (attachment.InstalledKeyPackage) continue;
@@ -1030,6 +1039,11 @@ public class MainActivity : Activity
                     document is null)
                 {
                     ready = false;
+                    problem = profile is null
+                        ? "Налаштуй профіль перед імпортом."
+                        : attachment.RawJson is null
+                            ? "Вкладення не розшифровано або воно не є перевіреним JSON-документом."
+                            : "Документ не підтримується або належить іншому підрозділу.";
                     break;
                 }
                 try
@@ -1042,15 +1056,17 @@ public class MainActivity : Activity
                         throw new InvalidOperationException("Archive read-back failed.");
                     saved++;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     ready = false;
+                    problem = "Не вдалося зберегти документ: " + ex.GetType().Name +
+                        ". Лист збережено у вхідних.";
                     break;
                 }
             }
             if (!ready)
             {
-                remaining.Add(mail);
+                remaining.Add(mail with { ProcessingIssue = problem });
                 kept++;
                 continue;
             }
@@ -1064,11 +1080,16 @@ public class MainActivity : Activity
                 _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, sender);
                 moved++;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // Both archived documents and the ready marker survive disconnection.
                 // Re-fetching will not post anything or duplicate the archive.
-                remaining.Add(mail);
+                remaining.Add(mail with
+                {
+                    ProcessingIssue = "Документ збережено локально, але Gmail Trash " +
+                        "недоступний (" + ex.GetType().Name +
+                        "). Перенесення буде повторено під час оновлення."
+                });
                 kept++;
             }
         }
