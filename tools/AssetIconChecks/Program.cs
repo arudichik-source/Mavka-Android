@@ -69,3 +69,44 @@ if (MavkaMovementJournal.TryRead(journalJson.Replace(
         "\"quantity\":2", "\"quantity\":-2"), out _))
     throw new Exception("Invalid negative quantity was accepted.");
 Console.WriteLine("Movement journal tests: 4/4 PASS.");
+
+
+const string opening = """
+{
+ "format":"MAVKA_UNIT_ASSETS_V1", "unit":"Тестовий підрозділ",
+ "asOf":"2026-10-01",
+ "items":[
+   {"name":"Папір А4","unit":"пач.","quantity":10,"price":125.50,"nsn":"TEST-A"},
+   {"name":"Папір А4","unit":"пач.","quantity":5,"price":132.00,"nsn":"TEST-B"}
+ ]
+}
+""";
+if (!MavkaExchangeParser.TryAssets(opening, out var openingSnapshot) ||
+    openingSnapshot is null || openingSnapshot.Items.Count != 2)
+    throw new Exception("Opening balance snapshot failed to parse.");
+if (openingSnapshot.Items[0].Nsn != "TEST-A" ||
+    openingSnapshot.Items[1].Nsn != "TEST-B" ||
+    openingSnapshot.Items[0].UnitPrice != 125.50m ||
+    openingSnapshot.Items[1].UnitPrice != 132m)
+    throw new Exception("Opening balance NSNs/prices were lost.");
+const string pricedInvoice = """
+{
+ "format":"MAVKA_DOCUMENT_V1", "type":"invoice",
+ "documentId":"TEST-I-002", "documentNumber":"TEST-2",
+ "recipient":"Тестовий підрозділ", "date":"2026-10-11",
+ "positions":[
+   {"name":"Ручка кулькова", "unit":"шт.", "quantity":4, "price":9.75, "nsn":"TEST-9"},
+   {"name":"Папір А4", "unit":"пач.", "quantity":3, "nsn":"TEST-A"}
+ ]
+}
+""";
+if (!MavkaExchangeParser.TryInvoice(pricedInvoice, out var invoice) ||
+    invoice is null || invoice.Positions.Count != 2 ||
+    invoice.Positions[0].UnitPrice != 9.75m ||
+    invoice.Positions[1].UnitPrice is not null ||
+    invoice.Positions[0].Nsn != "TEST-9")
+    throw new Exception("Invoice price/null/NSN regression.");
+if (MavkaExchangeParser.TryAssets(opening.Replace(
+    "\"price\":132.00", "\"price\":-3.00"), out _))
+    throw new Exception("Negative accounting price accepted.");
+Console.WriteLine("Snapshot and invoice monetary/NSN tests: 4/4 PASS.");
