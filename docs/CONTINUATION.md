@@ -293,3 +293,35 @@ Working branch: `feature/mobile-file-manager-20261012`, stacked above
   multi-select and SAF remains pending. Do not merge until CI passes and
   on-device permission behavior is verified.
 ---
+
+
+## 2026-10-12 — format-native AES-256 encrypted PDF export (draft)
+
+Branch: `feature/mobile-protected-pdf-20261012`, based on green #86
+commit `5b9dd669875dc16ea0a693ce53325bccfa2a24ab`.
+
+- Added MIT-licensed PDFsharp 6.2.4 (Core) as a dependency.
+- `ProtectedPdfBuilder.cs`: generates native Android paginated printable
+  PDF from an already saved local invoice using Android Canvas/OS typeface
+  (Unicode Cyrillic), wraps long names, prints quantity, unit price,
+  line totals and known-price summary. Unencrypted source lives in RAM only.
+- The generated PDF is reopened in memory by PDFsharp, assigned a user
+  password (12-128 chars) and random independent owner password, and saved
+  with PDF-native AES-256 V5 encryption. The source PDF byte buffer is
+  zeroed after encryption; no unprotected temp files are created.
+- `MavkaExportFileStore.SaveProtectedPdf`: only publishes encrypted PDF
+  to Android MediaStore `Download/МаVКа файли/`; IS_PENDING=1 until the
+  write succeeds, then finalizes; attempts to remove interrupted exports.
+- Local archived invoices now expose `Зберегти PDF із паролем` with a
+  non-persistent password prompt. Generation/write occur off the main UI
+  thread, with a human-readable error on failure. No export from Gmail alone.
+- `tools/ProtectedPdfChecks`: creates AES-256 PDF and verifies a wrong
+  password is rejected and a valid password opens the document.
+- **Important:** this is an initial implementation and requires CI,
+  physical-Android PDFsharp/MediaStore testing, visual Cyrillic/font layout
+  verification, and opening the result in standard Android/PC viewers.
+  Do not label the PDF mechanism production-ready until tested.
+- Native-password Excel `.xlsx`, MediaStore write on Android 8/9 (SAF),
+  complete cross-device sync and signed APK updates remain pending.
+- The approved MAVKA key package/envelope/rotation scheme was not touched.
+---
