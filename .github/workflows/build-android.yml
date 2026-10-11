@@ -49,6 +49,9 @@ jobs:
       - name: Verify XLSX document generation
         run: dotnet run --project tools/XlsxChecks/XlsxChecks.csproj
 
+      - name: Verify read-only reconciliation
+        run: dotnet run --project tools/ReconciliationChecks/ReconciliationChecks.csproj
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
