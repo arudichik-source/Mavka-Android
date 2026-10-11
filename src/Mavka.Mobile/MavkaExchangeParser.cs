@@ -5,8 +5,10 @@ namespace Mavka.Mobile;
 internal sealed record UnitAsset(string Name, string Measure, decimal Quantity);
 internal sealed record UnitAssetsSnapshot(
     string Unit, string AsOf, IReadOnlyList<UnitAsset> Items);
+internal sealed record IncomingPosition(int LineNo, string Name, string Unit, decimal Quantity, string? Nsn);
 internal sealed record IncomingInvoice(
-    string DocumentId, string Number, string Recipient);
+    string DocumentId, string Number, string Recipient,
+    string Date, IReadOnlyList<IncomingPosition> Positions);
 
 internal static class MavkaExchangeParser
 {
@@ -53,20 +55,47 @@ internal static class MavkaExchangeParser
         if (string.IsNullOrWhiteSpace(json) || json.Length > 65000) return false;
         try
         {
-            using var doc = Parse(json);
-            var root = doc.RootElement;
+            using var document = Parse(json);
+            var root = document.RootElement;
             if (String(root, "format") != "MAVKA_DOCUMENT_V1" ||
                 String(root, "type") != "invoice") return false;
+
             var number = String(root, "documentNumber");
             var recipient = String(root, "recipient");
-            if (string.IsNullOrWhiteSpace(number) ||
+            var id = String(root, "documentId");
+            if (string.IsNullOrWhiteSpace(id) ||
+                string.IsNullOrWhiteSpace(number) ||
                 string.IsNullOrWhiteSpace(recipient)) return false;
-            var id = String(root, "documentId") ?? number;
-            invoice = new IncomingInvoice(id, number, recipient);
+
+            if (!root.TryGetProperty("positions", out var positions))
+                root.TryGetProperty("items", out positions);
+            if (positions.ValueKind != JsonValueKind.Array ||
+                positions.GetArrayLength() is < 1 or > 200)
+                return false;
+
+            var parsed = new List<IncomingPosition>();
+            var line = 0;
+            foreach (var item in positions.EnumerateArray())
+            {
+                var name = String(item, "name");
+                var unit = String(item, "unit");
+                if (string.IsNullOrWhiteSpace(name) ||
+                    string.IsNullOrWhiteSpace(unit) ||
+                    !item.TryGetProperty("quantity", out var quantity) ||
+                    quantity.ValueKind != JsonValueKind.Number ||
+                    !quantity.TryGetDecimal(out decimal amount) ||
+                    amount <= 0 || amount > 1000000000)
+                    return false;
+                parsed.Add(new IncomingPosition(++line, name, unit, amount,
+                    String(item, "nsn")));
+            }
+            invoice = new IncomingInvoice(id, number, recipient,
+                String(root, "documentDate") ?? String(root, "date") ?? "",
+                parsed);
             return true;
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException
-                                   or ArgumentException)
+                                   or ArgumentException or OverflowException)
         {
             return false;
         }
