@@ -22,6 +22,8 @@ public class MainActivity : Activity
         };
 
         root.SetPadding(32, 32, 32, 24);
+        root.SetOnApplyWindowInsetsListener(
+    new ScreenInsetsListener());
         root.SetBackgroundColor(Color.Rgb(250, 247, 247));
 
         // Заголовок
@@ -182,4 +184,42 @@ bottomNav.SetGravity(GravityFlags.Center);
 
         return button;
     }
+    public class ScreenInsetsListener : Java.Lang.Object,
+    View.IOnApplyWindowInsetsListener
+{
+    public WindowInsets OnApplyWindowInsets(
+        View view, WindowInsets insets)
+    {
+        int top = 0;
+        int bottom = 0;
+        int left = 0;
+        int right = 0;
+
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.R)
+        {
+            var bars = insets.GetInsets(
+                WindowInsets.Type.SystemBars());
+
+            top = bars.Top;
+            bottom = bars.Bottom;
+            left = bars.Left;
+            right = bars.Right;
+        }
+        else
+        {
+            top = insets.SystemWindowInsetTop;
+            bottom = insets.SystemWindowInsetBottom;
+            left = insets.SystemWindowInsetLeft;
+            right = insets.SystemWindowInsetRight;
+        }
+
+        view.SetPadding(
+            32 + left,
+            32 + top,
+            32 + right,
+            24 + bottom);
+
+        return insets;
+    }
+}
 }
