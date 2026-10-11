@@ -9,6 +9,12 @@ on:
       - main
   workflow_dispatch:
 
+# Only the newest revision of a draft PR needs a costly Android build.
+# Cancel obsolete runs on the same PR; never cancel unrelated branches/main.
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
