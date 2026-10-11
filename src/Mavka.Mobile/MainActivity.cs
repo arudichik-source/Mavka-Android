@@ -23,6 +23,7 @@ public class MainActivity : Activity
     private PropertyLedgerStore _ledger = null!;
     private AssetIconProvider _assetIcons = null!;
     private ExchangeKeyStore _exchangeKeys = null!;
+    private DocumentPasswordStore _documentPasswords = null!;
     private FrameLayout _drawerOverlay = null!;
     private Button _home = null!, _inbox = null!, _assets = null!, _settings = null!;
     private string _screen = "home";
@@ -41,6 +42,7 @@ public class MainActivity : Activity
         _ledger = new PropertyLedgerStore(this);
         _assetIcons = new AssetIconProvider(this);
         _exchangeKeys = new ExchangeKeyStore(this);
+        _documentPasswords = new DocumentPasswordStore(this);
         var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
         root.SetBackgroundColor(Color.Rgb(249, 247, 242));
         root.SetOnApplyWindowInsetsListener(new SafeInsets(Dp(14), Dp(10), Dp(10)));
@@ -101,6 +103,7 @@ public class MainActivity : Activity
         Button(sidePanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
         Button(sidePanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
         Button(sidePanel, "Ключ обміну", () => { CloseDrawer(); ShowExchangeKey(); });
+        Button(sidePanel, "Пароль документів", () => { CloseDrawer(); ShowDocumentPassword(); });
         Button(sidePanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
         Button(sidePanel, "Закрити меню", CloseDrawer);
 
@@ -168,7 +171,7 @@ public class MainActivity : Activity
         StyleNav(_home, screen == "home");
         StyleNav(_inbox, screen is "inbox" or "message");
         StyleNav(_assets, screen == "assets");
-        StyleNav(_settings, screen is "settings" or "mail" or "profile" or "exchange-key");
+        StyleNav(_settings, screen is "settings" or "mail" or "profile" or "exchange-key" or "document-password");
         Text(_body, title, 24, true);
     }
 
@@ -307,13 +310,23 @@ public class MainActivity : Activity
                 var filtered = all.Where(x => query.Length == 0 ||
                     x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                     (x.Nsn?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)).ToList();
-                Text(localRows, $"Локальних позицій: {filtered.Count} із {all.Count}", 14);
+                Text(localRows, $"Локальних облікових позицій: {filtered.Count} із {all.Count}", 14);
+                var knownTotal = all.Where(x => x.TotalValue.HasValue)
+                    .Sum(x => x.TotalValue ?? 0m);
+                Text(localRows, "Вартість позицій із відомою ціною: " +
+                    knownTotal.ToString("0.00") + " грн", 13);
+                if (all.Any(x => !x.UnitPrice.HasValue))
+                    Text(localRows, "Є позиції з невідомою ціною; їхню вартість не враховано.", 12);
                 foreach (var asset in filtered)
                 {
                     var current = asset;
                     AddAssetRow(localRows, asset.Name,
                         (string.IsNullOrEmpty(asset.Nsn) ? "Локально підтверджено" :
-                            "NSN: " + asset.Nsn),
+                            "NSN: " + asset.Nsn) +
+                        (asset.UnitPrice.HasValue
+                            ? " · ціна " + asset.UnitPrice.Value.ToString("0.00") +
+                              " грн · вартість " + asset.TotalValue!.Value.ToString("0.00") + " грн"
+                            : " · ціна не зазначена"),
                         asset.Quantity.ToString("0.###") + " " + asset.Unit,
                         () => ShowAssetHistory(profile.Unit, current.Name,
                             current.Unit, current.Nsn));
@@ -363,8 +376,48 @@ public class MainActivity : Activity
         var rows = Card();
         Text(rows, "Номенклатура зі знімка", 16, true);
         foreach (var asset in snapshot.Items)
-            AddAssetRow(rows, asset.Name, "Із ГОЛОВНОЇ МАВКИ",
+            AddAssetRow(rows, asset.Name, "Із ГОЛОВНОЇ МАВКИ" +
+                (asset.UnitPrice.HasValue
+                    ? " · " + asset.UnitPrice.Value.ToString("0.00") + " грн/од."
+                    : " · ціна невідома"),
                 asset.Quantity.ToString("0.###") + " " + asset.Measure);
+
+        var importing = Text(header, "Початкові залишки поки не зараховано.", 12);
+        Button(header, "Зарахувати початкові залишки", () =>
+        {
+            if (snapshot.Items.Count == 0)
+            {
+                importing.Text = "Знімок порожній.";
+                return;
+            }
+            new AlertDialog.Builder(this)
+                .SetTitle("Зарахувати початкові залишки?")
+                .SetMessage("Підрозділ: " + snapshot.Unit +
+                    "\nСтаном на: " + snapshot.AsOf +
+                    "\nПозицій: " + snapshot.Items.Count +
+                    "\n\nЗарахування можливе лише один раз і тільки до першої накладної. " +
+                    "Інакше існує ризик подвійного обліку.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("Зарахувати", (_, _) =>
+                {
+                    try
+                    {
+                        var changed = _ledger.AddOpeningBalances(snapshot);
+                        importing.Text = changed
+                            ? "Початкові залишки зараховано. Перевідкрий вкладку «Майно»."
+                            : "Початкові залишки вже були зараховані; дубль відхилено.";
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        importing.Text = "Зарахування відхилено: у підрозділі вже є рухи. " +
+                            "Потрібна окрема звірка з ГОЛОВНОЮ МАВКОЮ.";
+                    }
+                    catch (Exception ex)
+                    {
+                        importing.Text = "Помилка локальної бази: " + ex.GetType().Name;
+                    }
+                }).Show();
+        });
     }
 
     private void ShowAssetHistory(string unit, string name,
@@ -375,7 +428,10 @@ public class MainActivity : Activity
             var entries = _ledger.ListMovements(unit, name, measure, nsn);
             var lines = entries
                 .Select(m => "Накладна № " + m.Number + "  •  " + m.Date +
-                             "\nНадійшло: " + m.Quantity.ToString("0.###") + " " + measure)
+                             "\nНадійшло: " + m.Quantity.ToString("0.###") + " " + measure +
+                             (m.UnitPrice.HasValue
+                                 ? "\nЦіна: " + m.UnitPrice.Value.ToString("0.00") + " грн"
+                                 : "\nЦіна не зазначена"))
                 .ToList();
             if (lines.Count == 0) lines.Add("Локальних надходжень поки немає.");
 
@@ -502,7 +558,10 @@ public class MainActivity : Activity
                 AddAssetRow(info, position.Name,
                     string.IsNullOrWhiteSpace(position.Nsn) ? "Номенклатура" :
                     "NSN: " + position.Nsn,
-                    position.Quantity.ToString("0.###") + " " + position.Unit);
+                    position.Quantity.ToString("0.###") + " " + position.Unit +
+                    (position.UnitPrice.HasValue
+                        ? "\n" + position.UnitPrice.Value.ToString("0.00") + " грн/од."
+                        : ""));
             Text(info, "Перевір усі позиції перед підтвердженням отримання.", 12);
             Button(info, "Підтвердити отримання майна", () =>
             {
@@ -569,7 +628,7 @@ public class MainActivity : Activity
                                 throw new InvalidOperationException("Пароль Gmail відсутній.");
                             await RegistrationMailService.SendReceiptAsync(
                                 _store.GetEmail(), password, _store.GetMainMavkaEmail(),
-                                profile, invoice);
+                                profile, invoice, _exchangeKeys);
                             _ledger.MarkMailSent(invoice.DocumentId);
                             if (_screen == "message")
                                 status.Text = "Майно зараховано в локальну базу. " +
@@ -646,7 +705,8 @@ public class MainActivity : Activity
             if (string.IsNullOrEmpty(password))
                 throw new InvalidOperationException("Пароль не збережений.");
             _messages = await GmailConnectionService.ReadFromSenderAsync(
-                _store.GetEmail(), password, sender, _exchangeKeys);
+                _store.GetEmail(), password, sender, _exchangeKeys,
+                _documentPasswords, LoadUserProfile()?.ClientId);
             if (_screen is "home" or "inbox" or "assets")
                 status.Text = $"Завантажено листів: {_messages.Count}. Тільки від дозволеної адреси.";
         }
@@ -690,6 +750,17 @@ public class MainActivity : Activity
         Begin("profile", "Профіль користувача");
         var current = LoadUserProfile();
         var card = Card();
+        Text(card, "Ідентифікатор користувача: " +
+            (current?.ClientId ?? "з’явиться після першого збереження профілю"), 13);
+        if (current is not null)
+            Button(card, "Копіювати ID для ГОЛОВНОЇ МАВКИ", () =>
+            {
+                var clipboard = (Android.Content.ClipboardManager?)
+                    GetSystemService(Android.Content.Context.ClipboardService);
+                if (clipboard is not null)
+                    clipboard.PrimaryClip = Android.Content.ClipData.NewPlainText(
+                        "Mavka Client ID", current.ClientId);
+            });
 
         Text(card, "Підрозділ", 15, true);
         var unit = ProfileInput(card, "Назва підрозділу", current?.Unit);
@@ -786,7 +857,7 @@ public class MainActivity : Activity
                         if (string.IsNullOrEmpty(password))
                             throw new InvalidOperationException("Gmail credentials missing.");
                         await RegistrationMailService.SendAsync(
-                            sender, password, recipient, profile);
+                            sender, password, recipient, profile, _exchangeKeys);
                         if (_screen == "profile")
                             status.Text = "Лист надіслано. Очікуємо підтвердження реєстрації від ГОЛОВНОЇ МАВКИ.";
                     }
@@ -826,83 +897,105 @@ public class MainActivity : Activity
 
     private void ShowExchangeKey()
     {
-        Begin("exchange-key", "Ключ обміну");
-        var panel = Card();
+        Begin("exchange-key", "Ключі обміну");
+        var card = Card();
+        Text(card, "Ключі отримуються автоматично через Gmail", 18, true);
+        Text(card, "ГОЛОВНА МАВКА надсилає захищений паролем файл MAVKA_KEY_PACKAGE_V1 " +
+            "із поточним і майбутнім ключами. Мобільна Мавка відкриває його з паролем, " +
+            "збереженим у налаштуваннях, та захищено зберігає обидва ключі.", 14);
 
-        Text(panel, "Захищене отримання файлів", 19, true);
-        Text(panel, "ГОЛОВНА МАВКА створює випадковий ключ AES-256. " +
-            "Передай його на цей телефон окремим захищеним каналом, а не тим самим листом, " +
-            "що й зашифровані документи.", 14);
+        var status = Text(card, _exchangeKeys.HasKeyPair
+            ? "Покоління: " + _exchangeKeys.Generation +
+              "\nПоточний ключ: " + _exchangeKeys.CurrentKeyId +
+              "\nМайбутній ключ: " + _exchangeKeys.FutureKeyId
+            : "Немає автоматично встановленої пари ключів.", 15);
 
-        Text(panel, _exchangeKeys.HasKey
-            ? "Ключ установлено. Ідентифікатор: " + _exchangeKeys.KeyId
-            : "Ключ ще не встановлено.", 15, true);
-
-        var entry = new EditText(this)
+        Button(card, "Оновити ключі з Gmail", async () =>
         {
-            Hint = "Встав сюди 32-байтовий ключ у Base64",
-            InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
-        };
-        ConfigureKeyboard(entry, password: true);
-        entry.TransformationMethod = Android.Text.Method.PasswordTransformationMethod.Instance;
-        panel.AddView(entry);
-
-        var status = Text(panel, "Ключ не надсилається до GitHub або Gmail.", 13);
-        Button(panel, "Зберегти ключ на цьому телефоні", () =>
-        {
-            var raw = (entry.Text ?? "").Trim();
-            if (string.IsNullOrEmpty(raw))
+            if (!_documentPasswords.IsConfigured)
             {
-                status.Text = "Встав ключ у форматі Base64.";
+                status.Text = "Спочатку один раз збережи пароль документів у налаштуваннях.";
                 return;
             }
+            if (LoadUserProfile() is null)
+            {
+                status.Text = "Спочатку заповни профіль користувача.";
+                return;
+            }
+            await RefreshMessagesAsync(status);
+            if (_screen == "exchange-key")
+                status.Text = _exchangeKeys.HasKeyPair
+                    ? "Ключі встановлено. Покоління: " + _exchangeKeys.Generation +
+                      "\nПоточний: " + _exchangeKeys.CurrentKeyId +
+                      "\nМайбутній: " + _exchangeKeys.FutureKeyId
+                    : "Ключів не знайдено. Перевір пароль, Gmail і адресата.";
+        });
+        Text(card, "Шифрування вихідних листів активується автоматично після отримання ключів. " +
+            "Під час початкової реєстрації, до видачі ключів, лист ще не зашифрований.", 13);
+        Text(card, "Тестовий пароль 090699 слабкий. Лише для випробувань без реальних службових даних.", 13);
+
+        Button(card, "Видалити обидва ключі", () =>
+            new AlertDialog.Builder(this)
+                .SetTitle("Видалити поточний і майбутній ключі?")
+                .SetMessage("Зашифровані старими ключами документи можуть стати недоступними. " +
+                    "Це не видаляє локальну базу майна.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("Видалити", (_, _) =>
+                {
+                    try
+                    {
+                        _exchangeKeys.Clear();
+                        _messages = Array.Empty<MavkaMailItem>();
+                        status.Text = "Ключі видалено. Для повторного отримання потрібна нова реєстрація.";
+                    }
+                    catch (Exception ex) { status.Text = "Помилка: " + ex.GetType().Name; }
+                })
+                .Show());
+    }
+
+    private void ShowDocumentPassword()
+    {
+        Begin("document-password", "Пароль документів");
+        var card = Card();
+
+        Text(card, "Пароль для файлів з ГОЛОВНОЇ МАВКИ", 18, true);
+        Text(card, "Введи пароль один раз. Надалі програма використовуватиме його " +
+            "автоматично під час відкриття захищених файлів. " +
+            "Повторно вводити потрібно лише після зміни пароля.", 14);
+        Text(card, _documentPasswords.IsConfigured
+            ? "Пароль уже захищено збережений на телефоні."
+            : "Початковий тестовий пароль: 090699. Натисни «Зберегти», щоб увімкнути.", 14);
+
+        var input = new EditText(this)
+        {
+            Hint = "Пароль документів",
+            Text = _documentPasswords.IsConfigured ? "" : "090699",
+            InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
+        };
+        ConfigureKeyboard(input, password: true);
+        input.TransformationMethod = Android.Text.Method.PasswordTransformationMethod.Instance;
+        card.AddView(input);
+        var status = Text(card, "", 14);
+        Button(card, "Зберегти / змінити пароль", () =>
+        {
             try
             {
-                var id = _exchangeKeys.ImportBase64(raw);
-                entry.Text = "";
-                _messages = Array.Empty<MavkaMailItem>(); // Clear previously decrypted in-memory documents.
-                status.Text = "Ключ збережено в Android Keystore. ID: " + id +
-                    ". Онови «Вхідні», щоб розшифрувати файли.";
-            }
-            catch (FormatException)
-            {
-                status.Text = "Некоректний Base64. Необхідно 32 випадкові байти.";
+                _documentPasswords.Save(input.Text ?? "");
+                input.Text = "";
+                _messages = Array.Empty<MavkaMailItem>();
+                status.Text = "Пароль збережено. Наступні захищені файли читатимуться автоматично.";
             }
             catch (ArgumentException)
             {
-                status.Text = "Неправильна довжина ключа. Потрібно рівно 32 байти.";
+                status.Text = "Пароль має містити від 6 до 128 символів.";
             }
             catch (Exception ex)
             {
                 status.Text = "Помилка захищеного збереження: " + ex.GetType().Name;
             }
         });
-
-        Button(panel, "Забути ключ на цьому телефоні", () =>
-            new AlertDialog.Builder(this)
-                .SetTitle("Видалити ключ обміну?")
-                .SetMessage("Після видалення старі зашифровані вкладення не вдасться " +
-                    "відкрити до повторного введення ключа. Локальне майно не стирається.")
-                .SetNegativeButton("Скасувати", (_, _) => { })
-                .SetPositiveButton("Видалити ключ", (_, _) =>
-                {
-                    try
-                    {
-                        _exchangeKeys.Clear();
-                        _messages = Array.Empty<MavkaMailItem>();
-                        entry.Text = "";
-                        status.Text = "Ключ видалено. Перезапусти пошук листів.";
-                    }
-                    catch (Exception ex)
-                    {
-                        status.Text = "Помилка: " + ex.GetType().Name;
-                    }
-                }).Show());
-
-        Text(_body, "Для перевірки після збереження ключа зайди в «Вхідні» " +
-            "та натисни «Оновити листи». Шифрування працює для вкладень JSON " +
-            "формату MAVKA_ENCRYPTED_V1.", 13);
-        Button(_body, "← До налаштувань", ShowSettings);
+        Text(card, "Зміна пароля впливає на нові файли. Якщо ГОЛОВНА МАВКА " +
+            "ще використовує попередній пароль, нові пакети ключів не відкриються.", 13);
     }
 
     private void ShowSettings()
@@ -913,6 +1006,7 @@ public class MainActivity : Activity
         Text(card, _store.HasCredentials ? _store.GetEmail() : "Не підключено", 16);
         Button(card, "Пошта Gmail →", ShowMail);
         Button(card, "Ключ обміну →", ShowExchangeKey);
+        Button(card, "Пароль документів →", ShowDocumentPassword);
         card = Card();
         Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 18, true);
         Text(card, _store.GetMainMavkaEmail(), 16);
@@ -1073,7 +1167,7 @@ public class MainActivity : Activity
     public override void OnBackPressed()
     {
         if (_drawerOverlay.Visibility == ViewStates.Visible) { CloseDrawer(); return; }
-        if (_screen == "mail") { ShowSettings(); return; }
+        if (_screen is "mail" or "exchange-key" or "document-password") { ShowSettings(); return; }
         if (_screen == "message") { ShowInbox(); return; }
         if (_screen != "home") { ShowHome(); return; }
         base.OnBackPressed();
