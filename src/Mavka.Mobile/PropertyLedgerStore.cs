@@ -170,6 +170,52 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         return ids;
     }
 
+    /// <summary>
+    /// Reconstruct a confirmed invoice from the pre-archive receipt database.
+    /// Legacy records must remain resendable even when there is no Gmail copy.
+    /// This method never posts a movement or changes a receipt's status.
+    /// </summary>
+    public IncomingInvoice? LoadConfirmedInvoice(string documentId)
+    {
+        using var db = ReadableDatabase;
+        string number, recipient, date;
+        using (var receipt = db.RawQuery(
+            @"SELECT document_number, recipient, document_date
+                FROM receipts
+                WHERE document_id = ? AND document_id NOT LIKE 'OPENING:%'",
+            new[] { documentId }))
+        {
+            if (!receipt.MoveToFirst()) return null;
+            number = receipt.GetString(0);
+            recipient = receipt.GetString(1);
+            date = receipt.GetString(2);
+        }
+
+        var positions = new List<IncomingPosition>();
+        using (var rows = db.RawQuery(
+            @"SELECT line_number, name, unit, quantity, nsn, unit_price
+                FROM receipt_items WHERE document_id = ?
+                ORDER BY line_number",
+            new[] { documentId }))
+        {
+            while (rows.MoveToNext())
+            {
+                positions.Add(new IncomingPosition(rows.GetInt(0),
+                    rows.GetString(1), rows.GetString(2),
+                    decimal.Parse(rows.GetString(3), CultureInfo.InvariantCulture),
+                    rows.IsNull(4) ? null : rows.GetString(4),
+                    rows.IsNull(5) ? null :
+                        decimal.Parse(rows.GetString(5), CultureInfo.InvariantCulture)));
+                if (positions.Count > 200)
+                    throw new InvalidOperationException(
+                        "Confirmed invoice exceeds supported position count.");
+            }
+        }
+        if (positions.Count == 0)
+            throw new InvalidOperationException("Confirmed invoice has no saved lines.");
+        return new IncomingInvoice(documentId, number, recipient, date, positions);
+    }
+
     public string? GetMailStatus(string documentId)
     {
         using var database = ReadableDatabase;
