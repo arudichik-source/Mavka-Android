@@ -377,11 +377,12 @@ public class MainActivity : Activity
         Text(rows, "Номенклатура зі знімка", 16, true);
         foreach (var asset in snapshot.Items)
             AddAssetRow(rows, asset.Name, "Із ГОЛОВНОЇ МАВКИ" +
+                (string.IsNullOrWhiteSpace(asset.Nsn) ? "" : " · NSN: " + asset.Nsn) +
                 (asset.UnitPrice.HasValue
                     ? " · " + asset.UnitPrice.Value.ToString("0.00") + " грн/од."
                     : " · ціна невідома"),
                 asset.Quantity.ToString("0.###") + " " + asset.Measure,
-                () => ShowAssetHistory(profile.Unit, asset.Name, asset.Measure, null));
+                () => ShowAssetHistory(profile.Unit, asset.Name, asset.Measure, asset.Nsn));
 
         var importing = Text(header, "Початкові залишки поки не зараховано.", 12);
         Button(header, "Зарахувати початкові залишки", () =>
