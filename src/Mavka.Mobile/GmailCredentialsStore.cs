@@ -19,6 +19,23 @@ internal sealed class GmailCredentialsStore
     }
 
     public string GetEmail() => _prefs.GetString("email", "") ?? "";
+    public string GetMainMavkaEmail()
+{
+    return _prefs.GetString("main_mavka_email", "") ?? "";
+}
+
+public void SaveMainMavkaEmail(string email)
+{
+    using var editor = _prefs.Edit()!;
+
+    editor.PutString(
+        "main_mavka_email",
+        email.Trim().ToLowerInvariant());
+
+    if (!editor.Commit())
+        throw new InvalidOperationException(
+            "Не вдалося зберегти адресу ГОЛОВНОЇ МАВКИ");
+}
     public bool HasCredentials => !string.IsNullOrWhiteSpace(GetEmail()) &&
                                   !string.IsNullOrEmpty(_prefs.GetString("encrypted_password", ""));
 
