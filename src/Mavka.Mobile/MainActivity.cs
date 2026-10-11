@@ -464,6 +464,8 @@ public class MainActivity : Activity
             (string.IsNullOrWhiteSpace(snapshot.AsOf) ? "дату не зазначено" : snapshot.AsOf), 14);
         Text(header, "Позицій: " + snapshot.Items.Count, 14);
         Text(header, "Перегляд отриманого знімка. Не є підтвердженим залишком у головній базі.", 13);
+        Button(header, "Звірити з локальним обліком (без змін)", () =>
+            ShowBalanceReconciliation(snapshot, profile.Unit));
 
         var rows = Card();
         Text(rows, "Номенклатура зі знімка", 16, true);
@@ -512,6 +514,50 @@ public class MainActivity : Activity
                     }
                 }).Show();
         });
+    }
+
+    private void ShowBalanceReconciliation(UnitAssetsSnapshot snapshot, string unit)
+    {
+        Begin("reconciliation", "Звірка залишків");
+        var details = Card();
+        Text(details, "Контрольний знімок · " + unit, 18, true);
+        Text(details, "Станом на " + snapshot.AsOf, 14);
+        Text(details, "Зіставлення є лише довідковим. Воно не додає, не списує " +
+            "та не замінює жодного облікового запису.", 13);
+        Text(details, "Для знімка на початок дня рухи цієї дати слід перевірити " +
+            "окремо: наведене порівняння виконується на кінець дня.", 13);
+        try
+        {
+            var asOf = LedgerBalanceCalculator.ParseDate(snapshot.AsOf);
+            var local = _ledger.ListHoldingsAsOf(unit, asOf)
+                .Select(x => new HistoricalHolding(x.Name, x.Unit,
+                    x.Nsn, x.Quantity, x.UnitPrice, x.TotalValue));
+            var differences = LedgerReconciliation.Compare(local, snapshot.Items);
+            Text(details, "Виявлено розбіжностей: " + differences.Count, 15, true);
+            if (differences.Count == 0)
+                Text(details, "Кількості збігаються для відповідних облікових позицій.", 14);
+            foreach (var entry in differences.Take(300))
+            {
+                var card = Card();
+                Text(card, entry.Name, 16, true);
+                Text(card, (entry.Nsn is null ? "" : "NSN: " + entry.Nsn + " · ") +
+                    "Од.: " + entry.Unit, 13);
+                Text(card, "Локально: " + entry.LocalQuantity.ToString("0.###") +
+                    " · Контрольний знімок: " + entry.ReferenceQuantity.ToString("0.###"), 14);
+                Text(card, "Різниця (локально − контроль): " +
+                    entry.Delta.ToString("+#,##0.###;-#,##0.###;0"), 14, true);
+                if (!entry.UnitPrice.HasValue)
+                    Text(card, "Вартість невідома, її не обчислено.", 12);
+            }
+            if (differences.Count > 300)
+                Text(_body, "Відображено перші 300 розбіжностей.", 13);
+        }
+        catch (Exception ex)
+        {
+            Text(details, "Звірка неможлива без коректної дати та локальних записів: " +
+                ex.GetType().Name, 14);
+        }
+        Button(_body, "← До майна", ShowAssets);
     }
 
     private void ShowAssetHistory(string unit, string name,
@@ -1513,6 +1559,7 @@ public class MainActivity : Activity
         if (_screen is "mail" or "exchange-key" or "document-password") { ShowSettings(); return; }
         if (_screen == "message") { if (_viewingArchivedDocument) ShowDocuments(); else ShowInbox(); return; }
         if (_screen == "asset-history") { ShowAssets(); return; }
+        if (_screen == "reconciliation") { ShowAssets(); return; }
         if (_screen != "home") { ShowHome(); return; }
         base.OnBackPressed();
     }
