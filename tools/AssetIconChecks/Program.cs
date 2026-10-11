@@ -168,3 +168,52 @@ var invalidSnapshot = MavkaJsonPreview.Format(
 if (!invalidSnapshot.Contains("не відповідають структурі", StringComparison.Ordinal))
     throw new Exception("Invalid inventory structure not reported.");
 Console.WriteLine("Mobile JSON preview regressions: 5/5 PASS.");
+
+
+const string escapedAssets = """
+{
+  "format":"MAVKA_UNIT_ASSETS_V1",
+  "unit":"\u0422\u0435\u0441\u0442\u043e\u0432\u0438\u0439 \u043f\u0456\u0434\u0440\u043e\u0437\u0434\u0456\u043b",
+  "asOf":"2026-10-01",
+  "items":[
+    {"name":"\u041f\u0430\u043f\u0456\u0440 \u04104",
+     "unit":"\u043f\u0430\u0447.", "quantity":10,
+     "price":120.50,"nsn":"DEMO-PAPER-001"},
+    {"name":"\u0420\u0443\u0447\u043a\u0430 \u043a\u0443\u043b\u044c\u043a\u043e\u0432\u0430",
+     "unit":"\u0448\u0442.", "quantity":20,
+     "price":10.25,"nsn":"DEMO-PEN-002"}
+  ]
+}
+""";
+var readable = MavkaJsonPreview.Format(escapedAssets);
+if (!readable.Contains("Майно підрозділу") ||
+    !readable.Contains("Папір А4") ||
+    !readable.Contains("Ручка кулькова") ||
+    !readable.Contains("DEMO-PAPER-001") ||
+    !readable.Contains("1 410,00 грн") ||
+    readable.Contains("\\u04", StringComparison.Ordinal))
+    throw new Exception("Opening inventory Unicode/money preview failed.");
+
+const string escapedUnknown = """
+{"type":"demo","value":"\u041f\u0430\u043f\u0456\u0440"}
+""";
+var prettyUnknown = MavkaJsonPreview.Format(escapedUnknown);
+if (!prettyUnknown.Contains("Папір") ||
+    prettyUnknown.Contains("\\u04", StringComparison.Ordinal))
+    throw new Exception("Unknown format still escapes Cyrillic text.");
+
+const string invalidAssets = """
+{"format":"MAVKA_UNIT_ASSETS_V1","unit":"Test",
+ "items":[{"name":"Bad","unit":"pcs","quantity":-2}]}
+""";
+if (!MavkaJsonPreview.Format(invalidAssets).Contains("не відповідають структурі"))
+    throw new Exception("Malformed asset snapshot was not visibly rejected.");
+
+const string movementForPreview = """
+{"format":"MAVKA_UNIT_MOVEMENTS_V1","unit":"Тестовий підрозділ",
+ "entries":[{"type":"writeoff","documentId":"W1","documentNumber":"A-001",
+ "date":"2026-10-11","name":"Папір А4","unit":"пач.","quantity":2,"price":120.50}]}
+""";
+if (!MavkaJsonPreview.Format(movementForPreview).Contains("Акт списання № A-001"))
+    throw new Exception("Write-off movement format was not recognized.");
+Console.WriteLine("Readable JSON preview tests: 4/4 PASS.");
