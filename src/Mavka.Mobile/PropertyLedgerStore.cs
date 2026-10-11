@@ -146,6 +146,15 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                 x.Quantity, x.UnitPrice, x.TotalValue)).ToList();
     }
 
+    public bool HasReceipts(string unit)
+    {
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            "SELECT 1 FROM receipts WHERE recipient = ? COLLATE NOCASE LIMIT 1",
+            new[] { unit });
+        return cursor.MoveToFirst();
+    }
+
     public string? GetMailStatus(string documentId)
     {
         using var database = ReadableDatabase;
