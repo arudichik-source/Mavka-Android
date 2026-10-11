@@ -245,11 +245,23 @@ public class MainActivity : Activity
                 var filtered = all.Where(x => query.Length == 0 ||
                     x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                     (x.Nsn?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)).ToList();
-                Text(localRows, $"Локальних позицій: {filtered.Count} із {all.Count}", 14);
+                Text(localRows, $"Локальних облікових позицій: {filtered.Count} із {all.Count}", 14);
+                if (all.Count > 0)
+                {
+                    var known = all.Where(x => x.TotalValue.HasValue).Sum(x => x.TotalValue ?? 0m);
+                    Text(localRows, "Вартість позицій із відомою ціною: " +
+                        known.ToString("0.00") + " грн", 14);
+                    if (all.Any(x => !x.UnitPrice.HasValue))
+                        Text(localRows, "Є позиції без збереженої ціни — до суми вони не включені.", 13);
+                }
                 foreach (var asset in filtered)
                 {
                     Text(localRows, asset.Name + " — " + asset.Quantity.ToString("0.###") +
-                        " " + asset.Unit + (string.IsNullOrEmpty(asset.Nsn) ? "" : " · " + asset.Nsn), 14);
+                        " " + asset.Unit + (string.IsNullOrEmpty(asset.Nsn) ? "" : " · " + asset.Nsn) +
+                        (asset.UnitPrice.HasValue
+                            ? " · ціна " + asset.UnitPrice.Value.ToString("0.00") +
+                              " грн · сума " + asset.TotalValue!.Value.ToString("0.00") + " грн"
+                            : " · ціна не вказана"), 14);
                 }
                 if (all.Count == 0)
                     Text(localRows, "Ще немає підтверджених накладних.", 14);
@@ -297,7 +309,11 @@ public class MainActivity : Activity
         {
             var card = Card();
             Text(card, asset.Name, 16, true);
-            Text(card, asset.Quantity.ToString("0.###") + " " + asset.Measure, 15);
+            Text(card, asset.Quantity.ToString("0.###") + " " + asset.Measure +
+                (asset.UnitPrice.HasValue
+                    ? " · ціна " + asset.UnitPrice.Value.ToString("0.00") +
+                      " грн · сума " + (asset.Quantity * asset.UnitPrice.Value).ToString("0.00") + " грн"
+                    : " · ціна не вказана"), 15);
         }
     }
 
@@ -352,6 +368,14 @@ public class MainActivity : Activity
             var info = Card();
             Text(info, "Накладна № " + invoice.Number, 17, true);
             Text(info, "Отримувач: " + invoice.Recipient, 14);
+            Text(info, "Позицій: " + invoice.Positions.Count, 14);
+            foreach (var position in invoice.Positions)
+                Text(info, position.Name + " — " + position.Quantity.ToString("0.###") +
+                    " " + position.Unit + (position.UnitPrice.HasValue
+                        ? " · " + position.UnitPrice.Value.ToString("0.00") +
+                          " грн/од. · " +
+                          (position.Quantity * position.UnitPrice.Value).ToString("0.00") + " грн"
+                        : " · ціна не вказана"), 14);
             Button(info, "Підтвердити отримання майна", () =>
             {
                 if (_busy) return;
