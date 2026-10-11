@@ -391,3 +391,24 @@ Safe, generic quality improvements:
   MediaStore visibility/open/share/delete and Android 10+ provider semantics
   remains necessary. Stable main stays unchanged.
 ---
+
+
+## 2026-10-12 — APK identity gate and preview-only device test protocol
+
+- `tools/Inspect-Android-Apk.ps1` is a cross-platform PowerShell 7
+  inspector for SDK `aapt` package identity and `apksigner` signature.
+  It never installs unless explicitly called with `-InstallPreview` and
+  the APK package ID exactly equals `ua.mavka.mobile.preview`.
+  Uses `adb install -r -t` only, never uninstall/clear-data.
+- The build workflow now checks the manifest application IDs of both
+  production and independent preview APKs before uploading artifacts.
+  These checks do not change how CI signing keys are generated.
+- `docs/ANDROID_DEVICE_ACCEPTANCE.md` contains a repeatable device
+  test plan using fabricated document data, encryption viewers, multi-page
+  PDF, file management, offline UI, and compatibility.
+- Automatic APK update and SMS remain intentionally unimplemented by the
+  original scope. A consistent production signing key and migration/device
+  acceptance must precede any in-place upgrade promise.
+- The latest proposed changes remain in stacked draft PR #27; main is
+  unchanged. Await final GitHub Actions success for the branch head.
+---
