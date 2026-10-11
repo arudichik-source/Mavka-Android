@@ -89,7 +89,8 @@ public void SaveMainMavkaEmail(string email)
     public void Clear()
     {
         using var editor = _prefs.Edit()!;
-        editor.Clear();
+        editor.Remove("email");
+        editor.Remove("encrypted_password");
         if (!editor.Commit()) throw new InvalidOperationException("Unable to clear Gmail settings");
     }
 
