@@ -1349,18 +1349,19 @@ public class MainActivity : Activity
         header.AddView(output);
         var selected = new HashSet<string>(StringComparer.Ordinal);
         bool nameSorting = false;
+        IReadOnlyList<MavkaExportFile> files = Array.Empty<MavkaExportFile>();
+        string? readError = null;
 
+        // Searching/sorting never hits ContentResolver; MediaStore is queried
+        // only on entering the screen or pressing Refresh.
         void RenderList()
         {
             output.RemoveAllViews();
-            IReadOnlyList<MavkaExportFile> files;
-            try { files = _exportedFiles.ListFiles(); }
-            catch (Exception ex)
+            if (readError is not null)
             {
-                Text(output, "Не вдалося прочитати папку: " + ex.GetType().Name, 14);
+                Text(output, readError, 14);
                 return;
             }
-
             var query = (search.Text ?? "").Trim();
             var matches = files.Where(file =>
                 query.Length == 0 ||
@@ -1414,14 +1415,33 @@ public class MainActivity : Activity
                 Text(output, "Відображено перші 100 файлів. Скористайся пошуком.", 13);
         }
 
+        void ReloadList()
+        {
+            try
+            {
+                files = _exportedFiles.ListFiles();
+                readError = null;
+                selected.IntersectWith(
+                    files.Select(item => item.Uri.ToString()!));
+            }
+            catch (Exception ex)
+            {
+                files = Array.Empty<MavkaExportFile>();
+                readError = "Не вдалося прочитати папку: " + ex.GetType().Name;
+                selected.Clear();
+            }
+            RenderList();
+        }
+
         search.TextChanged += (_, _) => RenderList();
-        Button(header, "Сортувати: " + (nameSorting ? "назва" : "дата") +
-            " (перемкнути)", () =>
+        var sortLabel = Text(header, "Сортування: за датою", 12);
+        Button(header, "Змінити сортування", () =>
         {
             nameSorting = !nameSorting;
+            sortLabel.Text = "Сортування: " + (nameSorting ? "за назвою" : "за датою");
             RenderList();
         });
-        Button(header, "Оновити список", RenderList);
+        Button(header, "Оновити список", ReloadList);
 
         void ConfirmDeletion(bool all)
         {
@@ -1483,7 +1503,7 @@ public class MainActivity : Activity
 
         Button(header, "Видалити вибрані", () => ConfirmDeletion(false));
         Button(header, "Очистити папку", () => ConfirmDeletion(true));
-        RenderList();
+        ReloadList();
     }
 
     private void ShowDrawer()
