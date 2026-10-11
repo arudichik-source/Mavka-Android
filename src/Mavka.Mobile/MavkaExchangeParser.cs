@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Mavka.Mobile;
 
-internal sealed record UnitAsset(string Name, string Measure, decimal Quantity);
+internal sealed record UnitAsset(string Name, string Measure, decimal Quantity, decimal? UnitPrice);
 internal sealed record UnitAssetsSnapshot(
     string Unit, string AsOf, IReadOnlyList<UnitAsset> Items);
 internal sealed record IncomingPosition(
@@ -37,7 +37,16 @@ internal static class MavkaExchangeParser
                     !item.TryGetProperty("quantity", out var qty) ||
                     qty.ValueKind != JsonValueKind.Number ||
                     !qty.TryGetDecimal(out var n) || n < 0) return false;
-                values.Add(new UnitAsset(name, measure, n));
+                decimal? unitPrice = null;
+                if (item.TryGetProperty("price", out var priceElement))
+                {
+                    if (priceElement.ValueKind != JsonValueKind.Number ||
+                        !priceElement.TryGetDecimal(out var value) ||
+                        value < 0 || value > 1000000000000m)
+                        return false;
+                    unitPrice = value;
+                }
+                values.Add(new UnitAsset(name, measure, n, unitPrice));
             }
 
             snapshot = new UnitAssetsSnapshot(unit, String(root, "asOf") ?? "", values);
