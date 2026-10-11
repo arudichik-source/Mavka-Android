@@ -120,11 +120,12 @@ public class MainActivity : Activity
         );
 
         // Нижня навігація
-        var bottomNav = new LinearLayout(this)
-        {
-            Orientation = Orientation.Horizontal,
-            Gravity = GravityFlags.Center
-        };
+       var bottomNav = new LinearLayout(this)
+{
+    Orientation = Orientation.Horizontal
+};
+
+bottomNav.SetGravity(GravityFlags.Center);
 
         var homeButton = CreateNavButton("Головна");
         var inboxButton = CreateNavButton("Вхідні");
