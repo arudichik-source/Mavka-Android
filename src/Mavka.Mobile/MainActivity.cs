@@ -25,7 +25,7 @@ public class MainActivity : Activity
     private ExchangeKeyStore _exchangeKeys = null!;
     private DocumentPasswordStore _documentPasswords = null!;
     private FrameLayout _drawerOverlay = null!;
-    private Button _home = null!, _inbox = null!, _assets = null!, _settings = null!;
+    private TextView _home = null!, _inbox = null!, _assets = null!, _settings = null!;
     private string _screen = "home";
     private string _inboxQuery = "";
     private string _mailFilter = "all";
@@ -51,7 +51,13 @@ public class MainActivity : Activity
         topBar.SetGravity(GravityFlags.CenterVertical);
         topBar.SetPadding(Dp(10), 0, Dp(8), 0);
         topBar.SetBackgroundColor(Color.Rgb(13, 55, 36));
-        var brand = new TextView(this) { Text = "❧  Мавка Mobile", TextSize = 20 };
+        var appMark = new ImageView(this);
+        appMark.SetImageResource(Resource.Drawable.mavka_app_icon);
+        appMark.SetScaleType(ImageView.ScaleType.FitCenter);
+        var logoLayout = new LinearLayout.LayoutParams(Dp(40), Dp(40));
+        logoLayout.SetMargins(0, 0, Dp(8), 0);
+        topBar.AddView(appMark, logoLayout);
+        var brand = new TextView(this) { Text = "Мавка Mobile", TextSize = 20 };
         brand.SetTextColor(Color.White);
         brand.SetTypeface(null, TypefaceStyle.Bold);
         topBar.AddView(brand, new LinearLayout.LayoutParams(0, Dp(52), 1));
@@ -74,7 +80,8 @@ public class MainActivity : Activity
         _home = Nav("⌂\nГоловна", ShowHome);
         _inbox = Nav("✉\nВхідні", ShowInbox);
         _assets = Nav("▣\nМайно", ShowAssets);
-        _settings = Nav("⚙\nНалаштування", ShowSettings);
+        _settings = Nav("⚙\nНалашт.", ShowSettings);
+        _settings.ContentDescription = "Налаштування";
         nav.AddView(_home);
         nav.AddView(_inbox);
         nav.AddView(_assets);
@@ -266,6 +273,7 @@ public class MainActivity : Activity
         var top = Card();
         var profile = LoadUserProfile();
         Text(top, "Підрозділ: " + (profile?.Unit ?? "не визначений у профілі"), 17, true);
+        Button(top, "Перевірити іконки (демо)", ShowIconGallery);
         var status = Text(top, "Джерело: JSON-лист ГОЛОВНОЇ МАВКИ (MAVKA_UNIT_ASSETS_V1).", 13);
         Button(top, "Оновити дані з пошти", async () =>
         {
@@ -273,6 +281,33 @@ public class MainActivity : Activity
             if (_screen == "assets") RenderAssets();
         });
         RenderAssets();
+    }
+
+    /// <summary>
+    /// Read-only visual fixture to verify the eight approved icon categories.
+    /// These labels never enter the inventory ledger.
+    /// </summary>
+    private void ShowIconGallery()
+    {
+        Begin("icon-gallery", "Перевірка іконок");
+        var info = Card();
+        Text(info, "Демонстраційна галерея іконок", 18, true);
+        Text(info, "Тут показані всі вісім категорій з архіву дизайну. " +
+            "Ці записи не є майном, не мають залишків і нічого не зараховують.", 13);
+        var entries = new[]
+        {
+            "Снаряд (демо)",
+            "Заряд (демо)",
+            "Постріл (демо)",
+            "Праймер (демо)",
+            "Реактивний (демо)",
+            "Підривник (демо)",
+            "12×70 мм (демо)",
+            "Патрон (демо)"
+        };
+        foreach (var name in entries)
+            AddAssetRow(info, name, "Перевірка відображення іконки", "ДЕМО");
+        Button(_body, "← До майна", ShowAssets);
     }
 
     private void RenderAssets()
@@ -1230,6 +1265,8 @@ public class MainActivity : Activity
             noFullscreen |
             (password ? noPersonalizedLearning : 0));
         field.SetSelectAllOnFocus(false);
+        field.SetPadding(Dp(12), Dp(7), Dp(12), Dp(7));
+        field.Background = Rounded(Color.Rgb(251, 250, 245), 12, Color.Rgb(219, 227, 218));
     }
 
     private GradientDrawable Rounded(Color fill, float radius, Color? border = null)
@@ -1279,20 +1316,30 @@ public class MainActivity : Activity
         view.Click += (_, _) => callback();
     }
 
-    private Button Nav(string title, Action action)
+    private TextView Nav(string title, Action action)
     {
-        var view = new Button(this) { Text = title, TextSize = 12 };
-        view.SetAllCaps(false);
-        view.SetSingleLine(false);
-        view.SetPadding(0, Dp(2), 0, Dp(1));
-        view.LayoutParameters = new LinearLayout.LayoutParams(0, Dp(61), 1f);
+        // TextView has no platform Button minWidth/minHeight: all four tabs
+        // fit on small screens and Android large-font configurations.
+        var view = new TextView(this)
+        {
+            Text = title,
+            TextSize = 12,
+            Gravity = GravityFlags.Center
+        };
+        view.SetMaxLines(2);
+        view.SetPadding(Dp(2), Dp(4), Dp(2), Dp(4));
+        var layout = new LinearLayout.LayoutParams(0, Dp(59), 1f);
+        layout.SetMargins(Dp(2), 0, Dp(2), 0);
+        view.LayoutParameters = layout;
+        view.Clickable = true;
         view.Click += (_, _) => action();
         return view;
     }
 
-    private void StyleNav(Button item, bool selected)
+    private void StyleNav(TextView item, bool selected)
     {
         item.SetTextColor(selected ? Color.Rgb(11, 78, 47) : Color.Rgb(105, 112, 106));
+        item.SetTypeface(null, selected ? TypefaceStyle.Bold : TypefaceStyle.Normal);
         item.Background = Rounded(selected ? Color.Rgb(230, 241, 231) : Color.White, 13);
     }
 
