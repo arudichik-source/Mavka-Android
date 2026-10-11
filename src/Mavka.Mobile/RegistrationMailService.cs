@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
@@ -20,15 +22,26 @@ internal static class RegistrationMailService
     }
 
     public static async Task SendAsync(
-        string sender, string appPassword, string recipient, UserProfile profile)
+        string sender, string appPassword, string recipient, UserProfile profile,
+        ExchangeKeyStore? exchangeKeys = null)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
 
         var message = new MimeMessage();
         message.From.Add(MailboxAddress.Parse(sender));
         message.To.Add(MailboxAddress.Parse(recipient));
-        message.Subject = "MAVKA_MOBILE_REGISTRATION_V1";
-        message.Body = new TextPart("plain") { Text = BuildBody(profile, sender) };
+        SetSecureBody(message, "MAVKA_MOBILE_REGISTRATION_V1",
+            BuildBody(profile, sender), new
+            {
+                format = "MAVKA_MOBILE_REGISTRATION_V1",
+                clientId = profile.ClientId,
+                email = sender,
+                fullName = profile.FullName,
+                rank = profile.Rank,
+                position = profile.Position,
+                unit = profile.Unit,
+                isMvo = profile.IsMvo
+            }, exchangeKeys);
 
         var connection = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
         using var client = connection.Client;
@@ -39,7 +52,8 @@ internal static class RegistrationMailService
 
     public static async Task SendReceiptAsync(
         string sender, string password, string recipient,
-        UserProfile profile, IncomingInvoice invoice)
+        UserProfile profile, IncomingInvoice invoice,
+        ExchangeKeyStore? exchangeKeys = null)
     {
         var body = "MAVKA_MOBILE_RECEIPT_V1\n" +
                    "ClientId: " + profile.ClientId + "\n" +
@@ -55,13 +69,49 @@ internal static class RegistrationMailService
         var message = new MimeMessage();
         message.From.Add(MailboxAddress.Parse(sender));
         message.To.Add(MailboxAddress.Parse(recipient));
-        message.Subject = "MAVKA_MOBILE_RECEIPT_V1 " + invoice.Number;
-        message.Body = new TextPart("plain") { Text = body };
+        SetSecureBody(message, "MAVKA_MOBILE_RECEIPT_V1 " + invoice.Number,
+            body, new
+            {
+                format = "MAVKA_MOBILE_RECEIPT_V1",
+                clientId = profile.ClientId,
+                documentId = invoice.DocumentId,
+                documentNumber = invoice.Number,
+                unit = profile.Unit,
+                fullName = profile.FullName,
+                isMvo = profile.IsMvo,
+                status = "RECEIVED",
+                confirmedAtUtc = DateTimeOffset.UtcNow
+            }, exchangeKeys);
 
         var opened = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
         using var client = opened.Client;
         await client.AuthenticateAsync(sender, password, timeout.Token);
         await client.SendAsync(message, timeout.Token);
         await client.DisconnectAsync(true, timeout.Token);
+    }
+
+    private static void SetSecureBody(
+        MimeMessage message, string legacySubject, string legacyBody,
+        object structuredData, ExchangeKeyStore? keys)
+    {
+        if (keys?.HasKeyPair != true)
+        {
+            // Only initial registration, before keys have arrived, uses the old protocol.
+            message.Subject = legacySubject;
+            message.Body = new TextPart("plain") { Text = legacyBody };
+            return;
+        }
+
+        string encryptedJson = MavkaEncryptedEnvelope.Encrypt(
+            JsonSerializer.Serialize(structuredData), keys);
+        var builder = new BodyBuilder
+        {
+            TextBody = "MAVKA_ENCRYPTED_V1. Захищене службове повідомлення Мавки Mobile."
+        };
+        builder.Attachments.Add("mavka-exchange.json",
+            Encoding.UTF8.GetBytes(encryptedJson),
+            new ContentType("application", "json"));
+        message.Subject = "MAVKA_ENCRYPTED_V1";
+        message.Body = builder.ToMessageBody();
     }
 }
