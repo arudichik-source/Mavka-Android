@@ -40,7 +40,7 @@ foreach (var (name, expected) in tests)
 Console.WriteLine($"Icon category tests: {tests.Length}/{tests.Length} PASS.");
 
 
-const journalJson = """
+const string journalJson = """
 {
   "format": "MAVKA_UNIT_MOVEMENTS_V1",
   "unit": "Тестовий підрозділ",
