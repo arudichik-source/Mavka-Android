@@ -106,10 +106,8 @@ public class MainActivity : Activity
             var bitmap = BitmapFactory.DecodeStream(stream);
             if (bitmap is not null)
             {
-                var picture = new ImageView(this)
-                {
-                    ScaleType = ImageView.ScaleType.CenterCrop
-                };
+                var picture = new ImageView(this);
+                picture.SetScaleType(ImageView.ScaleType.CenterCrop);
                 picture.SetImageBitmap(bitmap);
                 welcome.AddView(picture, new FrameLayout.LayoutParams(-1, -1));
             }
