@@ -842,6 +842,7 @@ public class MainActivity : Activity
                         if (_busy) return;
                         _busy = true;
                         status.Text = "Надсилаємо підтвердження...";
+                        bool smtpAccepted = false;
                         try
                         {
                             // SQLite transaction commits receipt and its items atomically.
@@ -861,6 +862,7 @@ public class MainActivity : Activity
                             await RegistrationMailService.SendReceiptAsync(
                                 _store.GetEmail(), password, _store.GetMainMavkaEmail(),
                                 profile, invoice, _exchangeKeys);
+                            smtpAccepted = true;
                             _ledger.MarkMailSent(invoice.DocumentId);
                             if (_archive.FindDocument(invoice.DocumentId) is not null)
                                 _archive.MarkDeliverySent(invoice.DocumentId);
@@ -872,9 +874,14 @@ public class MainActivity : Activity
                         catch (Exception ex)
                         {
                             if (_screen == "message")
-                                status.Text = "Gmail зараз недоступний: " + ex.GetType().Name +
-                                    ". Проведений документ не буде зарахований вдруге. " +
-                                    "Підтвердження збережено в черзі для повторного надсилання.";
+                                status.Text = smtpAccepted
+                                    ? "Gmail прийняв підтвердження, але локальне оновлення " +
+                                      "статусу не завершилося (" + ex.GetType().Name +
+                                      "). Не підтверджуй накладну повторно; перевір чергу."
+                                    : "Не вдалося завершити відправлення (" +
+                                      ex.GetType().Name +
+                                      "). Проведення збережено, підтвердження очікує " +
+                                      "повторної спроби. Не проводь накладну вдруге.";
                         }
                         finally { _busy = false; }
                     })
@@ -1101,6 +1108,15 @@ public class MainActivity : Activity
     {
         try
         {
+            // The ledger and encrypted archive are intentionally separate SQLite
+            // files. Heal the UI statuses after a crash between their commits.
+            var ledgerStatus = _ledger.GetMailStatus(documentId);
+            if (ledgerStatus is "pending" or "sent")
+            {
+                _archive.MarkPosted(documentId);
+                if (ledgerStatus == "sent") _archive.MarkDeliverySent(documentId);
+                else _archive.MarkDeliveryQueued(documentId);
+            }
             var doc = _archive.FindDocument(documentId) ??
                 throw new InvalidOperationException("Document not found.");
             var attachment = new MavkaTextAttachment(doc.FileName,
