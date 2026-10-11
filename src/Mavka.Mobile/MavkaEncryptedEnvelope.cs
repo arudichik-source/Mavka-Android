@@ -77,6 +77,46 @@ internal static class MavkaEncryptedEnvelope
         finally { CryptographicOperations.ZeroMemory(key); }
     }
 
+    public static string Encrypt(string plaintextJson, ExchangeKeyStore store)
+    {
+        if (!store.HasKeyPair)
+            throw new InvalidOperationException("No active exchange-key package.");
+        if (plaintextJson.Length is < 1 or > 18000)
+            throw new ArgumentException("Outgoing message exceeds the supported size.");
+
+        using (var check = JsonDocument.Parse(plaintextJson))
+            if (check.RootElement.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException("Expected JSON object.");
+
+        byte[]? key = store.GetCurrentKey() ??
+            throw new InvalidOperationException("Active exchange key is unavailable.");
+        try
+        {
+            var keyId = store.CurrentKeyId!;
+            var nonce = RandomNumberGenerator.GetBytes(12);
+            var plain = StrictUtf8.GetBytes(plaintextJson);
+            try
+            {
+                var ciphertext = new byte[plain.Length];
+                var tag = new byte[16];
+                using (var aes = new AesGcm(key, 16))
+                    aes.Encrypt(nonce, plain, ciphertext, tag,
+                        Encoding.UTF8.GetBytes("MAVKA_ENCRYPTED_V1:" + keyId));
+                return JsonSerializer.Serialize(new
+                {
+                    format = "MAVKA_ENCRYPTED_V1",
+                    algorithm = "AES-256-GCM",
+                    keyId,
+                    nonce = Convert.ToBase64String(nonce),
+                    ciphertext = Convert.ToBase64String(ciphertext),
+                    tag = Convert.ToBase64String(tag)
+                });
+            }
+            finally { CryptographicOperations.ZeroMemory(plain); }
+        }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
+
     private static string? Field(JsonElement root, string name) =>
         root.TryGetProperty(name, out var field) &&
         field.ValueKind == JsonValueKind.String ? field.GetString() : null;
