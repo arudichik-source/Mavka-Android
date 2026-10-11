@@ -740,39 +740,8 @@ public class MainActivity : Activity
             });
         }
 
-        if (mail.MessageUid != 0)
-        Button(_body, "Перемістити лист у кошик Gmail", () =>
-        {
-            if (_busy) return;
-            new AlertDialog.Builder(this)
-                .SetTitle("Перемістити лист у кошик?")
-                .SetMessage("Лист «" + mail.Subject +
-                    "» буде переміщено в кошик Gmail. Це не видалить документ з головної Мавки.")
-                .SetNegativeButton("Скасувати", (_, _) => { })
-                .SetPositiveButton("У кошик", async (_, _) =>
-                {
-                    if (_busy) return;
-                    _busy = true;
-                    status.Text = "Переміщення листа в кошик...";
-                    try
-                    {
-                        var pass = _store.GetPassword() ??
-                            throw new InvalidOperationException("Пароль Gmail відсутній.");
-                        await GmailConnectionService.MoveToTrashAsync(
-                            _store.GetEmail(), pass, _store.GetMainMavkaEmail(), mail);
-                        _messages = _messages.Where(m => !(m.MessageUid == mail.MessageUid &&
-                            m.UidValidity == mail.UidValidity)).ToList();
-                        ShowInbox();
-                    }
-                    catch (Exception ex)
-                    {
-                        if (_screen == "message")
-                            status.Text = "Помилка переміщення: " + ex.GetType().Name;
-                    }
-                    finally { _busy = false; }
-                })
-                .Show();
-        });
+        // Gmail cleanup is automatic only after verified durable import.
+        // No manual bypass: a message with unread attachments stays in Inbox.
         Button(_body, _viewingArchivedDocument ? "← До архіву" : "← До вхідних",
             _viewingArchivedDocument ? ShowDocuments : ShowInbox);
     }
