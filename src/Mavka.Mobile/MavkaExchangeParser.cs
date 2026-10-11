@@ -5,7 +5,8 @@ namespace Mavka.Mobile;
 internal sealed record UnitAsset(string Name, string Measure, decimal Quantity);
 internal sealed record UnitAssetsSnapshot(
     string Unit, string AsOf, IReadOnlyList<UnitAsset> Items);
-internal sealed record IncomingPosition(int LineNo, string Name, string Unit, decimal Quantity, string? Nsn);
+internal sealed record IncomingPosition(
+    int LineNo, string Name, string Unit, decimal Quantity, string? Nsn, decimal? UnitPrice);
 internal sealed record IncomingInvoice(
     string DocumentId, string Number, string Recipient,
     string Date, IReadOnlyList<IncomingPosition> Positions);
@@ -86,8 +87,19 @@ internal static class MavkaExchangeParser
                     !quantity.TryGetDecimal(out decimal amount) ||
                     amount <= 0 || amount > 1000000000)
                     return false;
+                // Price is an optional monetary field for legacy records.
+                // Missing price stays NULL, never assumed to be zero.
+                decimal? price = null;
+                if (item.TryGetProperty("price", out var priceElement))
+                {
+                    if (priceElement.ValueKind != JsonValueKind.Number ||
+                        !priceElement.TryGetDecimal(out var parsedPrice) ||
+                        parsedPrice < 0 || parsedPrice > 1000000000000m)
+                        return false;
+                    price = parsedPrice;
+                }
                 parsed.Add(new IncomingPosition(++line, name, unit, amount,
-                    String(item, "nsn")));
+                    String(item, "nsn"), price));
             }
             invoice = new IncomingInvoice(id, number, recipient,
                 String(root, "documentDate") ?? String(root, "date") ?? "",
