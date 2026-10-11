@@ -33,8 +33,7 @@ internal sealed class MavkaExportFileStore
             MediaStore.IMediaColumns.DisplayName,
             MediaStore.IMediaColumns.RelativePath,
             MediaStore.IMediaColumns.Size,
-            MediaStore.IMediaColumns.DateModified,
-            MediaStore.IMediaColumns.MimeType
+            MediaStore.IMediaColumns.DateModified
         ];
 
         var files = new List<MavkaExportFile>();
@@ -52,7 +51,6 @@ internal sealed class MavkaExportFileStore
         int folderIndex = cursor.GetColumnIndexOrThrow(MediaStore.IMediaColumns.RelativePath);
         int sizeIndex = cursor.GetColumnIndexOrThrow(MediaStore.IMediaColumns.Size);
         int dateIndex = cursor.GetColumnIndexOrThrow(MediaStore.IMediaColumns.DateModified);
-        int mimeIndex = cursor.GetColumnIndexOrThrow(MediaStore.IMediaColumns.MimeType);
 
         while (cursor.MoveToNext())
         {
@@ -88,8 +86,7 @@ internal sealed class MavkaExportFileStore
             throw new ArgumentException("Only protected PDF is supported for export.");
         if (encryptedPdf.Length is < 200 or > 20_000_000 ||
             System.Text.Encoding.ASCII.GetString(encryptedPdf, 0, 5) != "%PDF-" ||
-            !System.Text.Encoding.Latin1.GetString(encryptedPdf)
-                .Contains("/Encrypt", StringComparison.Ordinal))
+            encryptedPdf.AsSpan().IndexOf("/Encrypt"u8) < 0)
             throw new InvalidOperationException("Export must be a password-encrypted PDF.");
 
         var resolver = _context.ContentResolver ??
