@@ -785,7 +785,53 @@ public class MainActivity : Activity
             arrow.SetTextColor(Color.Rgb(48, 81, 58));
             row.Clickable = true;
             row.Click += (_, _) => ShowMessage(mail);
+            if (!mail.CachedPreview && mail.MessageUid != 0 && mail.UidValidity != 0)
+            {
+                row.LongClickable = true;
+                row.LongClick += (_, args) =>
+                {
+                    args.Handled = true;
+                    ConfirmMailTrash(mail);
+                };
+            }
         }
+    }
+
+    private void ConfirmMailTrash(MavkaMailItem mail)
+    {
+        if (_busy || mail.CachedPreview || mail.MessageUid == 0 ||
+            mail.UidValidity == 0) return;
+        new AlertDialog.Builder(this)
+            .SetTitle("Перемістити лист у кошик Gmail?")
+            .SetMessage("Тема: " + mail.Subject +
+                "\n\nНезбережені вкладення не будуть імпортовані. " +
+                "Переміщення до кошика можна скасувати в Gmail. " +
+                "Ключі й документи на телефоні залишаться.")
+            .SetNegativeButton("Скасувати", (_, _) => { })
+            .SetPositiveButton("У кошик", async (_, _) =>
+            {
+                if (_busy) return;
+                _busy = true;
+                try
+                {
+                    var password = _store.GetPassword() ??
+                        throw new InvalidOperationException("Пароль Gmail відсутній.");
+                    await GmailConnectionService.MoveToTrashAsync(
+                        _store.GetEmail(), password,
+                        _store.GetMainMavkaEmail(), mail);
+                    _messages = _messages.Where(item =>
+                        item.UidValidity != mail.UidValidity ||
+                        item.MessageUid != mail.MessageUid).ToList();
+                    SaveInboxCacheSafe();
+                    ShowInbox();
+                }
+                catch (Exception)
+                {
+                    Toast.MakeText(this, "Не вдалося перемістити лист у кошик; " +
+                        "він залишився у Gmail.", ToastLength.Long)?.Show();
+                }
+                finally { _busy = false; }
+            }).Show();
     }
 
     private void ShowMailImagePreview(string name, byte[] imageBytes)
