@@ -1,0 +1,117 @@
+name: Build signed final Mavka Mobile
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signed-final:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require approved release branch
+        shell: bash
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main" || {
+            echo "Final signing only runs from reviewed main branch."
+            exit 1
+          }
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Android workload
+        run: dotnet workload install android
+
+      - name: Verify core models and encryption
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tools/AssetIconChecks
+          dotnet run --project tools/ArchiveChecks
+          dotnet run --project tools/LedgerChecks
+          dotnet run --project tools/XlsxChecks
+          dotnet run --project tools/TransferChecks
+          dotnet run --project tools/FileEnvelopeChecks
+          dotnet run --project tools/FilePolicyChecks
+          dotnet run --project tools/ProtectedPdfChecks
+          dotnet run --project tools/ProtectedXlsxChecks
+          dotnet run --project tools/PdfFlowChecks
+          dotnet run --project tools/ReconciliationChecks
+          python3 tools/sqlite_migration_smoke.py
+
+      - name: Require and verify persistent signing identity
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.MAVKA_ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MAVKA_ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MAVKA_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.MAVKA_ANDROID_KEY_PASSWORD }}
+          APPROVED_SHA256: ${{ secrets.MAVKA_ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_B64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD APPROVED_SHA256; do
+            test -n "${!name}" || { echo "Missing signing secret: $name"; exit 1; }
+          done
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mavka-release.jks"
+          cert_hash=$(keytool -exportcert -alias "$KEY_ALIAS" -keystore "$RUNNER_TEMP/mavka-release.jks" \
+            -storepass:env KEYSTORE_PASSWORD | sha256sum | cut -d' ' -f1)
+          normalized=$(printf '%s' "$APPROVED_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          test "$cert_hash" = "$normalized" || {
+            echo "Release key does not match approved signing certificate."
+            exit 1
+          }
+          echo "Release signing identity verified."
+
+      - name: Build only final release APK
+        shell: bash
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.MAVKA_ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.MAVKA_ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MAVKA_ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj \
+            -f net10.0-android -c Release \
+            -p:AndroidKeyStore=true \
+            -p:AndroidSigningKeyStore="$RUNNER_TEMP/mavka-release.jks" \
+            -p:AndroidSigningKeyAlias="$KEY_ALIAS" \
+            -p:AndroidSigningStorePass=env:KEYSTORE_PASSWORD \
+            -p:AndroidSigningKeyPass=env:KEY_PASSWORD \
+            -p:AndroidPackageFormats=apk \
+            -p:PublishDir="$RUNNER_TEMP/mavka-final-output/"
+
+      - name: Verify final APK package and certificate
+        shell: bash
+        env:
+          APPROVED_SHA256: ${{ secrets.MAVKA_ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p final-apk
+          aapt=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          normalized=$(printf '%s' "$APPROVED_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          matches=0
+          while IFS= read -r -d '' apk; do
+            "$apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/cert-check.txt" || continue
+            actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/cert-check.txt" | head -1)
+            actual=$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')
+            [ "$actual" = "$normalized" ] || continue
+            "$aapt" dump badging "$apk" | grep -F "package: name='ua.mavka.mobile'"
+            cp "$apk" final-apk/Mavka-Mobile-FINAL.apk
+            matches=$((matches+1))
+          done < <(find "$RUNNER_TEMP/mavka-final-output" -type f -name '*.apk' -print0)
+          test "$matches" -eq 1 || { echo "Exactly one signed final APK required."; exit 1; }
+          sha256sum final-apk/Mavka-Mobile-FINAL.apk
+
+      - name: Publish exactly one signed final APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mavka-Mobile-FINAL-SIGNED-APK
+          path: final-apk/Mavka-Mobile-FINAL.apk
+          if-no-files-found: error
