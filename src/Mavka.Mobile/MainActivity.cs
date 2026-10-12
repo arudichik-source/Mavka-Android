@@ -1639,7 +1639,8 @@ public class MainActivity : Activity
                 int displayed = 0;
                 var entriesPanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
                 receivedList.AddView(entriesPanel);
-                var moreButton = Button(receivedList, "Показати ще 20 файлів", AppendNextFiles);
+                Android.Widget.Button? moreButton = null;
+                moreButton = Button(receivedList, "Показати ще 20 файлів", AppendNextFiles);
                 void AppendNextFiles()
                 {
                 foreach (var entry in entries.Skip(displayed).Take(20))
@@ -1706,10 +1707,13 @@ public class MainActivity : Activity
                     });
                 }
                     displayed = Math.Min(displayed + 20, entries.Count);
-                    moreButton.Visibility = displayed >= entries.Count
-                        ? ViewStates.Gone : ViewStates.Visible;
-                    moreButton.Text = "Показати ще 20 (показано " + displayed +
-                        " із " + entries.Count + ")";
+                    if (moreButton is not null)
+                    {
+                        moreButton.Visibility = displayed >= entries.Count
+                            ? ViewStates.Gone : ViewStates.Visible;
+                        moreButton.Text = "Показати ще 20 (показано " + displayed +
+                            " із " + entries.Count + ")";
+                    }
                 }
                 AppendNextFiles();
             }
