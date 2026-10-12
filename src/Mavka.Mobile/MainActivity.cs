@@ -1000,6 +1000,75 @@ public class MainActivity : Activity
                 }
             }
         }
+        if (mail.AllSecureFileAttachments &&
+            mail.Attachments.Count > 1 && !mail.CachedPreview && !_viewingArchivedDocument)
+        {
+            var bulkStatus = Text(_body,
+                "Усі захищені вкладення можна перевірити та зберегти за один раз.", 13);
+            Button(_body, "Зберегти всі захищені вкладення", async () =>
+            {
+                if (_busy) return;
+                _busy = true;
+                try
+                {
+                    int count = await Task.Run(() =>
+                    {
+                        int saved = 0;
+                        foreach (var entry in mail.Attachments)
+                        {
+                            using var received = MavkaEncryptedFileEnvelope.Decrypt(
+                                entry.SecureFileEnvelope!,
+                                id => _exchangeKeys.GetKey(id));
+                            _privateFiles.Save(received); // includes vault read-back
+                            saved++;
+                        }
+                        return saved;
+                    });
+                    bulkStatus.Text = "Перевірено й захищено збережено: " + count +
+                        " із " + mail.Attachments.Count + " вкладень.";
+                    if (mail.MessageUid > 0 && mail.UidValidity > 0)
+                    {
+                        var sender = _store.GetMainMavkaEmail();
+                        _archive.MarkMailReady(mail.UidValidity, mail.MessageUid, sender);
+                        try
+                        {
+                            var password = _store.GetPassword() ??
+                                throw new InvalidOperationException("Gmail не підключено.");
+                            await GmailConnectionService.MoveToTrashAsync(
+                                _store.GetEmail(), password, sender, mail);
+                            _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, sender);
+                            _messages = _messages.Where(m =>
+                                m.MessageUid != mail.MessageUid ||
+                                m.UidValidity != mail.UidValidity).ToArray();
+                            SaveInboxCacheSafe();
+                            bulkStatus.Text += " Лист перенесено до кошика Gmail.";
+                        }
+                        catch (Exception)
+                        {
+                            bulkStatus.Text += " Лист уже опрацьовано. Перенесення в " +
+                                "кошик буде повторено під час наступного оновлення пошти.";
+                        }
+                    }
+                }
+                catch (KeyNotFoundException)
+                {
+                    bulkStatus.Text = "Немає потрібного ключа. Збережені раніше " +
+                        "вкладення не видалено, лист залишається у Gmail.";
+                }
+                catch (System.Security.Cryptography.CryptographicException)
+                {
+                    bulkStatus.Text = "AES-GCM: одне з вкладень не пройшло " +
+                        "перевірку. Лист не перенесено до кошика.";
+                }
+                catch (Exception ex)
+                {
+                    bulkStatus.Text = "Не вдалося зберегти всі файли: " +
+                        ExplainOperationError(ex) + ". Лист залишено у Gmail.";
+                }
+                finally { _busy = false; }
+            });
+        }
+
         foreach (var attachment in mail.Attachments)
         {
             if (!MavkaExchangeParser.TryInvoice(attachment.RawJson, out var invoice) ||
