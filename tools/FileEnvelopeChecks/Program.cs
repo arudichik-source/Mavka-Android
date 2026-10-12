@@ -66,7 +66,8 @@ try
         "too-large.pdf", new byte[MavkaEncryptedFileEnvelope.MaxFileBytes+1], current),
         "Excessive attachment size");
     Check(sealedPdf.Contains("MAVKA_ENCRYPTED_FILE_V1"), "Distinct file format");
-    Console.WriteLine($"Generic encrypted PDF/XLSX transport tests: {completed}/12 PASS");
+    if (completed != 13) throw new Exception("Missing file transport regression assertions.");
+    Console.WriteLine($"Generic encrypted PDF/XLSX transport tests: {completed}/13 PASS");
 }
 finally
 {
