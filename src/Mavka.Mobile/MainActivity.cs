@@ -1562,13 +1562,21 @@ public class MainActivity : Activity
                 receivedList.RemoveAllViews();
                 if (entries.Count == 0)
                     Text(receivedList, "Захищених PDF/XLSX поки немає.", 13);
-                foreach (var entry in entries)
+                // Creating 200+ Android controls at once stalls older phones.
+                // Render a bounded batch while retaining access to all 100 entries.
+                int displayed = 0;
+                var entriesPanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
+                receivedList.AddView(entriesPanel);
+                var moreButton = Button(receivedList, "Показати ще 20 файлів", AppendNextFiles);
+                void AppendNextFiles()
                 {
-                    var label = Text(receivedList, entry.Name + " · " +
+                foreach (var entry in entries.Skip(displayed).Take(20))
+                {
+                    var label = Text(entriesPanel, entry.Name + " · " +
                         (entry.Size / 1024d).ToString("0.#") + " КБ", 13, true);
                     label.SetMaxLines(3);
                     label.Ellipsize = Android.Text.TextUtils.TruncateAt.End;
-                    Button(receivedList, "Зберегти розшифровану копію", () =>
+                    Button(entriesPanel, "Зберегти розшифровану копію", () =>
                     {
                         if (_busy) return;
                         new AlertDialog.Builder(this)
@@ -1597,7 +1605,7 @@ public class MainActivity : Activity
                                 }
                             }).Show();
                     });
-                    Button(receivedList, "Видалити локальну захищену копію", () =>
+                    Button(entriesPanel, "Видалити локальну захищену копію", () =>
                     {
                         if (_busy) return;
                         new AlertDialog.Builder(this)
@@ -1625,6 +1633,13 @@ public class MainActivity : Activity
                             }).Show();
                     });
                 }
+                    displayed = Math.Min(displayed + 20, entries.Count);
+                    moreButton.Visibility = displayed >= entries.Count
+                        ? ViewStates.Gone : ViewStates.Visible;
+                    moreButton.Text = "Показати ще 20 (показано " + displayed +
+                        " із " + entries.Count + ")";
+                }
+                AppendNextFiles();
             }
             catch (Exception)
             {
