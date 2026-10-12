@@ -507,12 +507,13 @@ internal static class GmailConnectionService
                 // JSON as an accounting document. Only the AES-GCM verified
                 // MAVKA_ENCRYPTED_V1 payload is permitted. The password-sealed
                 // key package above is a separate enrollment operation.
-                if (isJson && exchangeKeys?.HasKeyPair == true &&
-                    !authenticatedJson && !installedKey)
+                if (IncomingAttachmentSecurityPolicy.RejectPlaintext(
+                    exchangeKeys?.HasKeyPair == true, authenticatedJson,
+                    isJson && MavkaKeyPackage.IsPackage(contents)))
                 {
                     usableJson = null;
-                    display = "🔒 Незашифрований JSON відхилено. " +
-                        "Після встановлення ключів усі документи ГОЛОВНОЇ МАВКИ " +
+                    display = "🔒 Незашифроване TXT/JSON-вкладення відхилено. " +
+                        "Після встановлення ключів облікові документи " +
                         "мають надходити у MAVKA_ENCRYPTED_V1.";
                 }
                 textAttachments.Add(new MavkaTextAttachment(
