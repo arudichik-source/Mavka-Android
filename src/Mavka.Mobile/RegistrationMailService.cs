@@ -100,8 +100,9 @@ internal static class RegistrationMailService
     public static async Task SendFilePartAsync(string sender, string password, string recipient,
         string fileName, string part)
     {
-        if (System.Text.Encoding.UTF8.GetByteCount(part) > MavkaFileParts.MaxPartBytes)
-            throw new ArgumentException("Частина завелика.");
+        if (!MavkaPasswordedEnvelope.IsWrapped(part) ||
+            System.Text.Encoding.UTF8.GetByteCount(part) > 700_000)
+            throw new ArgumentException("Потрібна зашифрована та парольна частина.");
         var mail = new MimeMessage();
         mail.From.Add(MailboxAddress.Parse(sender)); mail.To.Add(MailboxAddress.Parse(recipient));
         mail.Subject = MavkaFileParts.Format;
@@ -124,14 +125,9 @@ internal static class RegistrationMailService
             from.Address != sender || to.Address != recipient)
             throw new ArgumentException("Некоректна адреса електронної пошти.");
         _ = MavkaEncryptedFileEnvelope.MimeFor(originalName);
-        if (encryptedEnvelope.Length is < 100 or > MavkaEncryptedFileEnvelope.MaxEnvelopeBytes)
-            throw new ArgumentException("Зашифрований документ завеликий.");
-        using (var parsed = JsonDocument.Parse(encryptedEnvelope))
-        {
-            if (parsed.RootElement.GetProperty("format").GetString() !=
-                MavkaEncryptedFileEnvelope.Format)
-                throw new ArgumentException("Непідтримуваний тип пакета.");
-        }
+        if (encryptedEnvelope.Length is < 100 or > 5_000_000 ||
+            !MavkaPasswordedEnvelope.IsWrapped(encryptedEnvelope))
+            throw new ArgumentException("Документ повинен бути захищений ключем і паролем.");
 
         var mail = new MimeMessage();
         mail.From.Add(MailboxAddress.Parse(sender));
@@ -139,7 +135,7 @@ internal static class RegistrationMailService
         mail.Subject = "MAVKA_ENCRYPTED_FILE_V1";
         var body = new BodyBuilder
         {
-            TextBody = "Захищене вкладення PDF/XLSX. Доступне лише з ключем обміну."
+            TextBody = "Захищене вкладення Мавки. Потрібні ключ обміну й пароль документів."
         };
         body.Attachments.Add(originalName + MavkaEncryptedFileEnvelope.Extension,
             Encoding.UTF8.GetBytes(encryptedEnvelope),
