@@ -60,4 +60,4 @@ Check(PrivateVaultListingPolicy.CandidateIds(allPaths.Concat(
     "List honors bounded vault capacity");
 Check(!PrivateVaultListingPolicy.IsId("../" + new string('a',60)),
     "No relative identifier traversal");
-Console.WriteLine("File export, mail metadata and encrypted vault listing policy: 24/24 PASS");
+Console.WriteLine("File export, mail metadata and encrypted vault listing policy: 25/25 PASS");
