@@ -23,6 +23,8 @@ public class MainActivity : Activity
     private PropertyLedgerStore _ledger = null!;
     private DocumentArchiveStore _archive = null!;
     private MavkaExportFileStore _exportedFiles = null!;
+    private GmailInboxCache _inboxCache = null!;
+    private ScrollView _scroll = null!;
     private bool _viewingArchivedDocument;
     private DateOnly _assetsAsOf = DateOnly.FromDateTime(DateTime.Today);
     private AssetIconProvider _assetIcons = null!;
@@ -35,6 +37,7 @@ public class MainActivity : Activity
     private string _mailFilter = "all";
     private bool _busy;
     private IReadOnlyList<MavkaMailItem> _messages = Array.Empty<MavkaMailItem>();
+                _inboxCache.Clear();
 
     protected override void OnCreate(Bundle? state)
     {
@@ -51,6 +54,9 @@ public class MainActivity : Activity
         _assetIcons = new AssetIconProvider(this);
         _exchangeKeys = new ExchangeKeyStore(this);
         _documentPasswords = new DocumentPasswordStore(this);
+        _inboxCache = new GmailInboxCache(this);
+        if (_store.HasCredentials)
+            _messages = _inboxCache.Load(_store.GetEmail(), _store.GetMainMavkaEmail());
         var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
         root.SetBackgroundColor(Color.Rgb(249, 247, 242));
         root.SetOnApplyWindowInsetsListener(new SafeInsets(Dp(14), Dp(10), Dp(10)));
@@ -66,6 +72,8 @@ public class MainActivity : Activity
         logoLayout.SetMargins(0, 0, Dp(8), 0);
         topBar.AddView(appMark, logoLayout);
         var brand = new TextView(this) { Text = "Мавка Mobile", TextSize = 20 };
+        brand.SetSingleLine(true);
+        brand.Ellipsize = Android.Text.TextUtils.TruncateAt.End;
         brand.SetTextColor(Color.White);
         brand.SetTypeface(null, TypefaceStyle.Bold);
         topBar.AddView(brand, new LinearLayout.LayoutParams(0, Dp(52), 1));
@@ -80,6 +88,7 @@ public class MainActivity : Activity
         root.AddView(topBar);
 
         var scroll = new ScrollView(this) { FillViewport = true };
+        _scroll = scroll;
         scroll.LayoutParameters = new LinearLayout.LayoutParams(-1, 0, 1);
         _body = new LinearLayout(this) { Orientation = Orientation.Vertical };
         _body.SetPadding(0, Dp(8), 0, Dp(12));
@@ -188,6 +197,9 @@ public class MainActivity : Activity
         _screen = screen;
         Title = "Мавка Mobile — " + title;
         _body.RemoveAllViews();
+        // Every new screen starts at its own top, not at the previous scroll offset.
+        _scroll.ScrollTo(0, 0);
+        _scroll.Post(() => { if (_screen == screen) _scroll.ScrollTo(0, 0); });
         // Keep all tabs clickable; a selected tab is highlighted rather than disabled.
         StyleNav(_home, screen == "home");
         StyleNav(_inbox, screen is "inbox" or "message");
@@ -309,7 +321,10 @@ public class MainActivity : Activity
         }
 
         var status = Text(card, _store.HasCredentials
-            ? "Онови пошту, щоб перевірити нові документи."
+            ? _messages.Count > 0
+                ? "Збережені повідомлення: " + _messages.Count +
+                  ". Онови Gmail для перевірки нових листів."
+                : "Онови пошту, щоб перевірити нові документи."
             : "Підключи Gmail у Налаштуваннях.", 12);
         Button(card, "Оновити листи", async () =>
         {
@@ -769,14 +784,17 @@ public class MainActivity : Activity
             {
                 var fileCard = Card();
                 Text(fileCard, attachment.FileName, 16, true);
-                Text(fileCard, "Перегляд без збереження й автоматичного імпорту", 13);
+                Text(fileCard, _viewingArchivedDocument
+                    ? "Збережено в захищеному локальному архіві · лише перегляд"
+                    : "Перегляд вкладення без автоматичного збереження", 13);
                 Button(fileCard, "Переглянути файл", () =>
                     new AlertDialog.Builder(this)
-                        .SetTitle(attachment.FileName)
-                        .SetMessage(attachment.Text.Length <= 8000
-                            ? attachment.Text
-                            : attachment.Text[..8000] +
-                              "\n\nПерегляд скорочено. Структурований документ доступний у картці.")
+                        .SetTitle("Перегляд вкладення")
+                        .SetMessage(attachment.FileName + "\n\n" +
+                            (attachment.Text.Length <= 8000
+                                ? attachment.Text
+                                : attachment.Text[..8000] +
+                                  "\n\nПерегляд скорочено."))
                         .SetPositiveButton("Закрити", (_, _) => { })
                         .Show());
             }
@@ -955,6 +973,7 @@ public class MainActivity : Activity
                             _messages = _messages.Where(item =>
                                 item.UidValidity != mail.UidValidity ||
                                 item.MessageUid != mail.MessageUid).ToList();
+                            SaveInboxCacheSafe();
 
                             if (_screen == "message" && !_viewingArchivedDocument)
                                 ShowInbox();
@@ -985,6 +1004,31 @@ public class MainActivity : Activity
             _viewingArchivedDocument ? ShowDocuments : ShowInbox);
     }
 
+    private void SaveInboxCacheSafe()
+    {
+        try
+        {
+            if (_store.HasCredentials)
+                _inboxCache.Save(_store.GetEmail(), _store.GetMainMavkaEmail(), _messages);
+        }
+        catch (Exception) { /* Gmail and archive state stay authoritative. */ }
+    }
+
+    private string CachedMailHint() => _messages.Count > 0
+        ? " Збережені листи доступні для перегляду: " + _messages.Count + "."
+        : "";
+
+    private static string ExplainMailError(Exception error) => error switch
+    {
+        System.Net.Sockets.SocketException =>
+            "Не вдається підключитися до інтернету. Перевір мережу й повтори спробу.",
+        System.IO.IOException =>
+            "З'єднання з Gmail перервано. Перевір інтернет і повтори спробу.",
+        MailKit.Security.SslHandshakeException =>
+            "Не вдалося встановити захищене з'єднання Gmail. Перевір дату й мережу.",
+        _ => "Не вдалося оновити Gmail. Перевір підключення й повтори спробу."
+    };
+
     private async Task RefreshMessagesAsync(TextView status)
     {
         if (_busy) return;
@@ -1010,6 +1054,7 @@ public class MainActivity : Activity
                 _store.GetEmail(), password, sender, _exchangeKeys,
                 _documentPasswords, LoadUserProfile()?.ClientId);
             var report = await ArchiveAndCleanupAsync(password, sender);
+            SaveInboxCacheSafe();
             var syncReport = await SendPendingReceiptsAsync(password, sender);
             if (_screen is "home" or "inbox" or "assets")
                 status.Text = $"Листів у вхідних: {_messages.Count}. " + report +
@@ -1023,12 +1068,13 @@ public class MainActivity : Activity
         catch (System.OperationCanceledException)
         {
             if (_screen is "home" or "inbox")
-                status.Text = "Перевищено час очікування з’єднання.";
+                status.Text = "Gmail не відповідає вчасно. Перевір інтернет і спробуй знову." +
+                    CachedMailHint();
         }
         catch (Exception ex)
         {
             if (_screen is "home" or "inbox")
-                status.Text = $"Помилка читання пошти: {ex.GetType().Name}";
+                status.Text = ExplainMailError(ex) + CachedMailHint();
         }
         finally { _busy = false; }
     }
@@ -1085,8 +1131,8 @@ public class MainActivity : Activity
                 remaining.Add(mail with
                 {
                     ProcessingIssue = mail.Attachments.Count == 0
-                        ? "Немає придатного вкладення для збереження. Лист залишено."
-                        : "Частина вкладень не прочитана або не підтримується. Лист залишено."
+                        ? "Немає підтримуваного вкладення. PDF/XLSX із Gmail поки не імпортуються. Лист залишено."
+                        : "Не всі вкладення підтримуються. Перевір типи файлів; лист залишено."
                 });
                 kept++;
                 continue;
@@ -1812,6 +1858,7 @@ public class MainActivity : Activity
                     {
                         _exchangeKeys.Clear();
                         _messages = Array.Empty<MavkaMailItem>();
+                _inboxCache.Clear();
                         status.Text = "Ключі видалено. Для повторного отримання потрібна нова реєстрація.";
                     }
                     catch (Exception ex) { status.Text = "Помилка: " + ex.GetType().Name; }
@@ -1849,6 +1896,7 @@ public class MainActivity : Activity
                 _documentPasswords.Save(input.Text ?? "");
                 input.Text = "";
                 _messages = Array.Empty<MavkaMailItem>();
+                _inboxCache.Clear();
                 status.Text = "Пароль збережено. Наступні захищені файли читатимуться автоматично.";
             }
             catch (ArgumentException)
@@ -1953,7 +2001,8 @@ public class MainActivity : Activity
             try
             {
                 _store.SaveMainMavkaEmail(address);
-                _messages = Array.Empty<MavkaMailItem>(); // Do not retain messages after sender change.
+                _messages = Array.Empty<MavkaMailItem>();
+                _inboxCache.Clear(); // Do not retain messages after sender change.
                 status.Text = "Адресу головної Мавки збережено.";
             }
             catch { status.Text = "Не вдалося зберегти адресу."; }
@@ -1992,6 +2041,7 @@ public class MainActivity : Activity
                 status.Text = stage;
                 _store.Save(address, password);
                 _messages = Array.Empty<MavkaMailItem>();
+                _inboxCache.Clear();
                 secret.Text = "";
                 secret.Hint = "Збережений пароль (вводити знову не потрібно)";
                 status.Text = revocationFallback
@@ -2023,6 +2073,7 @@ public class MainActivity : Activity
             {
                 _store.Clear();
                 _messages = Array.Empty<MavkaMailItem>();
+                _inboxCache.Clear();
                 email.Text = _store.GetEmail();
                 secret.Text = "";
                 secret.Hint = "16 символів";
