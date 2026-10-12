@@ -39,6 +39,8 @@ public class MainActivity : Activity
     private const int ExportPrivateCopyRequest = 1527;
     private const int PickEncryptAndSendRequest = 1528;
     private string _inboxQuery = "";
+    private string _documentQuery = "";
+    private int _documentPage;
     private string _mailFilter = "all";
     private bool _busy;
     private IReadOnlyList<MavkaMailItem> _messages = Array.Empty<MavkaMailItem>();
@@ -1321,22 +1323,85 @@ public class MainActivity : Activity
         var card = Card();
         Text(card, "Локальний архів · " + profile.Unit, 17, true);
         Text(card, "Документи доступні без Gmail. Збереження не означає проведення.", 13);
-        var search = ProfileInput(card, "Пошук за номером, типом, датою", "");
+        var search = ProfileInput(card, "Пошук за номером, типом, датою", _documentQuery);
         var rows = new LinearLayout(this) { Orientation = Orientation.Vertical };
         card.AddView(rows);
-        void Render()
+
+        // One read on entering the screen; changing pages and searching does not
+        // requery SQLite or change any stored document.
+        try
         {
-            rows.RemoveAllViews();
-            try
+            var documents = _archive.ListSummaries(profile.Unit);
+
+            void Render()
             {
-                var filter = (search.Text ?? "").Trim();
-                var documents = _archive.ListSummaries(profile.Unit);
+                rows.RemoveAllViews();
+                var filter = _documentQuery.Trim();
                 var visible = documents.Where(d => filter.Length == 0 ||
                     d.Number.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                     d.Kind.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                     d.DocumentDate.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                var page = DocumentPageWindow.For(visible.Count, _documentPage);
+                _documentPage = page.PageIndex;
                 Text(rows, $"Документів: {visible.Count} із {documents.Count}", 13);
-                foreach (var entry in visible)
+                Text(rows, $"Сторінка {page.PageIndex + 1} із {page.PageCount} · " +
+                    (page.ItemCount == 0 ? "Записів немає" :
+                    $"показано {page.StartIndex + 1}–{page.StartIndex + page.ItemCount}"), 13);
+
+                void AddNavigation()
+                {
+                    if (page.PageCount <= 1) return;
+                    var nav = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+                    nav.SetGravity(GravityFlags.CenterVertical);
+                    rows.AddView(nav);
+
+                    void AddPageButton(string label, int targetIndex, bool enabled)
+                    {
+                        var button = new Android.Widget.Button(this)
+                        {
+                            Text = label,
+                            TextSize = 13,
+                            Enabled = enabled
+                        };
+                        button.SetAllCaps(false);
+                        button.SetMinHeight(Dp(48));
+                        button.SetTextColor(enabled ? Color.Rgb(21, 69, 44) :
+                            Color.Rgb(126, 135, 128));
+                        button.Background = Rounded(enabled ? Color.Rgb(230, 240, 231) :
+                            Color.Rgb(241, 241, 238), 12);
+                        var layout = new LinearLayout.LayoutParams(0, -2, 1);
+                        layout.SetMargins(Dp(2), Dp(3), Dp(2), Dp(3));
+                        nav.AddView(button, layout);
+                        button.Click += (_, _) =>
+                        {
+                            _documentPage = targetIndex;
+                            Render();
+                            _scroll.SmoothScrollTo(0, 0);
+                        };
+                    }
+
+                    AddPageButton("← Попередня", page.PageIndex - 1, page.PageIndex > 0);
+                    var pageLabel = new TextView(this)
+                    {
+                        Text = $"{page.PageIndex + 1} / {page.PageCount}",
+                        TextSize = 13,
+                        Gravity = GravityFlags.Center
+                    };
+                    pageLabel.SetTextColor(Color.Rgb(21, 69, 44));
+                    nav.AddView(pageLabel, new LinearLayout.LayoutParams(Dp(62), -2));
+                    AddPageButton("Наступна →", page.PageIndex + 1,
+                        page.PageIndex + 1 < page.PageCount);
+                }
+
+                if (visible.Count == 0)
+                {
+                    Text(rows, filter.Length == 0 ? "В архіві поки немає документів." :
+                        "За заданим пошуком документів не знайдено.", 14);
+                    return;
+                }
+
+                AddNavigation(); // Visible without scrolling past 50 records.
+                foreach (var entry in visible.Skip(page.StartIndex).Take(page.ItemCount))
                 {
                     var item = entry;
                     var tile = new LinearLayout(this) { Orientation = Orientation.Vertical };
@@ -1349,14 +1414,21 @@ public class MainActivity : Activity
                         " · Синхронізація: " + item.SyncStatus, 12);
                     Button(tile, "Переглянути документ", () => ShowArchivedDocument(item.DocumentId));
                 }
+                AddNavigation(); // Also accessible at the end of the current page.
             }
-            catch (Exception ex)
+
+            search.TextChanged += (_, _) =>
             {
-                Text(rows, "Помилка читання архіву: " + ex.GetType().Name, 14);
-            }
+                _documentQuery = search.Text ?? "";
+                _documentPage = 0;
+                Render();
+            };
+            Render();
         }
-        search.TextChanged += (_, _) => Render();
-        Render();
+        catch (Exception)
+        {
+            Text(rows, "Не вдалося прочитати архів. Спробуй відкрити історію ще раз.", 14);
+        }
     }
 
     private void ShowArchivedDocument(string documentId)
