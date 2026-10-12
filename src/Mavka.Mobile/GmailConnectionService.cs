@@ -331,40 +331,48 @@ internal static class GmailConnectionService
                     if (textAttachments.Count >= MaxAttachmentsPerMail) break;
                     continue;
                 }
-                if (!string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(MavkaFileParts.Extension, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(fileName) &&
+                    fileName.EndsWith(MavkaFileParts.Extension, StringComparison.OrdinalIgnoreCase))
                 {
                     attachmentsComplete = false;
                     if (attachment.Octets is > 0 and <= 850_000)
                     {
-                        var item = await client.Inbox.GetBodyPartAsync(summary.UniqueId, attachment, timeout.Token);
                         try
                         {
-                        if (item is MimePart chunk)
-                        {
-                            using var chunkStream = new BoundedWriteStream(700_000);
-                            chunk.Content.DecodeTo(chunkStream);
-                            var encrypted = new System.Text.UTF8Encoding(false, true).GetString(chunkStream.ToArray());
-                            if (MavkaPasswordedEnvelope.IsWrapped(encrypted))
+                            var item = await client.Inbox.GetBodyPartAsync(
+                                summary.UniqueId, attachment, timeout.Token);
+                            if (item is MimePart chunk)
                             {
-                                var savedPassword = documentPasswords?.Load();
-                                if (string.IsNullOrWhiteSpace(savedPassword))
-                                    throw new InvalidOperationException("Налаштуй пароль документів.");
-                                encrypted = MavkaPasswordedEnvelope.Unwrap(
-                                    encrypted, savedPassword);
+                                using var chunkStream = new BoundedWriteStream(700_000);
+                                chunk.Content.DecodeTo(chunkStream);
+                                var encrypted = new System.Text.UTF8Encoding(false, true)
+                                    .GetString(chunkStream.ToArray());
+                                if (MavkaPasswordedEnvelope.IsWrapped(encrypted))
+                                {
+                                    var savedPassword = documentPasswords?.Load();
+                                    if (string.IsNullOrWhiteSpace(savedPassword))
+                                        throw new InvalidOperationException("Налаштуй пароль документів.");
+                                    encrypted = MavkaPasswordedEnvelope.Unwrap(
+                                        encrypted, savedPassword);
+                                }
+                                textAttachments.Add(new MavkaTextAttachment(
+                                    Path.GetFileName(fileName),
+                                    "Захищена частина файла · автоматичне складання",
+                                    SecureFilePart: encrypted));
                             }
-                            textAttachments.Add(new MavkaTextAttachment(Path.GetFileName(fileName),
-                                "Захищена частина файла · автоматичне складання", SecureFilePart: encrypted));
-                        }
-                    }
                         }
                         catch (Exception ex) when (ex is System.IO.IOException or
                             InvalidOperationException or System.Security.Cryptography.CryptographicException or
                             ArgumentException or FormatException or System.Text.DecoderFallbackException)
                         {
                             textAttachments.Add(new MavkaTextAttachment(
-                                Path.GetFileName(fileName), "🔒 Не вдалося перевірити пароль або частину файла."));
+                                Path.GetFileName(fileName),
+                                "🔒 Не вдалося перевірити пароль або частину файла."));
                         }
-                    else textAttachments.Add(new MavkaTextAttachment(Path.GetFileName(fileName), "Частина файла завелика."));
+                    }
+                    else
+                        textAttachments.Add(new MavkaTextAttachment(
+                            Path.GetFileName(fileName), "Частина файла завелика."));
                     if (textAttachments.Count >= MaxAttachmentsPerMail) break;
                     continue;
                 }
