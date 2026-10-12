@@ -788,6 +788,51 @@ public class MainActivity : Activity
         }
     }
 
+    private void ShowMailImagePreview(string name, byte[] imageBytes)
+    {
+        if (imageBytes.Length > MailImagePreviewPolicy.MaxBytes)
+        {
+            Toast.MakeText(this, "Зображення перевищує обмеження розміру.",
+                ToastLength.Long)?.Show();
+            return;
+        }
+        // Decode only a downsampled preview to avoid excessive allocations
+        // when a small compressed image declares very large pixel dimensions.
+        var dimensions = new BitmapFactory.Options { InJustDecodeBounds = true };
+        BitmapFactory.DecodeByteArray(imageBytes, 0, imageBytes.Length, dimensions);
+        if (dimensions.OutWidth <= 0 || dimensions.OutHeight <= 0 ||
+            dimensions.OutWidth > 10000 || dimensions.OutHeight > 10000)
+        {
+            Toast.MakeText(this, "Розмір зображення не підтримується.",
+                ToastLength.Long)?.Show();
+            return;
+        }
+        int scale = 1;
+        while (dimensions.OutWidth / scale > 1300 ||
+               dimensions.OutHeight / scale > 1300)
+            scale *= 2;
+        var options = new BitmapFactory.Options { InSampleSize = scale };
+        using var bitmap = BitmapFactory.DecodeByteArray(
+            imageBytes, 0, imageBytes.Length, options);
+        if (bitmap is null)
+        {
+            Toast.MakeText(this, "Зображення пошкоджене.",
+                ToastLength.Long)?.Show();
+            return;
+        }
+        var preview = new ImageView(this);
+        preview.SetPadding(Dp(8), Dp(8), Dp(8), Dp(8));
+        preview.SetScaleType(ImageView.ScaleType.FitCenter);
+        // AlertDialog keeps the image until dismissal, so hand Android its
+        // own reference rather than disposing a bitmap while it is drawn.
+        preview.SetImageDrawable(new BitmapDrawable(Resources, bitmap.Copy(bitmap.GetConfig() ?? Bitmap.Config.Argb8888, false)));
+        new AlertDialog.Builder(this)
+            .SetTitle(name)
+            .SetView(preview)
+            .SetPositiveButton("Закрити", (_, _) => { })
+            .Show();
+    }
+
     private void ShowMessage(MavkaMailItem mail)
     {
         Begin("message", "Повідомлення");
@@ -814,17 +859,21 @@ public class MainActivity : Activity
                         : "Перегляд вкладення без автоматичного збереження", 13);
                 var metadataOnly = MailAttachmentDisplayPolicy.Detect(attachment.FileName) !=
                     MailAttachmentDisplayPolicy.PreviewType.None;
-                Button(fileCard, metadataOnly ? "Інформація про вкладення" :
-                    "Переглянути файл", () =>
-                    new AlertDialog.Builder(this)
-                        .SetTitle("Перегляд вкладення")
-                        .SetMessage(attachment.FileName + "\n\n" +
-                            (attachment.Text.Length <= 8000
-                                ? attachment.Text
-                                : attachment.Text[..8000] +
-                                  "\n\nПерегляд скорочено."))
-                        .SetPositiveButton("Закрити", (_, _) => { })
-                        .Show());
+                if (attachment.ImageBytes is { Length: > 0 } image)
+                    Button(fileCard, "Переглянути зображення",
+                        () => ShowMailImagePreview(attachment.FileName, image));
+                else
+                    Button(fileCard, metadataOnly ? "Інформація про вкладення" :
+                        "Переглянути файл", () =>
+                        new AlertDialog.Builder(this)
+                            .SetTitle("Перегляд вкладення")
+                            .SetMessage(attachment.FileName + "\n\n" +
+                                (attachment.Text.Length <= 8000
+                                    ? attachment.Text
+                                    : attachment.Text[..8000] +
+                                      "\n\nПерегляд скорочено."))
+                            .SetPositiveButton("Закрити", (_, _) => { })
+                            .Show());
 
                 if (attachment.SecureFileEnvelope is string sealedFile &&
                     !mail.CachedPreview && !_viewingArchivedDocument)
