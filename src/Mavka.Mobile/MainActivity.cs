@@ -1471,7 +1471,18 @@ public class MainActivity : Activity
                 foreach (var a in mail.Attachments.Where(a => a.AuthenticatedJson))
                     if (DriveFileCommand.TryRead(a.RawJson, out drive) && drive is not null)
                     {
-                        var downloaded = await Task.Run(() => drive.DownloadAsync()); parts.AddRange(downloaded); break;
+                        var downloaded = await Task.Run(() => drive.DownloadAsync());
+                        foreach (var packet in downloaded)
+                        {
+                            if (MavkaPasswordedEnvelope.IsWrapped(packet))
+                            {
+                                var documentPassword = _documentPasswords.Load() ??
+                                    throw new InvalidOperationException("Налаштуй пароль документів.");
+                                parts.Add(MavkaPasswordedEnvelope.Unwrap(packet, documentPassword));
+                            }
+                            else parts.Add(packet); // Legacy key-encrypted bundle.
+                        }
+                        break;
                     }
                 if (parts.Count == 0) continue;
                 string? id = null;
