@@ -71,4 +71,42 @@ Check(MavkaExchangeParser.TryInvoice(expanded, out var large) &&
 Check(ArchiveDocumentClassifier.TryClassify(expanded, unit, out var accepted) &&
     accepted is not null && accepted.DocumentId == "DEMO-LARGE-200",
     "Large invoice must remain eligible for durable archive.");
+// The archive UI must never render more than 50 documents in one page.
+var boundaryCases = new[]
+{
+    (Total: 0, Index: 0, Pages: 1, Start: 0, Count: 0),
+    (Total: 1, Index: 0, Pages: 1, Start: 0, Count: 1),
+    (Total: 50, Index: 0, Pages: 1, Start: 0, Count: 50),
+    (Total: 51, Index: 0, Pages: 2, Start: 0, Count: 50),
+    (Total: 51, Index: 1, Pages: 2, Start: 50, Count: 1),
+    (Total: 100, Index: 1, Pages: 2, Start: 50, Count: 50),
+    (Total: 101, Index: 2, Pages: 3, Start: 100, Count: 1),
+    (Total: 151, Index: 2, Pages: 4, Start: 100, Count: 50),
+    (Total: 151, Index: 3, Pages: 4, Start: 150, Count: 1)
+};
+foreach (var item in boundaryCases)
+{
+    var page = DocumentPageWindow.For(item.Total, item.Index);
+    Check(page.PageCount == item.Pages && page.PageIndex == item.Index &&
+        page.StartIndex == item.Start && page.ItemCount == item.Count &&
+        page.ItemCount <= 50, $"Pagination boundary failed at {item.Total}/{item.Index}");
+}
+var clampedHigh = DocumentPageWindow.For(101, 100);
+Check(clampedHigh.PageIndex == 2 && clampedHigh.ItemCount == 1,
+    "Clamped final archive page");
+var clampedLow = DocumentPageWindow.For(100, -99);
+Check(clampedLow.PageIndex == 0 && clampedLow.ItemCount == 50,
+    "Clamped initial archive page");
+var emptyAfterFilter = DocumentPageWindow.For(0, 17);
+Check(emptyAfterFilter.PageIndex == 0 && emptyAfterFilter.PageCount == 1,
+    "Empty search resets page bounds");
+var huge = DocumentPageWindow.For(int.MaxValue, int.MaxValue);
+Check(huge.ItemCount > 0 && huge.ItemCount <= 50 &&
+    huge.StartIndex + huge.ItemCount == int.MaxValue,
+    "Large document count remains bounded and overflow safe");
+var invalidCountRejected = false;
+try { DocumentPageWindow.For(-1, 0); }
+catch (ArgumentOutOfRangeException) { invalidCountRejected = true; }
+Check(invalidCountRejected, "Negative count rejected");
+Console.WriteLine("Archive UI pagination: 14/14 checks PASS");
 Console.WriteLine("Archive and profile regression checks: PASS (includes 200 long rows)");
