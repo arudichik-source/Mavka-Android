@@ -9,7 +9,8 @@ namespace Mavka.Mobile;
 internal sealed record MavkaTextAttachment(
     string FileName, string Text, string? RawJson = null,
     bool InstalledKeyPackage = false, string? SecureFileEnvelope = null,
-    string? SecureFilePart = null, bool AuthenticatedJson = false);
+    string? SecureFilePart = null, bool AuthenticatedJson = false,
+    byte[]? ImageBytes = null);
 
 internal sealed record MavkaMailItem(
     string Subject, string DateText, string Body,
@@ -343,6 +344,43 @@ internal static class GmailConnectionService
                     }
                     else textAttachments.Add(new MavkaTextAttachment(Path.GetFileName(fileName), "Частина файла завелика."));
                     if (textAttachments.Count >= MaxAttachmentsPerMail) break;
+                    continue;
+                }
+                // Photos are preview-only and never enter the accounting archive.
+                // No automatic Trash: an ordinary image is not a protected document.
+                if (MailImagePreviewPolicy.IsImage(fileName))
+                {
+                    attachmentsComplete = false;
+                    if (attachment.Octets is > 0 and <= MailImagePreviewPolicy.MaxBytes)
+                    {
+                        try
+                        {
+                            var entity = await client.Inbox.GetBodyPartAsync(
+                                summary.UniqueId, attachment, timeout.Token);
+                            if (entity is MimePart picture)
+                            {
+                                using var imageStream = new BoundedWriteStream(
+                                    MailImagePreviewPolicy.MaxBytes);
+                                picture.Content.DecodeTo(imageStream);
+                                var bytes = imageStream.ToArray();
+                                if (MailImagePreviewPolicy.HasValidSignature(fileName!, bytes))
+                                    textAttachments.Add(new MavkaTextAttachment(
+                                        Path.GetFileName(fileName!), "Фото для перегляду без збереження",
+                                        ImageBytes: bytes));
+                                else
+                                    textAttachments.Add(new MavkaTextAttachment(
+                                        Path.GetFileName(fileName!), "Формат зображення пошкоджений або не підтримується."));
+                            }
+                        }
+                        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+                        {
+                            textAttachments.Add(new MavkaTextAttachment(
+                                Path.GetFileName(fileName!), "Не вдалося отримати зображення."));
+                        }
+                    }
+                    else
+                        textAttachments.Add(new MavkaTextAttachment(
+                            Path.GetFileName(fileName!), "Зображення завелике (максимум 2 МБ)."));
                     continue;
                 }
                 var officePreview = MailAttachmentDisplayPolicy.Detect(fileName);
