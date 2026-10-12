@@ -317,7 +317,8 @@ internal static class GmailConnectionService
                         catch (Exception ex) when (ex is System.Text.DecoderFallbackException or
                             System.IO.IOException or InvalidOperationException or
                             System.Security.Cryptography.CryptographicException or
-                            ArgumentException or FormatException)
+                            ArgumentException or FormatException or
+                            System.Text.Json.JsonException)
                         {
                             textAttachments.Add(new MavkaTextAttachment(
                                 Path.GetFileName(fileName),
@@ -363,7 +364,8 @@ internal static class GmailConnectionService
                         }
                         catch (Exception ex) when (ex is System.IO.IOException or
                             InvalidOperationException or System.Security.Cryptography.CryptographicException or
-                            ArgumentException or FormatException or System.Text.DecoderFallbackException)
+                            ArgumentException or FormatException or System.Text.DecoderFallbackException or
+                            System.Text.Json.JsonException)
                         {
                             textAttachments.Add(new MavkaTextAttachment(
                                 Path.GetFileName(fileName),
@@ -462,7 +464,8 @@ internal static class GmailConnectionService
                         contents = MavkaPasswordedEnvelope.Unwrap(contents, filePassword);
                     }
                     catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or
-                        InvalidOperationException or ArgumentException or FormatException)
+                        InvalidOperationException or ArgumentException or FormatException or
+                        System.Text.Json.JsonException)
                     {
                         attachmentsComplete = false;
                         textAttachments.Add(new MavkaTextAttachment(
