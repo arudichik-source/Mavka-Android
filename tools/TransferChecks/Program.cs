@@ -65,6 +65,19 @@ try
     int wireBase64 = 4 * ((jsonBytes + 2) / 3); int wire = wireBase64 + 2 * ((wireBase64 + 75) / 76);
     Check(jsonBytes < MavkaEncryptedFileEnvelope.MaxSingleEnvelopeBytes && wire < MavkaEncryptedFileEnvelope.MaxSingleWireBytes,
         "Full 2 MB file fits separate MIME/decoded bounds");
+    var bundle = Encoding.UTF8.GetBytes("{\"format\":\"MAVKA_FILE_BUNDLE_V1\",\"parts\":[" + string.Join(",", packets) + "]}");
+    var downloadable = command with { EncryptedSize = bundle.Length, Sha256 = Convert.ToHexString(SHA256.HashData(bundle)) };
+    var receivedParts = await downloadable.DownloadAsync(default,new FakeDriveReply(bundle));
+    Check(receivedParts.Length == h.Count,"Actual Drive download/parse route with synthetic HTTP reply");
+    using(var received = MavkaFileParts.Decrypt(receivedParts[0],Resolve))
+        Check(received.Content.SequenceEqual(data.Take(MavkaFileParts.ChunkBytes)),"Downloaded Drive part authenticates");
+    try { await (downloadable with { Sha256 = new string('0',64) }).DownloadAsync(default,new FakeDriveReply(bundle)); throw new Exception("Wrong bundle hash accepted"); }
+    catch(CryptographicException) { checks++; }
+    try { await downloadable.DownloadAsync(default,new FakeDriveReply(bundle,"text/html")); throw new Exception("Drive sign-in HTML accepted"); }
+    catch(IOException) { checks++; }
+    try { await downloadable.DownloadAsync(default,new FakeDriveReply(bundle,redirect:"http://127.0.0.1/")); throw new Exception("Drive redirect escaped allowlist"); }
+    catch(IOException) { checks++; }
+    Reject(() => store.Accept(packets[0],Resolve,mail,Guid.NewGuid().ToString("N")),"Drive transfer binding accepted wrong ID");
     var outRoot = Path.Combine(root,"outgoing");
     var outgoing = new OutgoingFileQueue(outRoot,Protect,Unprotect);
     var batch = outgoing.Enqueue(h,i => packets[i]);
@@ -80,3 +93,15 @@ try
     Console.WriteLine($"Encrypted multipart, Word, durable resume/deletion and Drive command checks: {checks} PASS");
 }
 finally { if (Directory.Exists(root)) Directory.Delete(root,true); CryptographicOperations.ZeroMemory(key); CryptographicOperations.ZeroMemory(localKey); }
+
+sealed class FakeDriveReply(byte[] bytes, string? mime = null, string? redirect = null) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken token)
+    {
+        var response = new HttpResponseMessage(redirect is null ? System.Net.HttpStatusCode.OK : System.Net.HttpStatusCode.Found)
+        { Content = new ByteArrayContent(bytes) };
+        if(mime is not null) response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mime);
+        if(redirect is not null) response.Headers.Location = new Uri(redirect);
+        return Task.FromResult(response);
+    }
+}

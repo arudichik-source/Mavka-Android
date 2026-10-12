@@ -237,7 +237,7 @@ internal static class GmailConnectionService
                                 using var ciphertextStream = new BoundedWriteStream(MavkaEncryptedFileEnvelope.MaxSingleEnvelopeBytes);
                                 securedPart.Content.DecodeTo(ciphertextStream);
                                 if (ciphertextStream.Length > 0 &&
-                                    ciphertextStream.Length <= MavkaEncryptedFileEnvelope.MaxSingleWireBytes)
+                                    ciphertextStream.Length <= MavkaEncryptedFileEnvelope.MaxSingleEnvelopeBytes)
                                 {
                                     string envelope = new System.Text.UTF8Encoding(false, true)
                                         .GetString(ciphertextStream.ToArray())
@@ -272,9 +272,9 @@ internal static class GmailConnectionService
                         var item = await client.Inbox.GetBodyPartAsync(summary.UniqueId, attachment, timeout.Token);
                         if (item is MimePart chunk)
                         {
-                            using var stream = new BoundedWriteStream(MavkaFileParts.MaxPartBytes);
-                            chunk.Content.DecodeTo(stream);
-                            var encrypted = new System.Text.UTF8Encoding(false, true).GetString(stream.ToArray());
+                            using var chunkStream = new BoundedWriteStream(MavkaFileParts.MaxPartBytes);
+                            chunk.Content.DecodeTo(chunkStream);
+                            var encrypted = new System.Text.UTF8Encoding(false, true).GetString(chunkStream.ToArray());
                             textAttachments.Add(new MavkaTextAttachment(Path.GetFileName(fileName),
                                 "Захищена частина файла · автоматичне складання", SecureFilePart: encrypted));
                         }

@@ -28,11 +28,11 @@ internal sealed record DriveFileCommand(string Format, string FileId, string Dow
     private static bool Allowed(Uri uri) => uri.Scheme == "https" && uri.IsDefaultPort &&
         uri.UserInfo.Length == 0 && (uri.Host == "drive.google.com" || uri.Host == "drive.usercontent.google.com" ||
             uri.Host.EndsWith(".googleusercontent.com", StringComparison.Ordinal));
-    public async Task<string[]> DownloadAsync(CancellationToken cancellation = default)
+    public async Task<string[]> DownloadAsync(CancellationToken cancellation = default, HttpMessageHandler? transport = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         timeout.CancelAfter(TimeSpan.FromMinutes(3));
-        using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false };
+        using var handler = transport ?? new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false };
         using var client = new HttpClient(handler);
         var url = new Uri(DownloadUrl);
         for (int redirects = 0; redirects <= 5; redirects++)

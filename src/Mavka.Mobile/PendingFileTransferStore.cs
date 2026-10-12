@@ -50,10 +50,12 @@ internal sealed class PendingFileTransferStore
         }
         catch { foreach (var e in result) CryptographicOperations.ZeroMemory(e.Content); throw; }
     }
-    public Progress Accept(string envelope, Func<string, byte[]?> resolver, MailRef? mail)
+    public Progress Accept(string envelope, Func<string, byte[]?> resolver, MailRef? mail, string? expectedTransferId = null)
     {
         using var part = MavkaFileParts.Decrypt(envelope, resolver);
         var h = part.Metadata;
+        if (expectedTransferId is not null && h.TransferId != expectedTransferId)
+            throw new CryptographicException("Drive transfer identity mismatch.");
         var folder = Folder(h.TransferId);
         if (!Directory.Exists(folder) && Directory.EnumerateDirectories(_root).Take(6).Count() >= 6)
             throw new IOException("Незавершених передач забагато. Видали непотрібні.");

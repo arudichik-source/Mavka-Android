@@ -243,7 +243,7 @@ public class MainActivity : Activity
             catch (Exception ex)
             {
                 if (_screen == "home")
-                    status.Text = "Помилка надсилання: " + ex.GetType().Name;
+                    status.Text = "Помилка надсилання: " + ExplainOperationError(ex);
             }
             finally { _busy = false; }
         });
@@ -252,7 +252,7 @@ public class MainActivity : Activity
             var pending = _ledger.ListPendingReceiptIds();
             Text(card, "Підтвердження в черзі: " + pending.Count, 14);
         }
-        catch (Exception ex) { Text(card, "Черга: " + ex.GetType().Name, 12); }
+        catch (Exception ex) { Text(card, "Черга: " + ExplainOperationError(ex), 12); }
         card = Card();
         Text(card, "Службові повідомлення", 20, true);
         Text(card, $"Завантажено: {_messages.Count}", 18);
@@ -264,7 +264,7 @@ public class MainActivity : Activity
         if (profile is not null)
         {
             try { Text(card, "У локальному архіві: " + _archive.CountDocuments(profile.Unit), 14); }
-            catch (Exception ex) { Text(card, "Архів: " + ex.GetType().Name, 12); }
+            catch (Exception ex) { Text(card, "Архів: " + ExplainOperationError(ex), 12); }
         }
         Text(_body, "Дозволений відправник", 18, true);
         Text(_body, _store.GetMainMavkaEmail(), 15);
@@ -463,7 +463,7 @@ public class MainActivity : Activity
             }
             catch (Exception ex)
             {
-                Text(localRows, "Помилка локальної бази: " + ex.GetType().Name, 14);
+                Text(localRows, "Помилка локальної бази: " + ExplainOperationError(ex), 14);
             }
         }
         search.TextChanged += (_, _) => DrawLocal();
@@ -560,7 +560,7 @@ public class MainActivity : Activity
                     }
                     catch (Exception ex)
                     {
-                        importing.Text = "Помилка локальної бази: " + ex.GetType().Name;
+                        importing.Text = "Помилка локальної бази: " + ExplainOperationError(ex);
                     }
                 }).Show();
         });
@@ -605,7 +605,7 @@ public class MainActivity : Activity
         catch (Exception ex)
         {
             Text(details, "Звірка неможлива без коректної дати та локальних записів: " +
-                ex.GetType().Name, 14);
+                ExplainOperationError(ex), 14);
         }
         Button(_body, "← До майна", ShowAssets);
     }
@@ -701,7 +701,7 @@ public class MainActivity : Activity
         {
             new AlertDialog.Builder(this)
                 .SetTitle("Історія майна")
-                .SetMessage("Помилка читання рухів: " + ex.GetType().Name)
+                .SetMessage("Помилка читання рухів: " + ExplainOperationError(ex))
                 .SetPositiveButton("Закрити", (_, _) => { })
                 .Show();
         }
@@ -960,7 +960,7 @@ public class MainActivity : Activity
                 try { existingStatus = _ledger.GetMailStatus(invoice.DocumentId); }
                 catch (Exception ex)
                 {
-                    status.Text = "Помилка локальної бази: " + ex.GetType().Name;
+                    status.Text = "Помилка локальної бази: " + ExplainOperationError(ex);
                     return;
                 }
                 if (existingStatus == "sent")
@@ -1017,10 +1017,10 @@ public class MainActivity : Activity
                             if (_screen == "message")
                                 status.Text = smtpAccepted
                                     ? "Gmail прийняв підтвердження, але локальне оновлення " +
-                                      "статусу не завершилося (" + ex.GetType().Name +
+                                      "статусу не завершилося (" + ExplainOperationError(ex) +
                                       "). Не підтверджуй накладну повторно; перевір чергу."
                                     : "Не вдалося завершити відправлення (" +
-                                      ex.GetType().Name +
+                                      ExplainOperationError(ex) +
                                       "). Проведення збережено, підтвердження очікує " +
                                       "повторної спроби. Не проводь накладну вдруге.";
                         }
@@ -1112,6 +1112,16 @@ public class MainActivity : Activity
     private string CachedMailHint() => _messages.Count > 0
         ? " Збережені листи доступні для перегляду: " + _messages.Count + "."
         : "";
+
+    private static string ExplainOperationError(Exception error) => error switch
+    {
+        KeyNotFoundException => "Потрібний ключ обміну недоступний; дані залишено для повторної спроби",
+        System.Security.Cryptography.CryptographicException => "Не вдалося перевірити автентичність захищених даних",
+        OperationCanceledException => "Перевищено час очікування; повтори спробу",
+        System.Net.Sockets.SocketException => "Немає з'єднання з мережею",
+        System.IO.IOException => "Не вдалося прочитати або зберегти дані; перевір сховище й мережу",
+        _ => "Операцію не завершено; повтори спробу"
+    };
 
     private static string ExplainMailError(Exception error) => error switch
     {
@@ -1219,9 +1229,9 @@ public class MainActivity : Activity
     private string TransferScope() => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
         System.Text.Encoding.UTF8.GetBytes(_store.GetEmail().Trim().ToLowerInvariant() + ":" +
             _store.GetMainMavkaEmail().Trim().ToLowerInvariant() + ":" + LoadUserProfile()?.ClientId))).ToLowerInvariant();
-    private PendingFileTransferStore Transfers() => new(Path.Combine(FilesDir!.AbsolutePath,
+    private PendingFileTransferStore Transfers() => new(System.IO.Path.Combine(FilesDir!.AbsolutePath,
         "pending_file_parts_v1", TransferScope()), TransferKeystoreCipher.Seal, TransferKeystoreCipher.Open);
-    private OutgoingFileQueue OutgoingFiles() => new(Path.Combine(FilesDir!.AbsolutePath,
+    private OutgoingFileQueue OutgoingFiles() => new(System.IO.Path.Combine(FilesDir!.AbsolutePath,
         "outgoing_file_parts_v1", TransferScope()), TransferKeystoreCipher.Seal, TransferKeystoreCipher.Open);
     private async Task SendPendingFilePartsAsync(int maximum = 125, Action<string>? progress = null)
     {
@@ -1258,14 +1268,14 @@ public class MainActivity : Activity
                 foreach (var a in mail.Attachments.Where(a => a.AuthenticatedJson))
                     if (DriveFileCommand.TryRead(a.RawJson, out drive) && drive is not null)
                     {
-                        var downloaded = await drive.DownloadAsync(); parts.AddRange(downloaded); break;
+                        var downloaded = await Task.Run(() => drive.DownloadAsync()); parts.AddRange(downloaded); break;
                     }
                 if (parts.Count == 0) continue;
                 string? id = null;
                 foreach (var part in parts)
                 {
                     var progress = await Task.Run(() => pending.Accept(part, key => _exchangeKeys.GetKey(key),
-                        mail.Attachments.Count == 1 ? new PendingFileTransferStore.MailRef(mail.UidValidity, mail.MessageUid) : null));
+                        mail.Attachments.Count == 1 ? new PendingFileTransferStore.MailRef(mail.UidValidity, mail.MessageUid) : null, drive?.TransferId));
                     id = progress.Id;
                     if (drive is not null && id != drive.TransferId)
                         throw new System.Security.Cryptography.CryptographicException("Drive transfer ID mismatch.");
@@ -1293,7 +1303,7 @@ public class MainActivity : Activity
         foreach (var transfer in await Task.Run(() => pending.List()))
         {
             if (!transfer.Saved) continue;
-            var saved = pending.Saved(transfer.Id);
+            var saved = await Task.Run(() => pending.Saved(transfer.Id));
             if (saved is null) continue;
             try
             {
@@ -1301,7 +1311,7 @@ public class MainActivity : Activity
                 if (verified.Sha256 != saved.Metadata.Sha256 || verified.FileName != saved.Metadata.FileName) continue;
             }
             catch { continue; } // Never trash mail if the user removed the saved copy.
-            var refs = pending.CleanupCandidates(transfer.Id);
+            var refs = await Task.Run(() => pending.CleanupCandidates(transfer.Id));
             bool completeCleanup = true;
             foreach (var item in refs)
             {
@@ -1384,7 +1394,7 @@ public class MainActivity : Activity
                 catch (Exception ex)
                 {
                     ready = false;
-                    problem = "Не вдалося зберегти документ: " + ex.GetType().Name +
+                    problem = "Не вдалося зберегти документ: " + ExplainOperationError(ex) +
                         ". Лист збережено у вхідних.";
                     break;
                 }
@@ -1412,7 +1422,7 @@ public class MainActivity : Activity
                 remaining.Add(mail with
                 {
                     ProcessingIssue = "Документ збережено локально, але Gmail Trash " +
-                        "недоступний (" + ex.GetType().Name +
+                        "недоступний (" + ExplainOperationError(ex) +
                         "). Перенесення буде повторено під час оновлення."
                 });
                 kept++;
@@ -1626,7 +1636,7 @@ public class MainActivity : Activity
                             {
                                 if (_screen == "message")
                                     exportStatus.Text = "Не вдалося експортувати PDF: " +
-                                        ex.GetType().Name +
+                                        ExplainOperationError(ex) +
                                         ". Незахищений файл не збережено.";
                             }
                             finally
@@ -1692,7 +1702,7 @@ public class MainActivity : Activity
                             {
                                 if (_screen == "message")
                                     exportStatus.Text = "Не вдалося створити XLSX: " +
-                                        ex.GetType().Name +
+                                        ExplainOperationError(ex) +
                                         ". Незахищений файл не збережено.";
                             }
                             finally
@@ -1713,7 +1723,7 @@ public class MainActivity : Activity
         catch (Exception ex)
         {
             new AlertDialog.Builder(this).SetTitle("Помилка архіву")
-                .SetMessage(ex.GetType().Name)
+                .SetMessage(ExplainOperationError(ex))
                 .SetPositiveButton("Закрити", (_, _) => { }).Show();
         }
     }
@@ -2136,7 +2146,7 @@ public class MainActivity : Activity
                                 try { deleted += _exportedFiles.DeleteFile(item); }
                                 catch (Exception ex)
                                 {
-                                    error = ex.GetType().Name;
+                                    error = ExplainOperationError(ex);
                                     break;
                                 }
                             }
@@ -2247,7 +2257,7 @@ public class MainActivity : Activity
             catch (Exception ex)
             {
                 status.Text = ex is ArgumentException ? ex.Message :
-                    "Помилка збереження профілю: " + ex.GetType().Name;
+                    "Помилка збереження профілю: " + ExplainOperationError(ex);
                 return null;
             }
         }
@@ -2316,7 +2326,7 @@ public class MainActivity : Activity
                     catch (Exception ex)
                     {
                         if (_screen == "profile")
-                            status.Text = "Помилка надсилання: " + ex.GetType().Name;
+                            status.Text = "Помилка надсилання: " + ExplainOperationError(ex);
                     }
                     finally { _busy = false; sendButton.Enabled = true; }
                 })
@@ -2391,7 +2401,7 @@ public class MainActivity : Activity
                 _inboxCache.Clear();
                         status.Text = "Ключі видалено. Для повторного отримання потрібна нова реєстрація.";
                     }
-                    catch (Exception ex) { status.Text = "Помилка: " + ex.GetType().Name; }
+                    catch (Exception ex) { status.Text = "Помилка: " + ExplainOperationError(ex); }
                 })
                 .Show());
     }
@@ -2435,7 +2445,7 @@ public class MainActivity : Activity
             }
             catch (Exception ex)
             {
-                status.Text = "Помилка захищеного збереження: " + ex.GetType().Name;
+                status.Text = "Помилка захищеного збереження: " + ExplainOperationError(ex);
             }
         });
         Text(card, "Зміна пароля впливає на нові файли. Якщо ГОЛОВНА МАВКА " +
@@ -2504,7 +2514,7 @@ public class MainActivity : Activity
             catch (Exception ex)
             {
                 if (_screen == "mail")
-                    status.Text = "Діагностика: " + ex.GetType().Name;
+                    status.Text = "Діагностика: " + ExplainOperationError(ex);
             }
             finally { _busy = false; }
         });
@@ -2592,7 +2602,7 @@ public class MainActivity : Activity
             }
             catch (Exception ex)
             {
-                status.Text = $"Помилка на етапі {stage}: {ex.GetType().Name}";
+                status.Text = $"Помилка на етапі {stage}: {ExplainOperationError(ex)}";
             }
             finally { _busy = false; save.Enabled = true; }
         };

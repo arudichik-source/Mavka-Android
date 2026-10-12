@@ -27,7 +27,9 @@ internal sealed class OutgoingFileQueue(string root, Func<byte[], byte[]> seal, 
         var result = new List<Batch>();
         foreach(var folder in Directory.EnumerateDirectories(root).Take(6))
         {
-            var path = Path.Combine(folder,"queue.bin"); if(!File.Exists(path)) continue;
+            var path = Path.Combine(folder,"queue.bin");
+            if(!File.Exists(path))
+            { if(MavkaFileParts.IsId(Path.GetFileName(folder))) Directory.Delete(folder,true); continue; }
             var b = Read<Batch>(path); MavkaFileParts.Validate(b.Metadata);
             if (Path.GetFileName(folder) != b.Metadata.TransferId || b.NextIndex < 0 || b.NextIndex > b.Metadata.Count)
                 throw new CryptographicException("Outgoing queue identity mismatch.");
