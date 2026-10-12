@@ -503,6 +503,18 @@ internal static class GmailConnectionService
                         display = "🔒 Некоректний формат зашифрованого вкладення.";
                     }
                 }
+                // Once the key pair has been installed, NEVER import raw
+                // JSON as an accounting document. Only the AES-GCM verified
+                // MAVKA_ENCRYPTED_V1 payload is permitted. The password-sealed
+                // key package above is a separate enrollment operation.
+                if (isJson && exchangeKeys?.HasKeyPair == true &&
+                    !authenticatedJson && !installedKey)
+                {
+                    usableJson = null;
+                    display = "🔒 Незашифрований JSON відхилено. " +
+                        "Після встановлення ключів усі документи ГОЛОВНОЇ МАВКИ " +
+                        "мають надходити у MAVKA_ENCRYPTED_V1.";
+                }
                 textAttachments.Add(new MavkaTextAttachment(
                     Path.GetFileName(fileName), display, usableJson, installedKey, AuthenticatedJson: authenticatedJson));
                 if (textAttachments.Count >= MaxAttachmentsPerMail) break;
