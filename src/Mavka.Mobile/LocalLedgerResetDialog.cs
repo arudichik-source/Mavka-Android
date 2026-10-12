@@ -11,7 +11,8 @@ namespace Mavka.Mobile;
 internal static class LocalLedgerResetDialog
 {
     public static void Show(Activity activity, PropertyLedgerStore ledger,
-        string unit, Func<bool> busy, Action<string> report)
+        DocumentArchiveStore archive, string unit, Func<bool> busy,
+        Action<string> report)
     {
         if (string.IsNullOrWhiteSpace(unit))
         {
@@ -55,8 +56,22 @@ internal static class LocalLedgerResetDialog
                         try
                         {
                             var deleted = ledger.ClearLedgerForUnit(unit);
-                            report("Облік підрозділу очищено: " + deleted +
-                                " рухів. Документальний архів та ключі збережено.");
+                            // The archive is a separate SQLite database and
+                            // keeps document evidence. Update only its local
+                            // posting flags; keep sent/remote sync history.
+                            try
+                            {
+                                var statuses = archive.ResetLocalPostingForUnit(unit);
+                                report("Локальні рухи очищено: " + deleted +
+                                    ". Статусів проведення оновлено: " + statuses +
+                                    ". Документи, ключі та історію відправлень збережено.");
+                            }
+                            catch (Exception ex)
+                            {
+                                report("Локальні рухи очищено: " + deleted +
+                                    ". Але оновити статуси в архіві не вдалося: " +
+                                    ex.Message + ". Повтори дію для завершення звірки.");
+                            }
                         }
                         catch (Exception ex)
                         {
