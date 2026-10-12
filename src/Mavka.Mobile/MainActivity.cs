@@ -2753,7 +2753,8 @@ public class MainActivity : Activity
             "Архів документів, ключі шифрування, Gmail і файли не видаляються.", 13);
         var ledgerStatus = Text(ledgerManagement, "Змін поки немає.", 13);
         Button(ledgerManagement, "Очистити локальний облік підрозділу", () =>
-            LocalLedgerResetDialog.Show(this, _ledger, LoadUserProfile()?.Unit ?? "",
+            LocalLedgerResetDialog.Show(this, _ledger, _archive,
+                LoadUserProfile()?.Unit ?? "",
                 () => _busy, message => ledgerStatus.Text = message));
 
         var diagnostics = Card();
