@@ -2474,6 +2474,19 @@ public class MainActivity : Activity
         card = Card();
         Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 18, true);
         Text(card, _store.GetMainMavkaEmail(), 16);
+        if (string.Equals(LoadUserProfile()?.Unit, "Тестовий підрозділ",
+                StringComparison.Ordinal))
+        {
+            var reset = Card();
+            Text(reset, "Керування тестовою базою", 18, true);
+            Text(reset, "Очищуються лише залишки та рухи тестового підрозділу. " +
+                "Архів, ключі, файли й Gmail зберігаються.", 13);
+            var resetResult = Text(reset, "Очищення ще не проводилося.", 13);
+            Button(reset, "Очистити тестовий облік", () =>
+                TestLedgerResetDialog.Show(this, _ledger, "Тестовий підрозділ",
+                    () => _busy, message => resetResult.Text = message));
+        }
+
         var diagnostics = Card();
         Text(diagnostics, "Діагностика", 17, true);
         Button(diagnostics, "Галерея іконок (демо)", ShowIconGallery);
