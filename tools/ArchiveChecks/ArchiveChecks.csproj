@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="../../src/Mavka.Mobile/PhoneNumberNormalizer.cs" Link="PhoneNumberNormalizer.cs" />
     <Compile Include="../../src/Mavka.Mobile/ArchiveDocumentClassifier.cs" Link="ArchiveDocumentClassifier.cs" />
+    <Compile Include="../../src/Mavka.Mobile/DocumentPageWindow.cs" Link="DocumentPageWindow.cs" />
     <Compile Include="../../src/Mavka.Mobile/MavkaExchangeParser.cs" Link="MavkaExchangeParser.cs" />
     <Compile Include="../../src/Mavka.Mobile/MavkaMovementJournal.cs" Link="MavkaMovementJournal.cs" />
   </ItemGroup>
