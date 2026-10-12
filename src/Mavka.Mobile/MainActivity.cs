@@ -214,59 +214,75 @@ public class MainActivity : Activity
     private void ShowHome()
     {
         Begin("home", "Головна");
+        var overview = Card();
+        Text(overview, "Стан синхронізації", 18, true);
+        Text(overview, _store.HasCredentials
+            ? "Gmail підключено" : "Пошта Gmail не налаштована", 15);
+        Text(overview, "Листів у локальному перегляді: " + _messages.Count, 14);
+        Text(overview, "Дії з поштою та налаштування — у меню праворуч (☰).", 13);
+        var profile = LoadUserProfile();
         var card = Card();
-        Text(card, "Синхронізація", 20, true);
-        var status = Text(card,
-            _store.HasCredentials ? "Gmail налаштовано" : "Gmail не підключено", 16);
-        Button(card, "Оновити", async () => await RefreshMessagesAsync(status));
+        Text(card, "Майно та документи", 19, true);
+        Text(card, "Підрозділ: " + (profile?.Unit ?? "не визначено"), 15);
+        if (profile is not null)
+        {
+            try
+            {
+                Text(card, "Документів у захищеному архіві: " +
+                    _archive.CountDocuments(profile.Unit), 14);
+                Text(card, "Підтверджень у черзі: " +
+                    _ledger.ListPendingReceiptIds().Count, 14);
+            }
+            catch (Exception ex)
+            {
+                Text(card, "Не вдалося прочитати стан локальних даних: " +
+                    ExplainOperationError(ex), 13);
+            }
+        }
+        Text(card, "Перехід між розділами — через натискання на логотип ліворуч.", 13);
+    }
+
+    private void ShowSynchronization()
+    {
+        Begin("sync", "Синхронізація Gmail");
+        var card = Card();
+        Text(card, "Підключення до Google", 19, true);
+        var status = Text(card, _store.HasCredentials
+            ? "Gmail налаштовано. Зчитуються тільки листи ГОЛОВНОЇ МАВКИ."
+            : "Gmail не підключено.", 14);
+        Button(card, "Оновити повідомлення", async () =>
+            await RefreshMessagesAsync(status));
         Button(card, "Повторити надсилання підтверджень", async () =>
         {
             if (_busy) return;
-            if (!_store.HasCredentials || string.IsNullOrWhiteSpace(_store.GetMainMavkaEmail()))
+            if (!_store.HasCredentials ||
+                string.IsNullOrWhiteSpace(_store.GetMainMavkaEmail()))
             {
-                status.Text = "Спочатку підключи Gmail і задай адресу ГОЛОВНОЇ МАВКИ.";
+                status.Text = "Спочатку налаштуй Gmail та адресу ГОЛОВНОЇ МАВКИ.";
                 return;
             }
             _busy = true;
-            status.Text = "Повторно надсилаємо збережені підтвердження...";
+            status.Text = "Повторно надсилаємо підтвердження...";
             try
             {
                 var password = _store.GetPassword() ??
                     throw new InvalidOperationException("Пароль Gmail відсутній.");
-                var result = await SendPendingReceiptsAsync(password, _store.GetMainMavkaEmail());
-                if (_screen == "home") status.Text = result;
+                var report = await SendPendingReceiptsAsync(
+                    password, _store.GetMainMavkaEmail());
+                if (_screen == "sync") status.Text = report;
             }
             catch (Exception ex)
             {
-                if (_screen == "home")
+                if (_screen == "sync")
                     status.Text = "Помилка надсилання: " + ExplainOperationError(ex);
             }
             finally { _busy = false; }
         });
-        try
-        {
-            var pending = _ledger.ListPendingReceiptIds();
-            Text(card, "Підтвердження в черзі: " + pending.Count, 14);
-        }
-        catch (Exception ex) { Text(card, "Черга: " + ExplainOperationError(ex), 12); }
-        card = Card();
-        Text(card, "Службові повідомлення", 20, true);
-        Text(card, $"Завантажено: {_messages.Count}", 18);
-        Button(card, "Перейти до вхідних", ShowInbox);
-        Button(card, "Майно підрозділу", ShowAssets);
-        Button(card, "Історія документів", ShowDocuments);
-        Button(card, "МаVКа файли", ShowFiles);
-        var profile = LoadUserProfile();
-        if (profile is not null)
-        {
-            try { Text(card, "У локальному архіві: " + _archive.CountDocuments(profile.Unit), 14); }
-            catch (Exception ex) { Text(card, "Архів: " + ExplainOperationError(ex), 12); }
-        }
-        Text(_body, "Дозволений відправник", 18, true);
-        Text(_body, _store.GetMainMavkaEmail(), 15);
+        Text(card, "Повідомлення, що вже надійно оброблені, " +
+            "не потрібно завантажувати повторно.", 12);
     }
 
-    private void ShowInbox()
+        private void ShowInbox()
     {
         _viewingArchivedDocument = false;
         Begin("inbox", "Вхідні");
@@ -329,11 +345,7 @@ public class MainActivity : Activity
                   ". Онови Gmail для перевірки нових повідомлень."
                 : "Онови пошту, щоб перевірити нові документи."
             : "Підключи Gmail у Налаштуваннях.", 12);
-        Button(card, "Оновити листи", async () =>
-        {
-            await RefreshMessagesAsync(status);
-            if (_screen == "inbox") ShowInboxContent();
-        });
+        Text(card, "Щоб оновити пошту, відкрий меню ☰ → Синхронізація Gmail.", 12);
         ShowInboxContent();
     }
 
@@ -363,11 +375,7 @@ public class MainActivity : Activity
             RenderAssets();
         });
         var status = Text(top, "Джерело: JSON-лист ГОЛОВНОЇ МАВКИ (MAVKA_UNIT_ASSETS_V1).", 13);
-        Button(top, "Оновити дані з пошти", async () =>
-        {
-            await RefreshMessagesAsync(status);
-            if (_screen == "assets") RenderAssets();
-        });
+        Text(top, "Оновлення з Gmail доступне у правому меню ☰.", 12);
         RenderAssets();
     }
 
@@ -1266,24 +1274,24 @@ public class MainActivity : Activity
             var syncReport = await SendPendingReceiptsAsync(password, sender);
             try { await SendPendingFilePartsAsync(maximum: 3); }
             catch { syncReport += " Частини файлів залишені в черзі надсилання."; }
-            if (_screen is "home" or "inbox" or "assets")
+            if (_screen is "sync" or "home" or "inbox" or "assets")
                 status.Text = $"Листів у вхідних: {_messages.Count}. " + report +
                     " " + syncReport;
         }
         catch (MailKit.Security.AuthenticationException)
         {
-            if (_screen is "home" or "inbox")
+            if (_screen is "sync" or "home" or "inbox")
                 status.Text = "Google відхилив авторизацію. Перевір пароль застосунку.";
         }
         catch (System.OperationCanceledException)
         {
-            if (_screen is "home" or "inbox")
+            if (_screen is "sync" or "home" or "inbox")
                 status.Text = "Gmail не відповідає вчасно. Перевір інтернет і спробуй знову." +
                     CachedMailHint();
         }
         catch (Exception ex)
         {
-            if (_screen is "home" or "inbox")
+            if (_screen is "sync" or "home" or "inbox")
                 status.Text = ExplainMailError(ex) + CachedMailHint();
         }
         finally { _busy = false; }
