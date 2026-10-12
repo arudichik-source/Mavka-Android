@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/Mavka.Mobile/MavkaKeyPackage.cs" Link="MavkaKeyPackage.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MavkaEncryptedFileEnvelope.cs" Link="MavkaEncryptedFileEnvelope.cs" />
   </ItemGroup>
 </Project>
