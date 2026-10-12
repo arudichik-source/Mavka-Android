@@ -1509,6 +1509,72 @@ public class MainActivity : Activity
 
         Text(header, "Файли, завантажені в Gmail чи сторонніх програмах, " +
             "можна вибрати нижче для перегляду. Це НЕ імпорт до архіву.", 12);
+
+        var receivedCard = Card();
+        Text(receivedCard, "Захищені отримані PDF/XLSX", 18, true);
+        Text(receivedCard, "Окреме зашифроване сховище Android. " +
+            "Ці файли не є документами облікового архіву.", 12);
+        var receivedList = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        receivedCard.AddView(receivedList);
+        async Task ReloadReceivedAsync()
+        {
+            receivedList.RemoveAllViews();
+            Text(receivedList, "Читаємо захищене сховище...", 12);
+            try
+            {
+                var entries = await Task.Run(() => _privateFiles.List());
+                if (_screen != "files") return;
+                receivedList.RemoveAllViews();
+                if (entries.Count == 0)
+                    Text(receivedList, "Захищених PDF/XLSX поки немає.", 13);
+                foreach (var entry in entries)
+                {
+                    var label = Text(receivedList, entry.Name + " · " +
+                        (entry.Size / 1024d).ToString("0.#") + " КБ", 13, true);
+                    label.SetMaxLines(3);
+                    label.Ellipsize = Android.Text.TextUtils.TruncateAt.End;
+                    Button(receivedList, "Зберегти розшифровану копію", () =>
+                    {
+                        if (_busy) return;
+                        new AlertDialog.Builder(this)
+                            .SetTitle("Експортувати розшифровану копію?")
+                            .SetMessage("За межами Мавки цей файл уже не матиме " +
+                                "захисту Android Keystore. Вибери особисту папку; " +
+                                "не надсилай файл стороннім особам.")
+                            .SetNegativeButton("Скасувати", (_, _) => { })
+                            .SetPositiveButton("Обрати папку", (_, _) =>
+                            {
+                                try
+                                {
+                                    _pendingPrivateExportId = entry.Id;
+                                    var create = new Intent(Intent.ActionCreateDocument);
+                                    create.AddCategory(Intent.CategoryOpenable);
+                                    create.SetType(entry.Mime);
+                                    create.PutExtra(Intent.ExtraTitle, entry.Name);
+                                    StartActivityForResult(create, ExportPrivateCopyRequest);
+                                }
+                                catch (Exception)
+                                {
+                                    _pendingPrivateExportId = null;
+                                    Toast.MakeText(this,
+                                        "Не вдалося відкрити системний вибір папки.",
+                                        ToastLength.Long)?.Show();
+                                }
+                            }).Show();
+                    });
+                }
+            }
+            catch (Exception)
+            {
+                if (_screen == "files")
+                {
+                    receivedList.RemoveAllViews();
+                    Text(receivedList, "Не вдалося прочитати захищені файли.", 12);
+                }
+            }
+        }
+        Button(receivedCard, "Оновити захищені файли", () => _ = ReloadReceivedAsync());
+        _ = ReloadReceivedAsync();
         Button(header, "Відкрити PDF / Excel з пам'яті телефону", () =>
         {
             try
@@ -2194,9 +2260,36 @@ public class MainActivity : Activity
         Button(_body, "← До налаштувань", ShowSettings);
     }
 
-    protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
+    protected override async void OnActivityResult(int requestCode, Result resultCode, Intent? data)
     {
         base.OnActivityResult(requestCode, resultCode, data);
+        if (requestCode == ExportPrivateCopyRequest)
+        {
+            var id = _pendingPrivateExportId;
+            _pendingPrivateExportId = null;
+            if (resultCode != Result.Ok || id is null || data?.Data is null) return;
+            var location = data.Data;
+            try
+            {
+                using var file = await Task.Run(() => _privateFiles.Load(id));
+                using var destination = ContentResolver?.OpenOutputStream(location, "w")
+                    ?? throw new IOException("Storage provider unavailable.");
+                await destination.WriteAsync(file.Content);
+                await destination.FlushAsync();
+                Toast.MakeText(this,
+                    "Розшифровану копію збережено у вибраному місці.",
+                    ToastLength.Long)?.Show();
+            }
+            catch (Exception)
+            {
+                try { ContentResolver?.Delete(location, null, null); }
+                catch (Exception) { }
+                Toast.MakeText(this,
+                    "Не вдалося зберегти копію; частковий файл спробували видалити.",
+                    ToastLength.Long)?.Show();
+            }
+            return;
+        }
         if (requestCode != PickDocumentRequest || resultCode != Result.Ok ||
             data?.Data is null) return;
 
