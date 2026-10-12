@@ -147,18 +147,16 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
     }
 
     /// <summary>
-    /// QA-only reset of accounting for the EXACT test unit. Keys, Gmail,
-    /// archived documents, attachments and any other unit remain untouched.
-    /// Pending confirmations forbid clearing so a queued acknowledgement
-    /// is never silently lost.
+    /// Explicit per-unit reset of locally posted accounting events. This never
+    /// touches the secure archive, Gmail state, document passwords or keys.
+    /// Refuse to lose acknowledgements that are still queued for the sender.
+    /// This function must only be called after a user confirmation.
     /// </summary>
-    public int ClearTestUnitLedger(string unit)
+    public int ClearLedgerForUnit(string unit)
     {
-        if (!string.Equals(unit?.Trim(), "Тестовий підрозділ",
-                StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                "Очищення дозволено лише для профілю «Тестовий підрозділ».");
-
+        if (string.IsNullOrWhiteSpace(unit))
+            throw new ArgumentException("Не зазначено підрозділ.", nameof(unit));
+        unit = unit.Trim();
         using var db = WritableDatabase;
         db.BeginTransaction();
         try
@@ -172,11 +170,9 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                     throw new InvalidOperationException("Не вдалося перевірити чергу підтверджень.");
                 if (pending.GetInt(0) != 0)
                     throw new InvalidOperationException(
-                        "Спочатку надішли підтвердження накладних із черги. " +
-                        "Облікові дані не видалено.");
+                        "Є ненадіслані підтвердження. Спочатку синхронізуй їх із ГОЛОВНОЮ МАВКОЮ.");
             }
-
-            int removed = db.Delete("ledger_events", "unit = ? COLLATE NOCASE",
+            var deleted = db.Delete("ledger_events", "unit = ? COLLATE NOCASE",
                 new[] { unit });
             db.Delete("receipt_items",
                 "document_id IN (SELECT document_id FROM receipts WHERE recipient = ? COLLATE NOCASE)",
@@ -184,7 +180,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
             db.Delete("receipts", "recipient = ? COLLATE NOCASE",
                 new[] { unit });
             db.SetTransactionSuccessful();
-            return removed;
+            return deleted;
         }
         finally { db.EndTransaction(); }
     }
