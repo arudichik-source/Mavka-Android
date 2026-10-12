@@ -223,7 +223,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
             @"SELECT document_id, kind, number, unit, document_date, saved_utc, status,
                      posting_status, delivery_status, sync_status
               FROM documents WHERE unit = ? COLLATE NOCASE
-              ORDER BY saved_utc DESC LIMIT 500", new[] { unit });
+              ORDER BY saved_utc DESC, document_id DESC", new[] { unit });
         while (cursor.MoveToNext())
             results.Add(new ArchivedDocumentSummary(cursor.GetString(0), cursor.GetString(1),
                 cursor.GetString(2), cursor.GetString(3), cursor.GetString(4),
