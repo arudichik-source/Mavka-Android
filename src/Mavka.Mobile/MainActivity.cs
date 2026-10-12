@@ -2119,7 +2119,7 @@ public class MainActivity : Activity
                     finally { _busy = false; }
                 }).Show());
         var receivedCard = Card();
-        Text(receivedCard, "Захищені отримані PDF/Excel/Word", 18, true);
+        Text(receivedCard, "Захищені отримані PDF/Excel/Word і зображення", 18, true);
         Text(receivedCard, "Окреме зашифроване сховище Android. " +
             "Ці файли не є документами облікового архіву.", 12);
         var receivedList = new LinearLayout(this) { Orientation = Orientation.Vertical };
@@ -2134,7 +2134,7 @@ public class MainActivity : Activity
                 if (_screen != "files") return;
                 receivedList.RemoveAllViews();
                 if (entries.Count == 0)
-                    Text(receivedList, "Захищених PDF/Excel/Word поки немає.", 13);
+                    Text(receivedList, "Захищених документів і зображень поки немає.", 13);
                 // Creating 200+ Android controls at once stalls older phones.
                 // Render a bounded batch while retaining access to all 100 entries.
                 int displayed = 0;
@@ -2150,6 +2150,23 @@ public class MainActivity : Activity
                         (entry.Size / 1024d).ToString("0.#") + " КБ", 13, true);
                     label.SetMaxLines(3);
                     label.Ellipsize = Android.Text.TextUtils.TruncateAt.End;
+                    if (entry.Mime.StartsWith("image/", StringComparison.Ordinal))
+                        Button(entriesPanel, "Переглянути захищене зображення", async () =>
+                        {
+                            if (_busy) return;
+                            _busy = true;
+                            try
+                            {
+                                using var photo = await Task.Run(() => _privateFiles.Load(entry.Id));
+                                ShowMailImagePreview(photo.FileName, photo.Content);
+                            }
+                            catch (Exception)
+                            {
+                                Toast.MakeText(this, "Не вдалося відкрити захищене зображення.",
+                                    ToastLength.Long)?.Show();
+                            }
+                            finally { _busy = false; }
+                        });
                     Button(entriesPanel, "Зберегти розшифровану копію", () =>
                     {
                         if (_busy) return;
