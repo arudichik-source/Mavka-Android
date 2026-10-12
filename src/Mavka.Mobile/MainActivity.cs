@@ -434,16 +434,26 @@ public class MainActivity : Activity
             {
                 var all = _ledger.ListHoldingsAsOf(profile.Unit, _assetsAsOf);
                 var query = (search.Text ?? "").Trim();
-                var filtered = all.Where(x => query.Length == 0 ||
-                    x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                    (x.Nsn?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)).ToList();
+                var filtered = InventorySearchSummary.Filter(
+                    all, query, x => x.Name, x => x.Nsn);
                 Text(localRows, $"Локальних облікових позицій: {filtered.Count} із {all.Count}", 14);
-                var knownTotal = all.Where(x => x.TotalValue.HasValue)
-                    .Sum(x => x.TotalValue ?? 0m);
-                Text(localRows, "Вартість позицій із відомою ціною: " +
-                    knownTotal.ToString("0.00") + " грн", 13);
-                if (all.Any(x => !x.UnitPrice.HasValue))
-                    Text(localRows, "Є позиції з невідомою ціною; їхню вартість не враховано.", 12);
+                var visibleSummary = InventorySearchSummary.Summarize(
+                    filtered, x => x.TotalValue);
+                Text(localRows, query.Length == 0
+                    ? "Вартість позицій із відомою ціною: " +
+                      visibleSummary.KnownTotal.ToString("0.00") + " грн"
+                    : "Вартість знайдених позицій із відомою ціною: " +
+                      visibleSummary.KnownTotal.ToString("0.00") + " грн", 13);
+                if (query.Length > 0)
+                {
+                    var overallSummary = InventorySearchSummary.Summarize(
+                        all, x => x.TotalValue);
+                    Text(localRows, "Вартість усіх облікових позицій: " +
+                        overallSummary.KnownTotal.ToString("0.00") + " грн", 12);
+                }
+                if (visibleSummary.UnknownPriceCount > 0)
+                    Text(localRows, "Серед показаних позицій є майно з невідомою ціною; " +
+                        "його вартість не враховано.", 12);
                 foreach (var asset in filtered)
                 {
                     var current = asset;
