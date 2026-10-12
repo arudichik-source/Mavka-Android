@@ -23,6 +23,8 @@ public class MainActivity : Activity
     private PropertyLedgerStore _ledger = null!;
     private DocumentArchiveStore _archive = null!;
     private MavkaExportFileStore _exportedFiles = null!;
+    private PrivateAttachmentStore _privateFiles = null!;
+    private string? _pendingPrivateExportId;
     private GmailInboxCache _inboxCache = null!;
     private ScrollView _scroll = null!;
     private bool _viewingArchivedDocument;
@@ -34,6 +36,7 @@ public class MainActivity : Activity
     private TextView _home = null!, _inbox = null!, _assets = null!, _settings = null!;
     private string _screen = "home";
     private const int PickDocumentRequest = 1526;
+    private const int ExportPrivateCopyRequest = 1527;
     private string _inboxQuery = "";
     private string _mailFilter = "all";
     private bool _busy;
@@ -51,6 +54,7 @@ public class MainActivity : Activity
         _ledger = new PropertyLedgerStore(this);
         _archive = new DocumentArchiveStore(this);
         _exportedFiles = new MavkaExportFileStore(this);
+        _privateFiles = new PrivateAttachmentStore(this);
         _assetIcons = new AssetIconProvider(this);
         _exchangeKeys = new ExchangeKeyStore(this);
         _documentPasswords = new DocumentPasswordStore(this);
@@ -808,6 +812,51 @@ public class MainActivity : Activity
                                   "\n\nПерегляд скорочено."))
                         .SetPositiveButton("Закрити", (_, _) => { })
                         .Show());
+
+                if (attachment.SecureFileEnvelope is string sealedFile &&
+                    !mail.CachedPreview && !_viewingArchivedDocument)
+                {
+                    var fileStatus = Text(fileCard,
+                        "Файл ще не збережено. У Gmail лист залишається у вхідних.", 12);
+                    Button(fileCard, "Перевірити й зберегти захищений PDF/XLSX",
+                        async () =>
+                        {
+                            if (_busy) return;
+                            _busy = true;
+                            fileStatus.Text = "Перевіряємо файл і зберігаємо...";
+                            try
+                            {
+                                var stored = await Task.Run(() =>
+                                {
+                                    using var received = MavkaEncryptedFileEnvelope.Decrypt(
+                                        sealedFile, id => _exchangeKeys.GetKey(id));
+                                    return _privateFiles.Save(received);
+                                });
+                                if (_screen == "message")
+                                    fileStatus.Text = "Збережено в захищених файлах: " +
+                                        stored.Name + ". Перевірено локальне зчитування. " +
+                                        "Лист можна окремо перемістити у кошик Gmail.";
+                            }
+                            catch (KeyNotFoundException)
+                            {
+                                if (_screen == "message")
+                                    fileStatus.Text = "Немає потрібного ключа обміну.";
+                            }
+                            catch (System.Security.Cryptography.CryptographicException)
+                            {
+                                if (_screen == "message")
+                                    fileStatus.Text = "Автентичність файла не підтверджено. " +
+                                        "Вміст відхилено та не збережено.";
+                            }
+                            catch (Exception)
+                            {
+                                if (_screen == "message")
+                                    fileStatus.Text = "Не вдалося перевірити або зберегти PDF/XLSX. " +
+                                        "Лист залишається у Gmail.";
+                            }
+                            finally { _busy = false; }
+                        });
+                }
             }
         }
         foreach (var attachment in mail.Attachments)
