@@ -51,13 +51,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
             sync_status TEXT NOT NULL DEFAULT 'not_synced')");
         db.ExecSQL("CREATE INDEX idx_document_unit_date ON documents(unit, document_date)");
         CreateStatusTable(db);
-        db.ExecSQL(@"CREATE TABLE mail_processing(
-            uid_validity TEXT NOT NULL,
-            uid TEXT NOT NULL,
-            authorized_sender TEXT NOT NULL,
-            status TEXT NOT NULL,
-            updated_utc TEXT NOT NULL,
-            PRIMARY KEY(uid_validity, uid, authorized_sender))");
+        CreateMailProcessingTable(db);
     }
 
     public override void OnUpgrade(SQLiteDatabase db, int oldVersion, int newVersion)
@@ -72,6 +66,20 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         db.ExecSQL(@"INSERT INTO document_status_history
              (document_id, domain, state, changed_utc)
              SELECT document_id, 'archive', status, saved_utc FROM documents");
+        // v1 installations predate Gmail UID journaling. The fresh-schema
+        // OnCreate path already creates the table; upgrade must do likewise.
+        CreateMailProcessingTable(db);
+    }
+
+    private static void CreateMailProcessingTable(SQLiteDatabase db)
+    {
+        db.ExecSQL(@"CREATE TABLE IF NOT EXISTS mail_processing(
+            uid_validity TEXT NOT NULL,
+            uid TEXT NOT NULL,
+            authorized_sender TEXT NOT NULL,
+            status TEXT NOT NULL,
+            updated_utc TEXT NOT NULL,
+            PRIMARY KEY(uid_validity, uid, authorized_sender))");
     }
 
     private static void CreateStatusTable(SQLiteDatabase db)
