@@ -1994,6 +1994,55 @@ public class MainActivity : Activity
                             }
                         }).Show();
                 });
+                Text(exportCard, "Word формується в пам’яті та надсилається " +
+                    "ГОЛОВНІЙ МАВЦІ лише як зашифроване вкладення .docx.mavkafile. " +
+                    "Незахищений DOCX не записується до завантажень.", 12);
+                Button(exportCard, "Надіслати захищений Word (DOCX)", async () =>
+                {
+                    if (_busy) return;
+                    if (!_store.HasCredentials || !_exchangeKeys.HasKeyPair)
+                    {
+                        exportStatus.Text = "Потрібні Gmail та чинна пара ключів.";
+                        return;
+                    }
+                    _busy = true;
+                    byte[]? wordBytes = null;
+                    byte[]? currentKey = null;
+                    try
+                    {
+                        exportStatus.Text = "Формуємо й шифруємо Word...";
+                        wordBytes = await Task.Run(() => DocxInvoiceBuilder.Create(invoice));
+                        currentKey = _exchangeKeys.GetCurrentKey() ??
+                            throw new KeyNotFoundException("Поточний ключ недоступний.");
+                        var cleanNumber = new string(invoice.Number.Where(ch =>
+                            char.IsLetterOrDigit(ch) || ch is '-' or '_').Take(55).ToArray());
+                        if (string.IsNullOrWhiteSpace(cleanNumber)) cleanNumber = "document";
+                        string fileName = "Накладна-" + cleanNumber + ".docx";
+                        string ciphertext = MavkaEncryptedFileEnvelope.Encrypt(
+                            fileName, wordBytes, currentKey);
+                        await RegistrationMailService.SendProtectedFileAsync(
+                            _store.GetEmail(), _store.GetPassword() ??
+                                throw new InvalidOperationException("Пароль Gmail відсутній."),
+                            _store.GetMainMavkaEmail(), fileName, ciphertext);
+                        if (_screen == "message")
+                            exportStatus.Text = "Захищений Word відправлено через Gmail. " +
+                                "Відкритої копії не створено.";
+                    }
+                    catch (Exception ex)
+                    {
+                        if (_screen == "message")
+                            exportStatus.Text = "Не вдалося відправити Word: " +
+                                ExplainOperationError(ex);
+                    }
+                    finally
+                    {
+                        if (currentKey is not null)
+                            System.Security.Cryptography.CryptographicOperations.ZeroMemory(currentKey);
+                        if (wordBytes is not null)
+                            System.Security.Cryptography.CryptographicOperations.ZeroMemory(wordBytes);
+                        _busy = false;
+                    }
+                });
             }
             var statuses = Card();
             Text(statuses, "Історія статусів документа", 16, true);
