@@ -9,6 +9,12 @@ on:
       - main
   workflow_dispatch:
 
+# Only the newest revision of a draft PR needs a costly Android build.
+# Cancel obsolete runs on the same PR; never cancel unrelated branches/main.
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,6 +22,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify consolidated PR ancestry
+        shell: bash
+        run: bash tools/verify-stacked-integration.sh
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -40,11 +52,49 @@ jobs:
       - name: Verify asset icon categories
         run: dotnet run --project tools/AssetIconChecks/AssetIconChecks.csproj
 
+      - name: Verify offline archive and profile contracts
+        run: dotnet run --project tools/ArchiveChecks/ArchiveChecks.csproj
+
+      - name: Verify historical ledger arithmetic
+        run: dotnet run --project tools/LedgerChecks/LedgerChecks.csproj
+
+      - name: Verify XLSX document generation
+        run: dotnet run --project tools/XlsxChecks/XlsxChecks.csproj
+
+      - name: Verify read-only reconciliation
+        run: dotnet run --project tools/ReconciliationChecks/ReconciliationChecks.csproj
+
+      - name: Verify old SQLite schema migrations
+        run: python3 tools/sqlite_migration_smoke.py
+
+      - name: Verify export-folder safety policy
+        run: dotnet run --project tools/FilePolicyChecks/FilePolicyChecks.csproj
+
+      - name: Verify long-document PDF pagination
+        run: dotnet run --project tools/PdfFlowChecks/PdfFlowChecks.csproj
+
+      - name: Verify AES-256 PDF password compatibility
+        run: dotnet run --project tools/ProtectedPdfChecks/ProtectedPdfChecks.csproj
+
+      - name: Verify Excel-compatible password encryption
+        run: dotnet run --project tools/ProtectedXlsxChecks/ProtectedXlsxChecks.csproj
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
       - name: Build APK
         run: dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release
+
+      - name: Inspect production APK identity (no installation)
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apks=(src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk)
+          test "${#apks[@]}" -ge 1
+          for apk in "${apks[@]}"; do
+            pwsh -NoProfile -File tools/Inspect-Android-Apk.ps1 \
+              -ApkPath "$apk" -ExpectedPackage ua.mavka.mobile
+          done
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -77,6 +127,17 @@ jobs:
             actual="$("$aapt_binary" dump badging "$apk" | grep '^package:')"
             echo "APK manifest: $actual"
             echo "$actual" | grep -F "package: name='ua.mavka.mobile.preview'"
+          done
+
+      - name: Inspect preview APK identity (no installation)
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apks=(preview-apk/*.apk)
+          test "${#apks[@]}" -ge 1
+          for apk in "${apks[@]}"; do
+            pwsh -NoProfile -File tools/Inspect-Android-Apk.ps1 \
+              -ApkPath "$apk" -ExpectedPackage ua.mavka.mobile.preview
           done
 
       - name: Upload side-by-side test APK
