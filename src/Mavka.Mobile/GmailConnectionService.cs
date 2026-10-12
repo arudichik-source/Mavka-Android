@@ -16,7 +16,8 @@ internal sealed record MavkaMailItem(
     IReadOnlyList<MavkaTextAttachment> Attachments, uint MessageUid, uint UidValidity,
     bool AttachmentsComplete = false, string? ProcessingIssue = null,
     bool CachedPreview = false, string? CachedInvoiceNumber = null,
-    string? CachedInvoiceRecipient = null, bool SingleSecureFile = false);
+    string? CachedInvoiceRecipient = null, bool SingleSecureFile = false,
+    bool PreviouslyArchived = false);
 
 internal static class GmailConnectionService
 {
@@ -135,7 +136,8 @@ internal static class GmailConnectionService
         string account, string appPassword, string allowedSender,
         ExchangeKeyStore? exchangeKeys = null,
         DocumentPasswordStore? documentPasswords = null,
-        string? recipientClientId = null)
+        string? recipientClientId = null,
+        Func<uint, IReadOnlyDictionary<uint, string>>? processedIndex = null)
     {
         if (string.IsNullOrWhiteSpace(allowedSender) ||
             !System.Net.Mail.MailAddress.TryCreate(allowedSender.Trim(), out var parsed) ||
@@ -147,6 +149,14 @@ internal static class GmailConnectionService
         using var client = connection.Client;
         await client.AuthenticateAsync(account, appPassword, timeout.Token);
         await client.Inbox.OpenAsync(FolderAccess.ReadOnly, timeout.Token);
+        // UIDVALIDITY protects against UID reuse after a mailbox reset. The
+        // index contains only durable processing acknowledgments.
+        var processed = processedIndex?.Invoke(client.Inbox.UidValidity) ??
+            new Dictionary<uint, string>();
+        bool IsTrashed(uint id) =>
+            processed.TryGetValue(id, out var status) && status == "trashed";
+        bool IsReady(uint id) =>
+            processed.TryGetValue(id, out var status) && status == "ready";
 
         // Server-side search minimizes access to unrelated mail.
         var matched = await client.Inbox.SearchAsync(
@@ -181,13 +191,15 @@ internal static class GmailConnectionService
                     StringComparison.OrdinalIgnoreCase)) == true;
 
         var fetched = new Dictionary<uint, IMessageSummary>();
-        foreach (var batch in matched.Reverse().Take(300).Chunk(40))
+        foreach (var batch in matched.Reverse()
+                     .Where(id => !IsTrashed(id.Id)).Take(300).Chunk(40))
         {
             var batchSummaries = await client.Inbox.FetchAsync(
                 batch, summaryItems, timeout.Token);
             foreach (var summary in batchSummaries)
                 fetched[summary.UniqueId.Id] = summary;
-            if (fetched.Values.Count(ExactSender) >= 15)
+            if (fetched.Values.Count(item =>
+                    ExactSender(item) && !IsReady(item.UniqueId.Id)) >= 15)
                 break;
         }
 
@@ -197,7 +209,8 @@ internal static class GmailConnectionService
         var special = keyMatches.Reverse().Take(10)
             .Concat(fileMatches.Reverse().Take(150))
             .Distinct()
-            .Where(uid => !fetched.ContainsKey(uid.Id))
+            .Where(uid => !IsTrashed(uid.Id) &&
+                !fetched.ContainsKey(uid.Id))
             .ToList();
         if (special.Count > 0)
         {
@@ -211,9 +224,15 @@ internal static class GmailConnectionService
         // the rest so even an old provisioning letter unlocks recent files.
         var verified = fetched.Values.Where(ExactSender).ToList();
         var selected = verified
-            .OrderByDescending(s => s.UniqueId.Id).Take(15)
-            .Concat(verified.Where(s => fileUids.Contains(s.UniqueId.Id)).OrderByDescending(s => s.UniqueId.Id).Take(150))
-            .Concat(verified.Where(s => keyUids.Contains(s.UniqueId.Id))
+            .Where(s => !IsTrashed(s.UniqueId.Id) && !IsReady(s.UniqueId.Id))
+                .OrderByDescending(s => s.UniqueId.Id).Take(15)
+            .Concat(verified.Where(s => IsReady(s.UniqueId.Id))
+                .OrderByDescending(s => s.UniqueId.Id).Take(10))
+            .Concat(verified.Where(s => fileUids.Contains(s.UniqueId.Id) &&
+                !IsTrashed(s.UniqueId.Id) && !IsReady(s.UniqueId.Id))
+                .OrderByDescending(s => s.UniqueId.Id).Take(150))
+            .Concat(verified.Where(s => keyUids.Contains(s.UniqueId.Id) &&
+                !IsTrashed(s.UniqueId.Id) && !IsReady(s.UniqueId.Id))
                 .OrderByDescending(s => s.UniqueId.Id).Take(10))
             .GroupBy(s => s.UniqueId.Id).Select(group => group.First())
             .OrderBy(s => s.UniqueId.Id)
@@ -222,6 +241,19 @@ internal static class GmailConnectionService
         var result = new List<MavkaMailItem>();
         foreach (var summary in selected)
         {
+            // A previously archived and verified letter needs only a Trash
+            // retry. Do not download/decrypt any of its attachments again.
+            if (IsReady(summary.UniqueId.Id))
+            {
+                var dateTextReady = summary.Envelope?.Date is { } savedDate
+                    ? savedDate.ToLocalTime().ToString("dd.MM.yyyy HH:mm")
+                    : "Без дати";
+                result.Add(new MavkaMailItem(summary.Envelope?.Subject ?? "(без теми)",
+                    dateTextReady, "Лист уже збережено у захищеному архіві.",
+                    Array.Empty<MavkaTextAttachment>(), summary.UniqueId.Id,
+                    client.Inbox.UidValidity, PreviouslyArchived: true));
+                continue;
+            }
             string body = "Повідомлення не містить текстової версії (text/plain).";
             if (summary.TextBody is not null)
             {
