@@ -86,4 +86,33 @@ Check(MailImagePreviewPolicy.HasValidSignature("photo.webp",
 Check(!MailImagePreviewPolicy.HasValidSignature("photo.png",
     new byte[] {0,1,2,3,4,5,6,7,8,9,10,11}),
     "Reject altered PNG");
-Console.WriteLine("File export, mail metadata, vault and photo preview: 35/35 PASS");
+var statuses = new Dictionary<uint,string>
+{
+    [10] = "ready",
+    [11] = "trashed",
+    [12] = "pending",
+    [13] = "ready"
+};
+var recent = new uint[] { 15, 14, 13, 12, 11, 10 };
+Check(GmailProcessingSelectionPolicy.PendingPayloads(recent, statuses, 20)
+    .SequenceEqual(new uint[] { 15, 14, 12 }),
+    "Do not refetch ready/trashed mail; unresolved remains eligible");
+Check(GmailProcessingSelectionPolicy.ReadyForTrash(recent, statuses, 20)
+    .SequenceEqual(new uint[] { 13, 10 }),
+    "Only verified ready mails are candidates for a Trash retry");
+Check(GmailProcessingSelectionPolicy.ReadyForTrash(recent, statuses, 1)
+    .SequenceEqual(new uint[] { 13 }),
+    "Bounded ready-mail cleanup batch");
+Check(GmailProcessingSelectionPolicy.PendingPayloads(recent, statuses, 1)
+    .SequenceEqual(new uint[] { 15 }),
+    "Bounded unprocessed-mail batch");
+Check(!GmailProcessingSelectionPolicy.IsReady(statuses, 11) &&
+    GmailProcessingSelectionPolicy.IsTrashed(statuses, 11),
+    "Trashed is never re-imported");
+Check(!GmailProcessingSelectionPolicy.IsReady(statuses, 12) &&
+    !GmailProcessingSelectionPolicy.IsTrashed(statuses, 12),
+    "Pending mail is not lost");
+Check(GmailProcessingSelectionPolicy.PendingPayloads(
+    new uint[]{42}, new Dictionary<uint,string>(), 20).SequenceEqual(new uint[]{42}),
+    "Unseen attachment must still be processed");
+Console.WriteLine("File, preview and Gmail processing policies: 42/42 PASS");
