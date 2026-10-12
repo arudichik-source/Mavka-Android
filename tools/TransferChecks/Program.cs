@@ -69,6 +69,9 @@ try
     var downloadable = command with { EncryptedSize = bundle.Length, Sha256 = Convert.ToHexString(SHA256.HashData(bundle)) };
     var receivedParts = await downloadable.DownloadAsync(default,new FakeDriveReply(bundle));
     Check(receivedParts.Length == h.Count,"Actual Drive download/parse route with synthetic HTTP reply");
+    var resumed = await downloadable.DownloadAsync(default, new FakeRangeDriveReply(bundle));
+    Check(resumed.Length == h.Count,
+        "Interrupted Drive download must request remaining bytes using HTTP Range");
     using(var received = MavkaFileParts.Decrypt(receivedParts[0],Resolve))
         Check(received.Content.SequenceEqual(data.Take(MavkaFileParts.ChunkBytes)),"Downloaded Drive part authenticates");
     try { await (downloadable with { Sha256 = new string('0',64) }).DownloadAsync(default,new FakeDriveReply(bundle)); throw new Exception("Wrong bundle hash accepted"); }
@@ -93,6 +96,36 @@ try
     Console.WriteLine($"Encrypted multipart, Word, durable resume/deletion and Drive command checks: {checks} PASS");
 }
 finally { if (Directory.Exists(root)) Directory.Delete(root,true); CryptographicOperations.ZeroMemory(key); CryptographicOperations.ZeroMemory(localKey); }
+
+sealed class FakeRangeDriveReply(byte[] bytes) : HttpMessageHandler
+{
+    private int _calls;
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        int split = bytes.Length / 2;
+        if (++_calls == 1)
+        {
+            if (request.Headers.Range is not null)
+                throw new Exception("First Drive request unexpectedly has Range");
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(bytes[..split])
+            });
+        }
+        var requested = request.Headers.Range?.Ranges.Single().From;
+        if (requested != split)
+            throw new Exception("Resume must start after last received encrypted byte");
+        var response = new HttpResponseMessage(System.Net.HttpStatusCode.PartialContent)
+        {
+            Content = new ByteArrayContent(bytes[split..])
+        };
+        response.Content.Headers.ContentRange =
+            new System.Net.Http.Headers.ContentRangeHeaderValue(
+                split, bytes.Length - 1, bytes.Length);
+        return Task.FromResult(response);
+    }
+}
 
 sealed class FakeDriveReply(byte[] bytes, string? mime = null, string? redirect = null) : HttpMessageHandler
 {
