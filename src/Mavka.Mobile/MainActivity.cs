@@ -950,7 +950,8 @@ public class MainActivity : Activity
         // Separately, a user can explicitly move a displayed incoming message
         // to Gmail Trash. This is a reversible mailbox action, not an import,
         // expunge, local-document deletion, or key reset.
-        if (!_viewingArchivedDocument && mail.MessageUid != 0 && mail.UidValidity != 0)
+        if (!_viewingArchivedDocument && !mail.CachedPreview &&
+            mail.MessageUid != 0 && mail.UidValidity != 0)
         {
             Button(_body, "Перемістити лист у кошик Gmail", () =>
             {
@@ -1139,7 +1140,8 @@ public class MainActivity : Activity
                 remaining.Add(mail with
                 {
                     ProcessingIssue = mail.Attachments.Count == 0
-                        ? "Немає підтримуваного вкладення. PDF/XLSX із Gmail поки не імпортуються. Лист залишено."
+                        ? "Немає придатного вкладення JSON/TXT. PDF/XLSX із Gmail " +
+                          "поки не імпортуються. Лист залишено."
                         : "Не всі вкладення підтримуються. Перевір типи файлів; лист залишено."
                 });
                 kept++;
@@ -2141,8 +2143,24 @@ public class MainActivity : Activity
 
         var uri = data.Data;
         var mime = ContentResolver?.GetType(uri);
-        if (mime is not ("application/pdf" or
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+        // Android document providers may label an XLSX as octet-stream.
+        // Only accept PDF/XLSX extensions from the user's explicit SAF choice;
+        // this action launches a read-only external viewer, not an importer.
+        string? fileName = null;
+        try
+        {
+            using var cursor = ContentResolver?.Query(uri,
+                new[] { Android.Provider.OpenableColumns.DisplayName },
+                null, null, null);
+            if (cursor?.MoveToFirst() == true && !cursor.IsNull(0))
+                fileName = cursor.GetString(0);
+        }
+        catch (Exception) { /* A MIME-only provider is also valid. */ }
+        bool pdf = mime == "application/pdf" ||
+            fileName?.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) == true;
+        bool xlsx = mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+            fileName?.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) == true;
+        if (!pdf && !xlsx)
         {
             Toast.MakeText(this, "Підтримуються лише PDF та XLSX.",
                 ToastLength.Long)?.Show();
@@ -2151,7 +2169,8 @@ public class MainActivity : Activity
         try
         {
             var intent = new Intent(Intent.ActionView);
-            intent.SetDataAndType(uri, mime);
+            intent.SetDataAndType(uri, pdf ? "application/pdf" :
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             intent.AddFlags(ActivityFlags.GrantReadUriPermission);
             StartActivity(Intent.CreateChooser(intent, "Переглянути файл"));
         }
