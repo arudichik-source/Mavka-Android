@@ -41,4 +41,34 @@ bool malformedRejected=false;
 try { LedgerBalanceCalculator.ParseDate("tomorrow"); }
 catch (ArgumentException) { malformedRejected=true; }
 Check(malformedRejected,"Invalid accounting date");
-Console.WriteLine("Historical ledger arithmetic regression checks: 8/8 PASS");
+// Device QA regression: "12" must show 54,307.62 UAH for the two
+// visible military items, not the 605,253.62 UAH total of all rows.
+var screenHoldings = new[]
+{
+    new HistoricalHolding("12×70 мм патрон гладкоствольний (QA31)",
+        "шт.", null, 18m, 17.09m, 307.62m),
+    new HistoricalHolding("120 мм постріл мінометний навчальний (QA31)",
+        "шт.", null, 3m, 18000m, 54000m),
+    new HistoricalHolding("155 мм снаряд навчальний (QA31)",
+        "шт.", "NSN-QA31-155", 2m, 275473m, 550946m),
+    new HistoricalHolding("Заряд тестовий без ціни",
+        "шт.", null, 1m, null, null)
+};
+var visible12 = InventorySearchSummary.Filter(screenHoldings, "12",
+    x => x.Name, x => x.Nsn);
+Check(visible12.Count == 2, "Search 12 must find exactly two inventory rows");
+Check(InventorySearchSummary.Summarize(visible12, x => x.TotalValue).KnownTotal
+    == 54307.62m, "Visible value must be 54,307.62 UAH");
+Check(InventorySearchSummary.Summarize(screenHoldings, x => x.TotalValue).KnownTotal
+    == 605253.62m, "All-items value must remain available separately");
+Check(InventorySearchSummary.Filter(screenHoldings, "nsn-qa31-155",
+    x => x.Name, x => x.Nsn).Count == 1, "NSN search remains case-insensitive");
+Check(InventorySearchSummary.Filter(screenHoldings, "absent",
+    x => x.Name, x => x.Nsn).Count == 0, "Unmatched search must show zero rows");
+Check(InventorySearchSummary.Summarize(
+    InventorySearchSummary.Filter(screenHoldings, "без ціни", x => x.Name, x => x.Nsn),
+    x => x.TotalValue).UnknownPriceCount == 1, "Unknown prices are counted only within visible rows");
+Check(InventorySearchSummary.Summarize(
+    InventorySearchSummary.Filter(screenHoldings, "absent", x => x.Name, x => x.Nsn),
+    x => x.TotalValue).KnownTotal == 0m, "Empty search has zero visible total");
+Console.WriteLine("Historical ledger + live-search inventory totals: 15/15 PASS");
