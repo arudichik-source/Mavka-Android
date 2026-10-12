@@ -16,7 +16,7 @@ if (args.Length == 2 && args[0] == "create-key")
     }
     finally { CryptographicOperations.ZeroMemory(key); }
 }
-else if (args.Length == 4 && args[0] == "encrypt")
+else if (args.Length == 4 && (args[0] == "encrypt" || args[0] == "encrypt-password"))
 {
     var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
     if (key.Length != 32) throw new ArgumentException("Key must contain 32 bytes.");
@@ -52,13 +52,16 @@ else if (args.Length == 4 && args[0] == "encrypt")
             tag = Convert.ToBase64String(tag)
         };
 
-        File.WriteAllText(args[3],
-            JsonSerializer.Serialize(envelope, new JsonSerializerOptions { WriteIndented = true }));
+        var serialized = JsonSerializer.Serialize(envelope,
+            new JsonSerializerOptions { WriteIndented = true });
+        if (args[0] == "encrypt-password")
+            serialized = MavkaPasswordedEnvelope.Wrap(serialized, ReadDocumentPassword());
+        File.WriteAllText(args[3], serialized);
         Console.WriteLine("Encrypted file created, key ID: " + id);
     }
     finally { CryptographicOperations.ZeroMemory(key); }
 }
-else if (args.Length == 4 && args[0] == "file-parts")
+else if (args.Length == 4 && (args[0] == "file-parts" || args[0] == "file-parts-password"))
 {
     var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
     if (new FileInfo(args[2]).Length > MavkaFileParts.MaxFileBytes) throw new ArgumentException("File exceeds 32 MB.");
@@ -66,6 +69,7 @@ else if (args.Length == 4 && args[0] == "file-parts")
     byte[] plain = File.ReadAllBytes(args[2]);
     try
     {
+        var passphrase = args[0] == "file-parts-password" ? ReadDocumentPassword() : null;
         var h = MavkaFileParts.Describe(Path.GetFileName(args[2]), plain);
         Directory.CreateDirectory(args[3]);
         var packets = new List<string>();
@@ -73,6 +77,8 @@ else if (args.Length == 4 && args[0] == "file-parts")
         {
             var packet = MavkaFileParts.Encrypt(h with { Index = i }, plain.AsSpan(i * MavkaFileParts.ChunkBytes,
                 Math.Min(MavkaFileParts.ChunkBytes, plain.Length - i * MavkaFileParts.ChunkBytes)), key);
+            if (passphrase is not null)
+                packet = MavkaPasswordedEnvelope.Wrap(packet, passphrase);
             File.WriteAllText(Path.Combine(args[3], $"{h.TransferId}-{i+1}-{h.Count}.mavkapart"), packet, new UTF8Encoding(false));
             packets.Add(packet);
         }
@@ -82,7 +88,7 @@ else if (args.Length == 4 && args[0] == "file-parts")
     }
     finally { CryptographicOperations.ZeroMemory(key); CryptographicOperations.ZeroMemory(plain); }
 }
-else if (args.Length == 6 && args[0] == "drive-command")
+else if (args.Length == 6 && (args[0] == "drive-command" || args[0] == "drive-command-password"))
 {
     if (File.Exists(args[5])) throw new IOException("Command output already exists.");
     var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
@@ -100,8 +106,12 @@ else if (args.Length == 6 && args[0] == "drive-command")
         {
             string kid=KeyId(key); using var aes = new AesGcm(key,16);
             aes.Encrypt(nonce,plain,cipher,tag,Encoding.UTF8.GetBytes("MAVKA_ENCRYPTED_V1:"+kid));
-            File.WriteAllText(args[5],JsonSerializer.Serialize(new { format="MAVKA_ENCRYPTED_V1",algorithm="AES-256-GCM",keyId=kid,
-                nonce=Convert.ToBase64String(nonce),ciphertext=Convert.ToBase64String(cipher),tag=Convert.ToBase64String(tag) }),new UTF8Encoding(false));
+            var protectedCommand = JsonSerializer.Serialize(new { format="MAVKA_ENCRYPTED_V1",algorithm="AES-256-GCM",keyId=kid,
+                nonce=Convert.ToBase64String(nonce),ciphertext=Convert.ToBase64String(cipher),tag=Convert.ToBase64String(tag) });
+            if (args[0] == "drive-command-password")
+                protectedCommand = MavkaPasswordedEnvelope.Wrap(
+                    protectedCommand, ReadDocumentPassword());
+            File.WriteAllText(args[5], protectedCommand, new UTF8Encoding(false));
         }
         finally { CryptographicOperations.ZeroMemory(plain); }
         Console.WriteLine("Encrypted Drive command ready. No plaintext file was uploaded or written.");
@@ -197,6 +207,9 @@ else
     Console.WriteLine("Usage:");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- create-key PRIVATE.mavka-key");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- encrypt PRIVATE.mavka-key input.json encrypted.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- encrypt-password PRIVATE.mavka-key input.json protected.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- file-parts-password PRIVATE.mavka-key input.pdf OUTPUT_DIR");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- drive-command-password PRIVATE.mavka-key bundle.json DRIVE_ID HTTPS_URL output.json");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- demo-package output.json");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- selftest");
 }
