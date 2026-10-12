@@ -238,6 +238,19 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                 if (existing.MoveToFirst()) return false;
             }
 
+            // A post-opening receipt may be dated on the baseline day or later,
+            // never earlier: that older movement is already reflected in the snapshot.
+            string? openingDate = null;
+            using (var opening = database.RawQuery(
+                @"SELECT document_date FROM receipts
+                  WHERE recipient = ? COLLATE NOCASE
+                    AND document_id LIKE 'OPENING:%' LIMIT 1",
+                new[] { invoice.Recipient }))
+            {
+                if (opening.MoveToFirst()) openingDate = opening.GetString(0);
+            }
+            OpeningBalancePostingPolicy.ValidateReceiptDate(invoice.Date, openingDate);
+
             var receipt = new ContentValues();
             receipt.Put("document_id", invoice.DocumentId);
             receipt.Put("document_number", invoice.Number);
@@ -281,6 +294,8 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
             snapshot.Items.Count == 0 || snapshot.Items.Count > 500)
             throw new ArgumentException("Invalid opening inventory snapshot.");
 
+        // Require a valid accounting baseline date before any SQLite write.
+        OpeningBalancePostingPolicy.ValidateOpeningDate(snapshot.AsOf);
         var unit = snapshot.Unit.Trim();
         var id = "OPENING:" + Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(unit.ToUpperInvariant())))[..24];
