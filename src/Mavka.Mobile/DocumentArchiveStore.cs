@@ -120,6 +120,48 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         finally { db.EndTransaction(); }
     }
 
+    /// <summary>
+    /// After an explicitly confirmed local-ledger reset, reconcile the
+    /// archive's *local* posting labels without deleting evidentiary documents
+    /// or altering delivery/remote sync status. A second call is idempotent.
+    /// </summary>
+    public int ResetLocalPostingForUnit(string unit)
+    {
+        if (string.IsNullOrWhiteSpace(unit))
+            throw new ArgumentException("Підрозділ не визначено.", nameof(unit));
+        using var db = WritableDatabase;
+        db.BeginTransaction();
+        try
+        {
+            var ids = new List<string>();
+            using (var cursor = db.RawQuery(
+                @"SELECT document_id FROM documents
+                  WHERE unit = ? COLLATE NOCASE
+                  AND posting_status = 'posted'",
+                new[] { unit.Trim() }))
+                while (cursor.MoveToNext()) ids.Add(cursor.GetString(0));
+            var when = DateTimeOffset.UtcNow.ToString("O");
+            foreach (var id in ids)
+            {
+                var update = new ContentValues();
+                update.Put("posting_status", "not_posted");
+                if (db.Update("documents", update, "document_id = ?",
+                        new[] { id }) != 1)
+                    throw new InvalidOperationException(
+                        "Не вдалося оновити статус локального проведення.");
+                var history = new ContentValues();
+                history.Put("document_id", id);
+                history.Put("domain", "posting_status");
+                history.Put("state", "not_posted");
+                history.Put("changed_utc", when);
+                db.InsertOrThrow("document_status_history", null, history);
+            }
+            db.SetTransactionSuccessful();
+            return ids.Count;
+        }
+        finally { db.EndTransaction(); }
+    }
+
     public void MarkPosted(string documentId) => UpdateStatus(documentId, "posting_status", "posted");
     public void MarkDeliveryQueued(string documentId) => UpdateStatus(documentId, "delivery_status", "pending");
     public void MarkDeliverySent(string documentId) => UpdateStatus(documentId, "delivery_status", "sent");
