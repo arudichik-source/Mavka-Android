@@ -232,7 +232,7 @@ internal static class GmailConnectionService
         var verified = fetched.Values.Where(ExactSender).ToList();
         var selected = verified
             .OrderByDescending(s => s.UniqueId.Id).Take(15)
-            .Concat(verified.Where(s => fileUids.Contains(s.UniqueId.Id)))
+            .Concat(verified.Where(s => fileUids.Contains(s.UniqueId.Id))
                 .OrderByDescending(s => s.UniqueId.Id).Take(150))
             .Concat(verified.Where(s => keyUids.Contains(s.UniqueId.Id))
                 .OrderByDescending(s => s.UniqueId.Id).Take(10))
