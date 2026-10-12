@@ -35,11 +35,15 @@ archive_upgrade = sql_statements(section(
 create_status = sql_statements(section(
     ARCHIVE, "private static void CreateStatusTable(SQLiteDatabase db)",
     "private void UpdateStatus("))
+create_mail_index = sql_statements(section(
+    ARCHIVE, "private static void CreateMailProcessingTable(SQLiteDatabase db)",
+    "private static void CreateStatusTable("))
 
 assert len(create_events) == 3, create_events
 assert len(ledger_upgrade) == 2, ledger_upgrade
 assert len(archive_upgrade) == 4, archive_upgrade
 assert len(create_status) == 2, create_status
+assert len(create_mail_index) == 1, create_mail_index
 
 def test_ledger(version: int):
     db = sqlite3.connect(":memory:")
@@ -106,11 +110,18 @@ def test_archive():
         for statement in create_status:
             db.execute(statement)
         db.execute(archive_upgrade[3])  # Backfill archive=saved audit row
+        db.execute(create_mail_index[0])  # Upgraded v1 needs durable Gmail state
     doc = db.execute("SELECT sealed_json, posting_status, delivery_status, sync_status "
                      "FROM documents WHERE document_id = 'DEMO-1'").fetchone()
     assert doc == ("SEALED-PAYLOAD", "not_posted", "not_queued", "not_synced"), doc
     history = db.execute("SELECT domain,state FROM document_status_history").fetchall()
     assert history == [("archive","saved")], history
+    db.execute("INSERT INTO mail_processing VALUES (?,?,?,?,?)",
+               ("1024","42","sender@example.org","ready","2026-10-12T00:00:00Z"))
+    assert db.execute("SELECT status FROM mail_processing WHERE uid = '42'").fetchone()[0] == "ready"
+    # Idempotent schema definition must be safe if called during a repair.
+    db.execute(create_mail_index[0])
+    assert db.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 1
     db.close()
 
 
