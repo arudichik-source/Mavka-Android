@@ -115,4 +115,12 @@ Check(!GmailProcessingSelectionPolicy.IsReady(statuses, 12) &&
 Check(GmailProcessingSelectionPolicy.PendingPayloads(
     new uint[]{42}, new Dictionary<uint,string>(), 20).SequenceEqual(new uint[]{42}),
     "Unseen attachment must still be processed");
-Console.WriteLine("File, preview and Gmail processing policies: 42/42 PASS");
+Check(IncomingAttachmentSecurityPolicy.RejectPlaintext(true, false, false),
+    "Plaintext accounting JSON is rejected after key installation");
+Check(!IncomingAttachmentSecurityPolicy.RejectPlaintext(true, true, false),
+    "AES-GCM authenticated documents are accepted");
+Check(!IncomingAttachmentSecurityPolicy.RejectPlaintext(true, false, true),
+    "Password-sealed key enrollment is not disguised as a document");
+Check(!IncomingAttachmentSecurityPolicy.RejectPlaintext(false, false, false),
+    "Legacy unkeyed initial setup remains possible");
+Console.WriteLine("File, preview, UID and encrypted-only admission policies: 46/46 PASS");
