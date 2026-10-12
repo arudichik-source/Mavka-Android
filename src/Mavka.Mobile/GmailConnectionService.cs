@@ -212,6 +212,18 @@ internal static class GmailConnectionService
             foreach (var attachment in summary.Attachments.Take(10))
             {
                 var fileName = attachment.FileName;
+                var officePreview = MailAttachmentDisplayPolicy.Detect(fileName);
+                if (officePreview != MailAttachmentDisplayPolicy.PreviewType.None)
+                {
+                    // A PDF/XLSX is visible in the inbox as metadata, never
+                    // decoded, auto-imported or made eligible for automatic Trash.
+                    attachmentsComplete = false;
+                    textAttachments.Add(new MavkaTextAttachment(fileName!,
+                        MailAttachmentDisplayPolicy.Description(
+                            fileName!, attachment.Octets)));
+                    if (textAttachments.Count >= 3) break;
+                    continue;
+                }
                 if (string.IsNullOrWhiteSpace(fileName) ||
                     !(fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
                       fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) ||
