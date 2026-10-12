@@ -22,6 +22,8 @@ internal static class MavkaExportPolicy
         if (fileName.Contains('/') || fileName.Contains('\\') || fileName is "." or "..")
             return false;
         return fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ||
-               fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase);
+               fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".doc", StringComparison.OrdinalIgnoreCase);
     }
 }
