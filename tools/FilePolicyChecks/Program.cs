@@ -37,4 +37,27 @@ Check(MailAttachmentDisplayPolicy.Description("demo.xlsx", 1536)
     .Contains("1.5 КБ"), "Display binary size metadata");
 Check(MailAttachmentDisplayPolicy.Description("demo.pdf", 50)
     .Contains("не відкрито й не збережено"), "Disclose no import");
-Console.WriteLine("File export and mail metadata policy regression: 17/17 PASS");
+Check(PrivateVaultListingPolicy.MaxFiles == 100, "Vault quota contract");
+var allIds = Enumerable.Range(1, 100)
+    .Select(n => n.ToString("x64")).ToArray();
+var allPaths = allIds.Select(id => "/app/secure_received_files_v1/" + id + ".bin");
+var candidates = PrivateVaultListingPolicy.CandidateIds(allPaths);
+Check(candidates.Count == 100, "All 100 permitted received files are visible");
+Check(candidates.Distinct().Count() == 100, "No duplicate rows in file manager");
+Check(allIds.All(id => candidates.Contains(id)), "Entries 61-100 are not hidden");
+var withInvalid = new[] {
+    "/app/secure_received_files_v1/unexpected.bin",
+    "/app/secure_received_files_v1/../unsafe.bin",
+    "/app/secure_received_files_v1/" + new string('Z', 64) + ".bin",
+    "/app/secure_received_files_v1/" + allIds[0] + ".txt"
+}.Concat(allPaths).ToArray();
+Check(PrivateVaultListingPolicy.CandidateIds(withInvalid).Count == 100,
+    "Reject invalid entries before taking 100");
+Check(PrivateVaultListingPolicy.CandidateIds(allPaths.Concat(allPaths)).Count == 100,
+    "Duplicate entries cannot crowd out valid files");
+Check(PrivateVaultListingPolicy.CandidateIds(allPaths.Concat(
+    new[] { "/app/secure_received_files_v1/" + (101).ToString("x64") + ".bin" })).Count == 100,
+    "List honors bounded vault capacity");
+Check(!PrivateVaultListingPolicy.IsId("../" + new string('a',60)),
+    "No relative identifier traversal");
+Console.WriteLine("File export, mail metadata and encrypted vault listing policy: 24/24 PASS");
