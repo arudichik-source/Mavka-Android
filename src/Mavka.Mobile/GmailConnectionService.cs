@@ -8,7 +8,7 @@ namespace Mavka.Mobile;
 
 internal sealed record MavkaTextAttachment(
     string FileName, string Text, string? RawJson = null,
-    bool InstalledKeyPackage = false);
+    bool InstalledKeyPackage = false, string? SecureFileEnvelope = null);
 
 internal sealed record MavkaMailItem(
     string Subject, string DateText, string Body,
@@ -212,6 +212,52 @@ internal static class GmailConnectionService
             foreach (var attachment in summary.Attachments.Take(10))
             {
                 var fileName = attachment.FileName;
+                // A .mavkafile is an AES-256-GCM JSON container, not a raw
+                // PDF/XLSX. Only retain ciphertext in memory until user saves.
+                // Keep the Gmail letter until durable file verification.
+                if (!string.IsNullOrWhiteSpace(fileName) &&
+                    fileName.EndsWith(MavkaEncryptedFileEnvelope.Extension,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    attachmentsComplete = false;
+                    if (attachment.Octets is > 0 and <= MavkaEncryptedFileEnvelope.MaxEnvelopeBytes)
+                    {
+                        try
+                        {
+                            var binaryPart = await client.Inbox.GetBodyPartAsync(
+                                summary.UniqueId, attachment, timeout.Token);
+                            if (binaryPart is MimePart securedPart)
+                            {
+                                using var ciphertextStream = new MemoryStream();
+                                securedPart.Content.DecodeTo(ciphertextStream);
+                                if (ciphertextStream.Length > 0 &&
+                                    ciphertextStream.Length <= MavkaEncryptedFileEnvelope.MaxEnvelopeBytes)
+                                {
+                                    string envelope = new System.Text.UTF8Encoding(false, true)
+                                        .GetString(ciphertextStream.ToArray())
+                                        .TrimStart('\uFEFF');
+                                    textAttachments.Add(new MavkaTextAttachment(
+                                        Path.GetFileName(fileName),
+                                        "🔐 Захищений PDF/XLSX: потрібне підтвердження збереження.",
+                                        SecureFileEnvelope: envelope));
+                                }
+                            }
+                        }
+                        catch (Exception ex) when (ex is DecoderFallbackException or
+                            System.IO.IOException or InvalidOperationException)
+                        {
+                            textAttachments.Add(new MavkaTextAttachment(
+                                Path.GetFileName(fileName),
+                                "🔒 Пошкоджений або недоступний файл."));
+                        }
+                    }
+                    else
+                        textAttachments.Add(new MavkaTextAttachment(
+                            Path.GetFileName(fileName),
+                            "🔒 Розмір захищеного вкладення не підтримується."));
+                    if (textAttachments.Count >= 3) break;
+                    continue;
+                }
                 var officePreview = MailAttachmentDisplayPolicy.Detect(fileName);
                 if (officePreview != MailAttachmentDisplayPolicy.PreviewType.None)
                 {
