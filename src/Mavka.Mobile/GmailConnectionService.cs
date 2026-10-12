@@ -355,9 +355,9 @@ internal static class GmailConnectionService
                     {
                         try
                         {
-                            var entity = await client.Inbox.GetBodyPartAsync(
+                            var imageEntity = await client.Inbox.GetBodyPartAsync(
                                 summary.UniqueId, attachment, timeout.Token);
-                            if (entity is MimePart picture)
+                            if (imageEntity is MimePart picture)
                             {
                                 using var imageStream = new BoundedWriteStream(
                                     MailImagePreviewPolicy.MaxBytes);
