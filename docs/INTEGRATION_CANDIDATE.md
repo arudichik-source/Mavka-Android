@@ -9,10 +9,17 @@
 
 ## Scope and proof of inclusion
 
-All commits from the following twelve *stacked* PR heads are present in
-the candidate commit history. `tools/verify-stacked-integration.sh`
-verifies each with `git merge-base --is-ancestor`; the check runs
-before any APK build.
+The **functional changes** from all twelve PRs were reviewed against
+the proposed candidate. PR #17–27 head commits are ancestors of the
+candidate. PR #16 has three late commits on its *separately updated*
+branch: the shared base is an ancestor, while the three fixes are
+represented in the consolidated source by equivalent code (Android
+cipher-mode qualification, historical record presence check, and
+profile-reassignment guard). Their absence from the candidate's Git
+ancestry is deliberate and documented. The script
+`tools/verify-stacked-integration.sh` checks both ancestry and the
+specific equivalent source predicates before APK compilation.
+Git/grep checks are narrower than full behavioral equivalence.
 
 | PR | Head at consolidation | High-level software workstream |
 |---|---|---|
@@ -29,13 +36,15 @@ before any APK build.
 | #26 | `c21d01bd7073c5792d47a1d18f66f48dfcc9cb65` | Password-protected Excel files |
 | #27 | `1b9c07df489bb5c18616f48d67ea1178f0fdbade` | PDF pagination and file UI performance |
 
-**Meaning:** Git history proves source inclusion, not end-to-end
-correctness, desktop interoperability, or requirement coverage.
-There are no independent cherry-picks and thus no duplication.
+**Meaning:** This audit establishes ancestry or the explicitly
+specified late-fix source predicates, not complete behavioral
+equivalence, desktop interoperability, or requirement coverage.
+Avoid duplicate cherry-picks or merging every stacked PR separately.
 
 ## Gates before promotion to stable main
 
-- [x] One consolidated Git commit ancestry, all PR #16–27 included.
+- [x] PR #17–27 included by ancestry; PR #16 verified at code level
+      because three late fixes were independently incorporated.
 - [x] Prior build #98 succeeded and published separate production/preview
       APK artifacts from the same integrated source.
 - [ ] Candidate-specific full GitHub CI succeeds (integration gate + APK).
