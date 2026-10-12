@@ -11,5 +11,6 @@
     <Compile Include="../../src/Mavka.Mobile/PrivateVaultListingPolicy.cs" Link="PrivateVaultListingPolicy.cs" />
     <Compile Include="../../src/Mavka.Mobile/MailImagePreviewPolicy.cs" Link="MailImagePreviewPolicy.cs" />
     <Compile Include="../../src/Mavka.Mobile/GmailProcessingSelectionPolicy.cs" Link="GmailProcessingSelectionPolicy.cs" />
+    <Compile Include="../../src/Mavka.Mobile/IncomingAttachmentSecurityPolicy.cs" Link="IncomingAttachmentSecurityPolicy.cs" />
   </ItemGroup>
 </Project>
