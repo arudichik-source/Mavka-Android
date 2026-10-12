@@ -77,3 +77,35 @@ dotnet run --project tools/MavkaEncrypt -- encrypt PRIVATE.mavka-key input.json 
 **Обмеження:** збірка Android із підписом GitHub CI може не
 оновлювати раніше встановлену версію через несумісність
 сертифікатів; не видаляти основну програму заради тесту.
+
+
+## Пароль на кожен зашифрований файл
+
+Після отримання поточного й майбутнього ключів для **нових** документів
+використовуйте тільки парольно-захищені команди:
+
+```powershell
+.\MavkaEncrypt.exe encrypt-password current.key invoice.json invoice-protected.json
+.\MavkaEncrypt.exe file-parts-password current.key invoice.pdf encrypted-parts
+.\MavkaEncrypt.exe drive-command-password current.key encrypted-parts\encrypted-drive-bundle.json DRIVE_FILE_ID HTTPS_GOOGLE_DOWNLOAD_LINK drive-command.json
+```
+
+Утиліта попросить пароль документів із прихованим введенням. Для
+локального автоматичного сценарію можна задати змінну середовища
+`MAVKA_DOCUMENT_PASSWORD`; **не зберігайте пароль у скриптах,
+репозиторіях чи логах**. Приклади відправляють лише вигадані дані.
+
+Нові файли використовують два незалежні шари:
+`MAVKA_PASSWORD_WRAPPED_V1` (пароль) → `MAVKA_ENCRYPTED_V1`,
+`MAVKA_ENCRYPTED_FILE_V1` або `MAVKA_FILE_PART_V1` (поточний
+AES-256 ключ обміну). Це не пароль на відкриття самого DOCX у Word:
+сам DOCX після явного експорту користувачем не зберігає транспортне шифрування.
+
+Старі команди `encrypt`, `file-parts`, `drive-command` лишаються
+тільки для читання/перевірки раніше створених пакетів; для нових
+передач після видачі ключів їх не використовуйте.
+
+Важливо: інструмент формує шифровані файли/команди, а не надсилає
+Gmail-листи та не завантажує файли в Google Drive автоматично.
+Інтеграція з ГОЛОВНОЮ МАВКОЮ має викликати відповідні команди й
+передавати тільки шифротекст.
