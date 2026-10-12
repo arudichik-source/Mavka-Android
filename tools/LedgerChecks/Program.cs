@@ -71,4 +71,18 @@ Check(InventorySearchSummary.Summarize(
 Check(InventorySearchSummary.Summarize(
     InventorySearchSummary.Filter(screenHoldings, "absent", x => x.Name, x => x.Nsn),
     x => x.TotalValue).KnownTotal == 0m, "Empty search has zero visible total");
-Console.WriteLine("Historical ledger + live-search inventory totals: 15/15 PASS");
+Check(OpeningBalancePostingPolicy.ValidateOpeningDate("09.10.2026") == new DateOnly(2026,10,9),
+    "Ukrainian opening-balance date must be accepted");
+Check(OpeningBalancePostingPolicy.ValidateReceiptDate("09.10.2026","2026-10-09")
+    == new DateOnly(2026,10,9), "Same-day receipt after opening baseline is valid");
+Check(OpeningBalancePostingPolicy.ValidateReceiptDate("2026-10-10","09.10.2026")
+    == new DateOnly(2026,10,10), "Receipt after baseline is valid");
+bool earlyReceiptRejected = false;
+try { OpeningBalancePostingPolicy.ValidateReceiptDate("07.10.2026","09.10.2026"); }
+catch (InvalidOperationException) { earlyReceiptRejected = true; }
+Check(earlyReceiptRejected, "Backdated 07 October receipt must not double-count 09 October baseline");
+bool badOpeningDateRejected = false;
+try { OpeningBalancePostingPolicy.ValidateOpeningDate("not-a-date"); }
+catch (ArgumentException) { badOpeningDateRejected = true; }
+Check(badOpeningDateRejected, "Malformed opening-balance date must be rejected");
+Console.WriteLine("Historical ledger, search subtotal and baseline date policies: 20/20 PASS");
