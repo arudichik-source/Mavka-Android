@@ -1597,6 +1597,33 @@ public class MainActivity : Activity
                                 }
                             }).Show();
                     });
+                    Button(receivedList, "Видалити локальну захищену копію", () =>
+                    {
+                        if (_busy) return;
+                        new AlertDialog.Builder(this)
+                            .SetTitle("Видалити захищений файл?")
+                            .SetMessage("Файл «" + entry.Name +
+                                "» буде видалено лише з окремого сховища телефону. " +
+                                "Це не змінює ключі, Gmail чи обліковий архів.")
+                            .SetNegativeButton("Скасувати", (_, _) => { })
+                            .SetPositiveButton("Видалити", async (_, _) =>
+                            {
+                                if (_busy) return;
+                                _busy = true;
+                                try
+                                {
+                                    await Task.Run(() => _privateFiles.Delete(entry.Id));
+                                    if (_screen == "files") await ReloadReceivedAsync();
+                                }
+                                catch (Exception)
+                                {
+                                    Toast.MakeText(this,
+                                        "Не вдалося видалити захищений файл.",
+                                        ToastLength.Long)?.Show();
+                                }
+                                finally { _busy = false; }
+                            }).Show();
+                    });
                 }
             }
             catch (Exception)
