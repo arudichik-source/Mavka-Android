@@ -282,7 +282,7 @@ internal static class GmailConnectionService
                         StringComparison.OrdinalIgnoreCase))
                 {
                     attachmentsComplete = false;
-                    if (attachment.Octets is > 0 and <= MavkaEncryptedFileEnvelope.MaxSingleWireBytes)
+                    if (attachment.Octets is > 0 and <= 8_000_000)
                     {
                         try
                         {
@@ -290,14 +290,23 @@ internal static class GmailConnectionService
                                 summary.UniqueId, attachment, timeout.Token);
                             if (binaryPart is MimePart securedPart)
                             {
-                                using var ciphertextStream = new BoundedWriteStream(MavkaEncryptedFileEnvelope.MaxSingleEnvelopeBytes);
+                                using var ciphertextStream = new BoundedWriteStream(5_000_000);
                                 securedPart.Content.DecodeTo(ciphertextStream);
                                 if (ciphertextStream.Length > 0 &&
-                                    ciphertextStream.Length <= MavkaEncryptedFileEnvelope.MaxSingleEnvelopeBytes)
+                                    ciphertextStream.Length <= 5_000_000)
                                 {
                                     string envelope = new System.Text.UTF8Encoding(false, true)
                                         .GetString(ciphertextStream.ToArray())
                                         .TrimStart('\uFEFF');
+                                    if (MavkaPasswordedEnvelope.IsWrapped(envelope))
+                                    {
+                                        var savedPassword = documentPasswords?.Load();
+                                        if (string.IsNullOrWhiteSpace(savedPassword))
+                                            throw new InvalidOperationException(
+                                                "Налаштуй пароль документів.");
+                                        envelope = MavkaPasswordedEnvelope.Unwrap(
+                                            envelope, savedPassword);
+                                    }
                                     textAttachments.Add(new MavkaTextAttachment(
                                         Path.GetFileName(fileName),
                                         "🔐 Захищений PDF/XLSX: потрібне підтвердження збереження.",
@@ -306,7 +315,9 @@ internal static class GmailConnectionService
                             }
                         }
                         catch (Exception ex) when (ex is System.Text.DecoderFallbackException or
-                            System.IO.IOException or InvalidOperationException)
+                            System.IO.IOException or InvalidOperationException or
+                            System.Security.Cryptography.CryptographicException or
+                            ArgumentException or FormatException)
                         {
                             textAttachments.Add(new MavkaTextAttachment(
                                 Path.GetFileName(fileName),
@@ -323,18 +334,36 @@ internal static class GmailConnectionService
                 if (!string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(MavkaFileParts.Extension, StringComparison.OrdinalIgnoreCase))
                 {
                     attachmentsComplete = false;
-                    if (attachment.Octets is > 0 and <= MavkaFileParts.MaxWireBytes)
+                    if (attachment.Octets is > 0 and <= 850_000)
                     {
                         var item = await client.Inbox.GetBodyPartAsync(summary.UniqueId, attachment, timeout.Token);
+                        try
+                        {
                         if (item is MimePart chunk)
                         {
-                            using var chunkStream = new BoundedWriteStream(MavkaFileParts.MaxPartBytes);
+                            using var chunkStream = new BoundedWriteStream(700_000);
                             chunk.Content.DecodeTo(chunkStream);
                             var encrypted = new System.Text.UTF8Encoding(false, true).GetString(chunkStream.ToArray());
+                            if (MavkaPasswordedEnvelope.IsWrapped(encrypted))
+                            {
+                                var savedPassword = documentPasswords?.Load();
+                                if (string.IsNullOrWhiteSpace(savedPassword))
+                                    throw new InvalidOperationException("Налаштуй пароль документів.");
+                                encrypted = MavkaPasswordedEnvelope.Unwrap(
+                                    encrypted, savedPassword);
+                            }
                             textAttachments.Add(new MavkaTextAttachment(Path.GetFileName(fileName),
                                 "Захищена частина файла · автоматичне складання", SecureFilePart: encrypted));
                         }
                     }
+                        }
+                        catch (Exception ex) when (ex is System.IO.IOException or
+                            InvalidOperationException or System.Security.Cryptography.CryptographicException or
+                            ArgumentException or FormatException or System.Text.DecoderFallbackException)
+                        {
+                            textAttachments.Add(new MavkaTextAttachment(
+                                Path.GetFileName(fileName), "🔒 Не вдалося перевірити пароль або частину файла."));
+                        }
                     else textAttachments.Add(new MavkaTextAttachment(Path.GetFileName(fileName), "Частина файла завелика."));
                     if (textAttachments.Count >= MaxAttachmentsPerMail) break;
                     continue;
@@ -405,9 +434,9 @@ internal static class GmailConnectionService
                     continue;
                 }
 
-                using var stream = new BoundedWriteStream(262144);
+                using var stream = new BoundedWriteStream(500000);
                 part.Content.DecodeTo(stream);
-                if (stream.Length > 262144)
+                if (stream.Length > 500000)
                 {
                     attachmentsComplete = false;
                     continue;
@@ -416,6 +445,24 @@ internal static class GmailConnectionService
                 // Never interpret attachment content as HTML or executable code.
                 var contents = System.Text.Encoding.UTF8.GetString(stream.ToArray()).TrimStart('\uFEFF');
                 var isJson = fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+                if (MavkaPasswordedEnvelope.IsWrapped(contents))
+                {
+                    try
+                    {
+                        var filePassword = documentPasswords?.Load() ??
+                            throw new InvalidOperationException("Налаштуй пароль документів.");
+                        contents = MavkaPasswordedEnvelope.Unwrap(contents, filePassword);
+                    }
+                    catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or
+                        InvalidOperationException or ArgumentException or FormatException)
+                    {
+                        attachmentsComplete = false;
+                        textAttachments.Add(new MavkaTextAttachment(
+                            Path.GetFileName(fileName),
+                            "🔒 Неправильний пароль або пошкоджене зашифроване вкладення."));
+                        continue;
+                    }
+                }
                 string? usableJson = isJson ? contents : null;
                 string display = isJson ? MavkaJsonPreview.Format(contents) : contents;
                 bool installedKey = false;
