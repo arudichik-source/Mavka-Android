@@ -1117,7 +1117,7 @@ public class MainActivity : Activity
     {
         KeyNotFoundException => "Потрібний ключ обміну недоступний; дані залишено для повторної спроби",
         System.Security.Cryptography.CryptographicException => "Не вдалося перевірити автентичність захищених даних",
-        OperationCanceledException => "Перевищено час очікування; повтори спробу",
+        System.OperationCanceledException => "Перевищено час очікування; повтори спробу",
         System.Net.Sockets.SocketException => "Немає з'єднання з мережею",
         System.IO.IOException => "Не вдалося прочитати або зберегти дані; перевір сховище й мережу",
         _ => "Операцію не завершено; повтори спробу"
