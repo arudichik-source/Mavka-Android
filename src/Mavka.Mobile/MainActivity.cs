@@ -821,7 +821,7 @@ public class MainActivity : Activity
                 {
                     var fileStatus = Text(fileCard,
                         "Файл ще не збережено. У Gmail лист залишається у вхідних.", 12);
-                    Button(fileCard, "Перевірити й зберегти захищений PDF/XLSX",
+                    Button(fileCard, "Перевірити й зберегти захищений PDF/Excel/Word",
                         async () =>
                         {
                             if (_busy) return;
@@ -883,7 +883,7 @@ public class MainActivity : Activity
                             catch (Exception)
                             {
                                 if (_screen == "message")
-                                    fileStatus.Text = "Не вдалося перевірити або зберегти PDF/XLSX. " +
+                                    fileStatus.Text = "Не вдалося перевірити або зберегти PDF/Excel/Word. " +
                                         "Лист залишається у Gmail.";
                             }
                             finally { _busy = false; }
@@ -1148,9 +1148,12 @@ public class MainActivity : Activity
             _messages = await GmailConnectionService.ReadFromSenderAsync(
                 _store.GetEmail(), password, sender, _exchangeKeys,
                 _documentPasswords, LoadUserProfile()?.ClientId);
+            await ProcessFileTransfersAsync(password, sender);
             var report = await ArchiveAndCleanupAsync(password, sender);
             SaveInboxCacheSafe();
             var syncReport = await SendPendingReceiptsAsync(password, sender);
+            try { await SendPendingFilePartsAsync(maximum: 3); }
+            catch { syncReport += " Частини файлів залишені в черзі надсилання."; }
             if (_screen is "home" or "inbox" or "assets")
                 status.Text = $"Листів у вхідних: {_messages.Count}. " + report +
                     " " + syncReport;
@@ -1213,6 +1216,113 @@ public class MainActivity : Activity
         return $"Надіслано підтверджень: {sent}; залишено в черзі: {deferred}.";
     }
 
+    private string TransferScope() => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes(_store.GetEmail().Trim().ToLowerInvariant() + ":" +
+            _store.GetMainMavkaEmail().Trim().ToLowerInvariant() + ":" + LoadUserProfile()?.ClientId))).ToLowerInvariant();
+    private PendingFileTransferStore Transfers() => new(Path.Combine(FilesDir!.AbsolutePath,
+        "pending_file_parts_v1", TransferScope()), TransferKeystoreCipher.Seal, TransferKeystoreCipher.Open);
+    private OutgoingFileQueue OutgoingFiles() => new(Path.Combine(FilesDir!.AbsolutePath,
+        "outgoing_file_parts_v1", TransferScope()), TransferKeystoreCipher.Seal, TransferKeystoreCipher.Open);
+    private async Task SendPendingFilePartsAsync(int maximum = 125, Action<string>? progress = null)
+    {
+        var queue = OutgoingFiles();
+        string password = _store.GetPassword() ?? throw new InvalidOperationException("Gmail не підключено.");
+        int sent = 0;
+        foreach (var original in await Task.Run(() => queue.List()))
+        {
+            var batch = original;
+            while (batch.NextIndex < batch.Metadata.Count && sent < maximum)
+            {
+                string encrypted = await Task.Run(() => queue.Part(batch));
+                await RegistrationMailService.SendFilePartAsync(_store.GetEmail(), password,
+                    _store.GetMainMavkaEmail(), batch.Metadata.FileName + "." + (batch.NextIndex + 1) + "-" + batch.Metadata.Count, encrypted);
+                batch = await Task.Run(() => queue.Advance(batch)); sent++;
+                progress?.Invoke($"Надіслано {batch.NextIndex} із {batch.Metadata.Count} частин · {batch.Metadata.FileName}");
+            }
+            if (batch.NextIndex == batch.Metadata.Count) await Task.Run(() => queue.Delete(batch.Metadata.TransferId));
+            if (sent >= maximum) break;
+        }
+    }
+
+    private async Task ProcessFileTransfersAsync(string password, string sender)
+    {
+        var pending = Transfers();
+        var messages = _messages.ToList();
+        foreach (var mail in messages)
+        {
+            if (mail.CachedPreview) continue;
+            try
+            {
+                var parts = mail.Attachments.Where(a => a.SecureFilePart is not null).Select(a => a.SecureFilePart!).ToList();
+                DriveFileCommand? drive = null;
+                foreach (var a in mail.Attachments.Where(a => a.AuthenticatedJson))
+                    if (DriveFileCommand.TryRead(a.RawJson, out drive) && drive is not null)
+                    {
+                        var downloaded = await drive.DownloadAsync(); parts.AddRange(downloaded); break;
+                    }
+                if (parts.Count == 0) continue;
+                string? id = null;
+                foreach (var part in parts)
+                {
+                    var progress = await Task.Run(() => pending.Accept(part, key => _exchangeKeys.GetKey(key),
+                        mail.Attachments.Count == 1 ? new PendingFileTransferStore.MailRef(mail.UidValidity, mail.MessageUid) : null));
+                    id = progress.Id;
+                    if (drive is not null && id != drive.TransferId)
+                        throw new System.Security.Cryptography.CryptographicException("Drive transfer ID mismatch.");
+                    if (drive is null && progress.Received < progress.Total)
+                        ReplaceTransferMessage(mail, $"Отримано {progress.Received} із {progress.Total} частин · {progress.Name}");
+                }
+                if (id is null) continue;
+                await Task.Run(() =>
+                {
+                    using var completed = pending.Assemble(id);
+                    if (completed is not null)
+                    {
+                        var saved = _privateFiles.Save(completed);
+                        pending.MarkSaved(id, saved.Id);
+                    }
+                });
+            }
+            catch (Exception)
+            {
+                ReplaceTransferMessage(mail, "Передачу не завершено. Частини збережено; лист залишається у Gmail. " +
+                    "Перевір ключі, мережу та доступ до зашифрованого файла Drive.");
+            }
+        }
+        // Completion is recorded only AFTER whole-file verification and vault read-back.
+        foreach (var transfer in await Task.Run(() => pending.List()))
+        {
+            if (!transfer.Saved) continue;
+            var saved = pending.Saved(transfer.Id);
+            if (saved is null) continue;
+            try
+            {
+                using var verified = await Task.Run(() => _privateFiles.Load(saved.FileId));
+                if (verified.Sha256 != saved.Metadata.Sha256 || verified.FileName != saved.Metadata.FileName) continue;
+            }
+            catch { continue; } // Never trash mail if the user removed the saved copy.
+            var refs = pending.CleanupCandidates(transfer.Id);
+            bool completeCleanup = true;
+            foreach (var item in refs)
+            {
+                var mail = new MavkaMailItem("", "", "", Array.Empty<MavkaTextAttachment>(), item.Uid, item.Validity);
+                try
+                {
+                    await GmailConnectionService.MoveToTrashAsync(_store.GetEmail(), password, sender, mail);
+                    await Task.Run(() => pending.AcknowledgeMail(transfer.Id, item));
+                    _messages = _messages.Where(m => m.MessageUid != item.Uid || m.UidValidity != item.Validity).ToArray();
+                }
+                catch (Exception) { completeCleanup = false; }
+            }
+            // Mixed letters stay in Gmail, but local parts are redundant after verified vault save.
+            if (completeCleanup) await Task.Run(() => pending.Delete(transfer.Id));
+        }
+    }
+
+    private void ReplaceTransferMessage(MavkaMailItem original, string status) =>
+        _messages = _messages.Select(m => m.UidValidity == original.UidValidity && m.MessageUid == original.MessageUid
+            ? m with { ProcessingIssue = status } : m).ToArray();
+
     private async Task<string> ArchiveAndCleanupAsync(string password, string sender)
     {
         var profile = LoadUserProfile();
@@ -1220,6 +1330,9 @@ public class MainActivity : Activity
         var remaining = new List<MavkaMailItem>();
         foreach (var mail in _messages)
         {
+            if (mail.Attachments.Any(a => a.SecureFilePart is not null ||
+                (a.AuthenticatedJson && DriveFileCommand.TryRead(a.RawJson, out _))))
+            { remaining.Add(mail); kept++; continue; }
             // Never discard mail if any attachment is unread, unsupported or corrupt.
             if (!mail.AttachmentsComplete || mail.Attachments.Count == 0)
             {
@@ -1227,11 +1340,11 @@ public class MainActivity : Activity
                 {
                     ProcessingIssue = mail.Attachments.Any(
                             a => a.SecureFileEnvelope is not null)
-                        ? "Отримано захищений PDF/XLSX. Відкрий лист, перевір та " +
+                        ? "Отримано захищений PDF/Excel/Word. Відкрий лист, перевір та " +
                           "збережи вкладення. До підтвердження лист залишається у Gmail."
                         : mail.Attachments.Count == 0
                             ? "Немає придатного вкладення JSON/TXT. " +
-                              "Незахищені PDF/XLSX автоматично не імпортуються."
+                              "Незахищені PDF/Excel/Word автоматично не імпортуються."
                             : "Не всі вкладення підтримуються. " +
                               "Перевір типи файлів; лист залишено."
                 });
@@ -1617,8 +1730,57 @@ public class MainActivity : Activity
         Text(header, "Файли, завантажені в Gmail чи сторонніх програмах, " +
             "можна вибрати нижче для перегляду. Це НЕ імпорт до архіву.", 12);
 
+        var progressCard = Card();
+        Text(progressCard, "Передачі файлів", 18, true);
+        Text(progressCard, "Частини зберігаються до завершення передачі навіть після перезапуску. Межа файла: 32 МБ.", 12);
+        async Task RenderTransfersAsync()
+        {
+            try
+            {
+                var pending = Transfers();
+                var entries = await Task.Run(() => pending.List());
+                if (_screen != "files") return;
+                if (entries.Count == 0) Text(progressCard, "Незавершених передач немає.", 13);
+                foreach (var entry in entries)
+                {
+                    Text(progressCard, entry.Name + $" · {entry.Received}/{entry.Total}" + (entry.Saved ? " · файл збережено" : ""), 13);
+                    Button(progressCard, "Видалити частини цієї передачі", () =>
+                        new AlertDialog.Builder(this).SetTitle("Видалити незавершену передачу?")
+                        .SetMessage("Видаляються лише локальні частини. Листи Gmail й уже збережені документи залишаються.")
+                        .SetNegativeButton("Скасувати", (_, _) => { })
+                        .SetPositiveButton("Видалити", async (_, _) =>
+                        {
+                            if (_busy) return; _busy = true;
+                            try { await Task.Run(() => pending.Delete(entry.Id)); if (_screen == "files") ShowFiles(); }
+                            catch { Toast.MakeText(this, "Не вдалося видалити передачу.", ToastLength.Long)?.Show(); }
+                            finally { _busy = false; }
+                        }).Show());
+                }
+            }
+            catch { if (_screen == "files") Text(progressCard, "Не вдалося прочитати передачі.", 12); }
+        }
+        _ = RenderTransfersAsync();
+        var outgoingStatus = Text(progressCard, "Перервані вихідні передачі зберігаються у зашифрованій черзі.", 12);
+        Button(progressCard, "Продовжити надсилання частин", async () =>
+        {
+            if (_busy) return; _busy = true;
+            try { await SendPendingFilePartsAsync(progress: text => outgoingStatus.Text = text); outgoingStatus.Text = "Чергу надсилання оброблено."; }
+            catch { outgoingStatus.Text = "Надсилання призупинено. Решта частин збережена; перевір Gmail і мережу."; }
+            finally { _busy = false; }
+        });
+        Button(progressCard, "Видалити чергу надсилання файлів", () =>
+            new AlertDialog.Builder(this).SetTitle("Видалити вихідні частини?")
+                .SetMessage("Видаляються лише ще не завершені локальні передачі. Листи, які вже надіслано, залишаються у Gmail.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("Видалити", async (_, _) =>
+                {
+                    if (_busy) return; _busy = true;
+                    try { var q = OutgoingFiles(); await Task.Run(() => { foreach (var b in q.List()) q.Delete(b.Metadata.TransferId); }); if (_screen == "files") ShowFiles(); }
+                    catch { Toast.MakeText(this, "Не вдалося видалити чергу.", ToastLength.Long)?.Show(); }
+                    finally { _busy = false; }
+                }).Show());
         var receivedCard = Card();
-        Text(receivedCard, "Захищені отримані PDF/XLSX", 18, true);
+        Text(receivedCard, "Захищені отримані PDF/Excel/Word", 18, true);
         Text(receivedCard, "Окреме зашифроване сховище Android. " +
             "Ці файли не є документами облікового архіву.", 12);
         var receivedList = new LinearLayout(this) { Orientation = Orientation.Vertical };
@@ -1633,7 +1795,7 @@ public class MainActivity : Activity
                 if (_screen != "files") return;
                 receivedList.RemoveAllViews();
                 if (entries.Count == 0)
-                    Text(receivedList, "Захищених PDF/XLSX поки немає.", 13);
+                    Text(receivedList, "Захищених PDF/Excel/Word поки немає.", 13);
                 // Creating 200+ Android controls at once stalls older phones.
                 // Render a bounded batch while retaining access to all 100 entries.
                 int displayed = 0;
@@ -1728,7 +1890,7 @@ public class MainActivity : Activity
         }
         Button(receivedCard, "Оновити захищені файли", () => _ = ReloadReceivedAsync());
         _ = ReloadReceivedAsync();
-        Button(header, "Надіслати PDF/XLSX із захистом ключами", () =>
+        Button(header, "Надіслати PDF/Excel/Word із захистом ключами", () =>
         {
             if (!_store.HasCredentials || !_exchangeKeys.HasKeyPair ||
                 string.IsNullOrWhiteSpace(_store.GetMainMavkaEmail()))
@@ -1740,7 +1902,7 @@ public class MainActivity : Activity
             }
             new AlertDialog.Builder(this)
                 .SetTitle("Надіслати захищений файл?")
-                .SetMessage("Обери PDF/XLSX до 2 МБ. Мавка зашифрує його чинним " +
+                .SetMessage("Обери файл до 32 МБ. Мавка розділить його на частини по 256 КБ, зашифрує чинним " +
                     "ключем AES-256-GCM і надішле до налаштованої адреси Gmail. " +
                     "Відкритий файл у лист не вкладатиметься.")
                 .SetNegativeButton("Скасувати", (_, _) => { })
@@ -1754,7 +1916,8 @@ public class MainActivity : Activity
                         picker.PutExtra(Intent.ExtraMimeTypes, new[]
                         {
                             "application/pdf",
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"
                         });
                         StartActivityForResult(picker, PickEncryptAndSendRequest);
                     }
@@ -1765,7 +1928,7 @@ public class MainActivity : Activity
                     }
                 }).Show();
         });
-        Button(header, "Відкрити PDF / Excel з пам'яті телефону", () =>
+        Button(header, "Відкрити PDF / Excel / Word з пам'яті телефону", () =>
         {
             try
             {
@@ -1775,7 +1938,8 @@ public class MainActivity : Activity
                 picker.PutExtra(Intent.ExtraMimeTypes, new[]
                 {
                     "application/pdf",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"
                 });
                 StartActivityForResult(picker, PickDocumentRequest);
             }
@@ -1838,7 +2002,7 @@ public class MainActivity : Activity
 
             Text(output, "Знайдено: " + visible.Count + " із " + files.Count, 14);
             if (visible.Count == 0)
-                Text(output, "Експортованих PDF/XLSX немає або Android не надав " +
+                Text(output, "Експортованих PDF/Excel/Word немає або Android не надав " +
                     "доступу до цих копій. Облікові документи зберігаються окремо.", 13);
             foreach (var file in visible.Take(100))
             {
@@ -1954,7 +2118,7 @@ public class MainActivity : Activity
             new AlertDialog.Builder(this)
                 .SetTitle(all ? "Очистити папку МаVКа файли?" : "Видалити вибрані копії?")
                 .SetMessage("Кількість файлів: " + candidates.Count +
-                    "\n\nБудуть видалені лише PDF/XLSX-копії з папки експорту. " +
+                    "\n\nБудуть видалені лише PDF/Excel/Word-копії з папки експорту. " +
                     "Внутрішня база обліку й історія документів не зміняться.")
                 .SetNegativeButton("Скасувати", (_, _) => { })
                 .SetPositiveButton("Видалити", async (_, _) =>
@@ -2478,7 +2642,7 @@ public class MainActivity : Activity
                 var sourceUri = selected;
                 var loaded = await Task.Run(() =>
                 {
-                    var buffer = new byte[MavkaEncryptedFileEnvelope.MaxFileBytes + 1];
+                    var buffer = new byte[MavkaFileParts.MaxFileBytes + 1];
                     try
                     {
                         using var source = ContentResolver?.OpenInputStream(sourceUri) ??
@@ -2487,7 +2651,7 @@ public class MainActivity : Activity
                         while (count < buffer.Length &&
                             (read = source.Read(buffer, count, buffer.Length - count)) > 0)
                             count += read;
-                        if (count is < 8 or > MavkaEncryptedFileEnvelope.MaxFileBytes)
+                        if (count is < 8 or > MavkaFileParts.MaxFileBytes)
                             throw new ArgumentException("Файл завеликий або порожній.");
                         return (Buffer: buffer, Length: count);
                     }
@@ -2501,25 +2665,22 @@ public class MainActivity : Activity
                 fileBytes = loaded.Buffer;
                 var password = _store.GetPassword() ??
                     throw new InvalidOperationException("Gmail відключено.");
-                string encrypted = await Task.Run(() =>
+                var key = _exchangeKeys.GetCurrentKey() ?? throw new KeyNotFoundException("Ключ недоступний.");
+                try
                 {
-                    byte[]? key = _exchangeKeys.GetCurrentKey() ??
-                        throw new KeyNotFoundException("Ключ обміну недоступний.");
-                    try
+                    await Task.Run(() =>
                     {
-                        return MavkaEncryptedFileEnvelope.Encrypt(inputFile,
-                            fileBytes.AsSpan(0, loaded.Length), key);
-                    }
-                    finally
-                    {
-                        System.Security.Cryptography.CryptographicOperations.ZeroMemory(key);
-                    }
-                });
-                await RegistrationMailService.SendProtectedFileAsync(
-                    _store.GetEmail(), password, _store.GetMainMavkaEmail(),
-                    name, encrypted);
+                        var description = MavkaFileParts.Describe(inputFile, fileBytes.AsSpan(0, loaded.Length));
+                        OutgoingFiles().Enqueue(description, i => MavkaFileParts.Encrypt(description with { Index = i },
+                            fileBytes.AsSpan(i * MavkaFileParts.ChunkBytes,
+                                Math.Min(MavkaFileParts.ChunkBytes, loaded.Length - i * MavkaFileParts.ChunkBytes)), key));
+                    });
+                }
+                finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(key); }
+                System.Security.Cryptography.CryptographicOperations.ZeroMemory(fileBytes);
+                await SendPendingFilePartsAsync();
                 Toast.MakeText(this,
-                    "Захищений PDF/XLSX успішно надіслано через Gmail.",
+                    "Захищені частини файла надіслано через Gmail.",
                     ToastLength.Long)?.Show();
             }
             catch (KeyNotFoundException)
@@ -2530,13 +2691,13 @@ public class MainActivity : Activity
             catch (ArgumentException)
             {
                 Toast.MakeText(this,
-                    "Непідтримуваний файл. Потрібен справний PDF/XLSX до 2 МБ.",
+                    "Непідтримуваний файл. Потрібен справний PDF/Excel/Word до 32 МБ.",
                     ToastLength.Long)?.Show();
             }
             catch (Exception)
             {
                 Toast.MakeText(this,
-                    "Не вдалося надіслати захищений файл. Перевір Gmail і мережу.",
+                    "Надсилання призупинено. Підготовлені частини збережені в черзі; перевір Gmail і мережу.",
                     ToastLength.Long)?.Show();
             }
             finally
@@ -2580,7 +2741,7 @@ public class MainActivity : Activity
         var uri = data.Data;
         var mime = ContentResolver?.GetType(uri);
         // Android document providers may label an XLSX as octet-stream.
-        // Only accept PDF/XLSX extensions from the user's explicit SAF choice;
+        // Only accept PDF/Excel/Word extensions from the user's explicit SAF choice;
         // this action launches a read-only external viewer, not an importer.
         string? fileName = null;
         try
@@ -2596,7 +2757,10 @@ public class MainActivity : Activity
             fileName?.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) == true;
         bool xlsx = mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
             fileName?.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) == true;
-        if (!pdf && !xlsx)
+        bool docx = mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+            fileName?.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) == true;
+        bool doc = mime == "application/msword" || fileName?.EndsWith(".doc", StringComparison.OrdinalIgnoreCase) == true;
+        if (!pdf && !xlsx && !docx && !doc)
         {
             Toast.MakeText(this, "Підтримуються лише PDF та XLSX.",
                 ToastLength.Long)?.Show();
@@ -2605,7 +2769,8 @@ public class MainActivity : Activity
         try
         {
             var intent = new Intent(Intent.ActionView);
-            intent.SetDataAndType(uri, pdf ? "application/pdf" :
+            intent.SetDataAndType(uri, pdf ? "application/pdf" : docx ?
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : doc ? "application/msword" :
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             intent.AddFlags(ActivityFlags.GrantReadUriPermission);
             StartActivity(Intent.CreateChooser(intent, "Переглянути файл"));
@@ -2787,3 +2952,4 @@ public class MainActivity : Activity
         }
     }
 }
+

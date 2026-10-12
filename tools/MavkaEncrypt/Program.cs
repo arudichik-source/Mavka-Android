@@ -58,6 +58,56 @@ else if (args.Length == 4 && args[0] == "encrypt")
     }
     finally { CryptographicOperations.ZeroMemory(key); }
 }
+else if (args.Length == 4 && args[0] == "file-parts")
+{
+    var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
+    if (new FileInfo(args[2]).Length > MavkaFileParts.MaxFileBytes) throw new ArgumentException("File exceeds 32 MB.");
+    if (Directory.Exists(args[3])) throw new IOException("Output directory already exists.");
+    byte[] plain = File.ReadAllBytes(args[2]);
+    try
+    {
+        var h = MavkaFileParts.Describe(Path.GetFileName(args[2]), plain);
+        Directory.CreateDirectory(args[3]);
+        var packets = new List<string>();
+        for (int i = 0; i < h.Count; i++)
+        {
+            var packet = MavkaFileParts.Encrypt(h with { Index = i }, plain.AsSpan(i * MavkaFileParts.ChunkBytes,
+                Math.Min(MavkaFileParts.ChunkBytes, plain.Length - i * MavkaFileParts.ChunkBytes)), key);
+            File.WriteAllText(Path.Combine(args[3], $"{h.TransferId}-{i+1}-{h.Count}.mavkapart"), packet, new UTF8Encoding(false));
+            packets.Add(packet);
+        }
+        File.WriteAllText(Path.Combine(args[3], "encrypted-drive-bundle.json"),
+            "{\"format\":\"MAVKA_FILE_BUNDLE_V1\",\"parts\":[" + string.Join(",",packets) + "]}", new UTF8Encoding(false));
+        Console.WriteLine($"Encrypted parts: {h.Count}; transfer ID: {h.TransferId}. Send parts with subject MAVKA_FILE_PART_V1.");
+    }
+    finally { CryptographicOperations.ZeroMemory(key); CryptographicOperations.ZeroMemory(plain); }
+}
+else if (args.Length == 6 && args[0] == "drive-command")
+{
+    if (File.Exists(args[5])) throw new IOException("Command output already exists.");
+    var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
+    try
+    {
+        if (new FileInfo(args[2]).Length > MavkaFileParts.MaxBundleBytes) throw new ArgumentException("Bundle too large.");
+        var bundle = File.ReadAllBytes(args[2]); using var doc = JsonDocument.Parse(bundle);
+        if (doc.RootElement.GetProperty("format").GetString() != "MAVKA_FILE_BUNDLE_V1") throw new ArgumentException("Encrypted bundle expected.");
+        var id = doc.RootElement.GetProperty("parts")[0].GetProperty("metadata").GetProperty("transferId").GetString()!;
+        var command = new DriveFileCommand(DriveFileCommand.Kind,args[3],args[4],bundle.Length,Convert.ToHexString(SHA256.HashData(bundle)),id);
+        string json = JsonSerializer.Serialize(command,MavkaFileParts.Json);
+        if (!DriveFileCommand.TryRead(json,out _)) throw new ArgumentException("Invalid Drive download link or metadata.");
+        byte[] plain = Encoding.UTF8.GetBytes(json), nonce=RandomNumberGenerator.GetBytes(12), cipher=new byte[plain.Length], tag=new byte[16];
+        try
+        {
+            string kid=KeyId(key); using var aes = new AesGcm(key,16);
+            aes.Encrypt(nonce,plain,cipher,tag,Encoding.UTF8.GetBytes("MAVKA_ENCRYPTED_V1:"+kid));
+            File.WriteAllText(args[5],JsonSerializer.Serialize(new { format="MAVKA_ENCRYPTED_V1",algorithm="AES-256-GCM",keyId=kid,
+                nonce=Convert.ToBase64String(nonce),ciphertext=Convert.ToBase64String(cipher),tag=Convert.ToBase64String(tag) }),new UTF8Encoding(false));
+        }
+        finally { CryptographicOperations.ZeroMemory(plain); }
+        Console.WriteLine("Encrypted Drive command ready. No plaintext file was uploaded or written.");
+    }
+    finally { CryptographicOperations.ZeroMemory(key); }
+}
 else if (args.Length == 6 && args[0] == "package")
 {
     // package current.key future.key CLIENT_ID GENERATION output.json
@@ -180,3 +230,4 @@ static string ReadDocumentPassword()
     Console.WriteLine();
     return input.ToString();
 }
+

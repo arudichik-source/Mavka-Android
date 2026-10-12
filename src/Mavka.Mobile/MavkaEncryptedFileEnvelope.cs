@@ -15,8 +15,11 @@ internal static class MavkaEncryptedFileEnvelope
 {
     public const string Format = "MAVKA_ENCRYPTED_FILE_V1";
     public const string Extension = ".mavkafile";
-    public const int MaxFileBytes = 2_000_000;
-    public const int MaxEnvelopeBytes = 3_100_000;
+    public const int MaxFileBytes = 32_000_000;
+    public const int MaxSingleFileBytes = 2_000_000;
+    public const int MaxEnvelopeBytes = 44_000_000;
+    public const int MaxSingleEnvelopeBytes = 3_100_000;
+    public const int MaxSingleWireBytes = 4_300_000;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     internal sealed record ReceivedFile(string FileName, string MimeType,
@@ -137,10 +140,13 @@ internal static class MavkaEncryptedFileEnvelope
             return "application/pdf";
         if (fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
             return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-        throw new ArgumentException("Підтримуються лише PDF та XLSX.");
+        if (fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (fileName.EndsWith(".doc", StringComparison.OrdinalIgnoreCase)) return "application/msword";
+        throw new ArgumentException("Підтримуються PDF, XLSX, DOCX та DOC.");
     }
 
-    private static void ValidateContents(string mime, ReadOnlySpan<byte> data)
+    internal static void ValidateContents(string mime, ReadOnlySpan<byte> data)
     {
         if (data.Length is < 8 or > MaxFileBytes)
             throw new ArgumentException("Розмір PDF/XLSX за межами дозволеного.");
@@ -154,7 +160,8 @@ internal static class MavkaEncryptedFileEnvelope
         ReadOnlySpan<byte> compound =
             [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
         ReadOnlySpan<byte> zip = [0x50, 0x4B, 0x03, 0x04];
-        if (!data.StartsWith(zip) && !data.StartsWith(compound))
+        if (mime == "application/msword" ? !data.StartsWith(compound) :
+            !data.StartsWith(zip) && !data.StartsWith(compound))
             throw new ArgumentException("Вміст не має заголовка XLSX.");
     }
 
@@ -172,3 +179,4 @@ internal static class MavkaEncryptedFileEnvelope
     private static bool IsLowerHex(char c) => c is >= '0' and <= '9' or >= 'a' and <= 'f';
     private static bool IsUpperHex(char c) => c is >= '0' and <= '9' or >= 'A' and <= 'F';
 }
+

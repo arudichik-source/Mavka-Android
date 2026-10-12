@@ -67,6 +67,9 @@ jobs:
       - name: Verify old SQLite schema migrations
         run: python3 tools/sqlite_migration_smoke.py
 
+      - name: Verify multipart transfers, Word and Drive commands
+        run: dotnet run --project tools/TransferChecks/TransferChecks.csproj
+
       - name: Verify generic encrypted file format
         run: dotnet run --project tools/FileEnvelopeChecks/FileEnvelopeChecks.csproj
 
@@ -233,3 +236,4 @@ jobs:
           name: Mavka-SYNTHETIC-Key-Package-Test-Tool-Windows
           path: demo-tool/MavkaEncrypt.exe
           if-no-files-found: error
+

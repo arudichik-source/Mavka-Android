@@ -43,7 +43,7 @@ internal static class RegistrationMailService
                 unit = profile.Unit,
                 isMvo = profile.IsMvo,
                 phoneNumber = profile.PhoneNumber
-            }, exchangeKeys);
+            }, exchangeKeys, allowInitialRegistration: true);
 
         var connection = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
         using var client = connection.Client;
@@ -97,6 +97,24 @@ internal static class RegistrationMailService
     /// authenticated ciphertext envelope, never plaintext file bytes.
     /// The address is the configured authorized Gmail correspondent.
     /// </summary>
+    public static async Task SendFilePartAsync(string sender, string password, string recipient,
+        string fileName, string part)
+    {
+        if (System.Text.Encoding.UTF8.GetByteCount(part) > MavkaFileParts.MaxPartBytes)
+            throw new ArgumentException("Частина завелика.");
+        var mail = new MimeMessage();
+        mail.From.Add(MailboxAddress.Parse(sender)); mail.To.Add(MailboxAddress.Parse(recipient));
+        mail.Subject = MavkaFileParts.Format;
+        var body = new BodyBuilder { TextBody = "Захищена частина файла Мавки." };
+        body.Attachments.Add(fileName + MavkaFileParts.Extension, Encoding.UTF8.GetBytes(part), new ContentType("application", "json"));
+        mail.Body = body.ToMessageBody();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var opened = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
+        using var client = opened.Client;
+        await client.AuthenticateAsync(sender, password, timeout.Token);
+        await client.SendAsync(mail, timeout.Token); await client.DisconnectAsync(true, timeout.Token);
+    }
+
     public static async Task SendProtectedFileAsync(
         string sender, string appPassword, string recipient,
         string originalName, string encryptedEnvelope)
@@ -138,10 +156,12 @@ internal static class RegistrationMailService
 
     private static void SetSecureBody(
         MimeMessage message, string legacySubject, string legacyBody,
-        object structuredData, ExchangeKeyStore? keys)
+        object structuredData, ExchangeKeyStore? keys, bool allowInitialRegistration = false)
     {
         if (keys?.HasKeyPair != true)
         {
+            if (!allowInitialRegistration)
+                throw new KeyNotFoundException("Підтвердження залишено в черзі до отримання ключів.");
             // Only initial registration, before keys have arrived, uses the old protocol.
             message.Subject = legacySubject;
             message.Body = new TextPart("plain") { Text = legacyBody };
@@ -161,3 +181,4 @@ internal static class RegistrationMailService
         message.Body = builder.ToMessageBody();
     }
 }
+

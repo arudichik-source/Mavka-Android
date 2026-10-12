@@ -425,3 +425,13 @@ Safe, generic quality improvements:
   unaffected. Only the latest branch-head CI is authoritative.
 - Check `docs/ANDROID_DEVICE_ACCEPTANCE.md` before any on-device install.
   No production upgrade key exists in GitHub Actions at this stage.
+
+
+## 2026-10-12 — multipart/Drive implementation follow-up (PR #31)
+
+See `docs/LARGE_FILE_TRANSFERS.md` for the exact protocol, counterpart test
+producer, implementation boundaries and device checklist. Added multipart GCM,
+persistent incoming/outgoing checkpoints, automatic authenticated Drive download
+for accessible encrypted blobs, DOC/DOCX support and confirmed transfer deletion.
+Private Drive OAuth and full desktop integration remain pending. Do not infer
+device acceptance from CI or uninstall an existing app to change its signing key.

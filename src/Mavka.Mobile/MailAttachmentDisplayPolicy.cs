@@ -7,7 +7,7 @@ namespace Mavka.Mobile;
 /// </summary>
 internal static class MailAttachmentDisplayPolicy
 {
-    internal enum PreviewType { None, Pdf, Excel }
+    internal enum PreviewType { None, Pdf, Excel, Word }
 
     public static PreviewType Detect(string? fileName)
     {
@@ -18,6 +18,8 @@ internal static class MailAttachmentDisplayPolicy
             return PreviewType.Pdf;
         if (fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
             return PreviewType.Excel;
+        if (fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ||
+            fileName.EndsWith(".doc", StringComparison.OrdinalIgnoreCase)) return PreviewType.Word;
         return PreviewType.None;
     }
 
@@ -26,11 +28,12 @@ internal static class MailAttachmentDisplayPolicy
         var kind = Detect(fileName);
         if (kind == PreviewType.None)
             throw new ArgumentException("Not a recognized document preview.", nameof(fileName));
-        var type = kind == PreviewType.Pdf ? "PDF" : "Excel XLSX";
+        var type = kind switch { PreviewType.Pdf => "PDF", PreviewType.Excel => "Excel XLSX", _ => "Word DOC/DOCX" };
         var amount = size > 0 ? $" · {size / 1024d:0.#} КБ" : "";
         return $"{type}{amount}\n" +
             "Назву вкладення прочитано з Gmail. Вміст не відкрито й не збережено. " +
-            "Зашифрований обмін цим форматом ще не підтримується; " +
+            "Для захищеного обміну потрібен контейнер Мавки; " +
             "лист залишається у вхідних.";
     }
 }
+

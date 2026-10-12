@@ -69,7 +69,8 @@ internal sealed class GmailInboxCache
                         AttachmentsComplete = false,
                         CachedPreview = true,
                         Attachments = m.Attachments.Select(a =>
-                            a with { RawJson = null, InstalledKeyPackage = false }).ToArray()
+                            a with { RawJson = null, InstalledKeyPackage = false,
+                                SecureFilePart = null, SecureFileEnvelope = null, AuthenticatedJson = false }).ToArray()
                     })
                     .ToArray();
             }
@@ -170,3 +171,4 @@ internal sealed class GmailInboxCache
         return store;
     }
 }
+

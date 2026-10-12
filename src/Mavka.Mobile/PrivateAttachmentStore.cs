@@ -37,6 +37,7 @@ internal sealed class PrivateAttachmentStore
         byte[] name = Encoding.UTF8.GetBytes(file.FileName);
         if (name.Length > 640 || name.Length == 0)
             throw new ArgumentException("Filename too long.");
+        MavkaEncryptedFileEnvelope.ValidateContents(mime, file.Content);
         var checksum = SHA256.HashData(file.Content);
         if (!string.Equals(Convert.ToHexString(checksum), file.Sha256,
                 StringComparison.Ordinal))
@@ -70,6 +71,8 @@ internal sealed class PrivateAttachmentStore
                 .Take(PrivateVaultListingPolicy.MaxFiles).Count() >=
                 PrivateVaultListingPolicy.MaxFiles)
                 throw new IOException("Захищене сховище заповнено (100 файлів).");
+            if (Directory.EnumerateFiles(_folder, "*.bin").Sum(p => new FileInfo(p).Length) + plain.Length > 256_000_000)
+                throw new IOException("Захищене сховище заповнено (256 МБ).");
             byte[] nonce, sealedData;
             using (var keys = OpenKeyStore())
             {
@@ -199,3 +202,4 @@ internal sealed class PrivateAttachmentStore
         generator.GenerateKey();
     }
 }
+

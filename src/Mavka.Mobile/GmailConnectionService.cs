@@ -8,7 +8,8 @@ namespace Mavka.Mobile;
 
 internal sealed record MavkaTextAttachment(
     string FileName, string Text, string? RawJson = null,
-    bool InstalledKeyPackage = false, string? SecureFileEnvelope = null);
+    bool InstalledKeyPackage = false, string? SecureFileEnvelope = null,
+    string? SecureFilePart = null, bool AuthenticatedJson = false);
 
 internal sealed record MavkaMailItem(
     string Subject, string DateText, string Body,
@@ -141,7 +142,7 @@ internal static class GmailConnectionService
             !string.Equals(parsed.Address, allowedSender.Trim(), StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Не задана коректна адреса головної Мавки.");
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(50));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         var connection = await GmailTlsConnection.OpenImapAsync(timeout.Token);
         using var client = connection.Client;
         await client.AuthenticateAsync(account, appPassword, timeout.Token);
@@ -164,8 +165,12 @@ internal static class GmailConnectionService
             timeout.Token);
         var keyUids = keyMatches.Reverse().Take(10).Select(uid => uid.Id).ToHashSet();
 
-        var recent = matched.Reverse().Take(100)
+        var fileMatches = await client.Inbox.SearchAsync(SearchQuery.FromContains(allowedSender.Trim())
+            .And(SearchQuery.SubjectContains(MavkaFileParts.Format)), timeout.Token);
+        var fileUids = fileMatches.Reverse().Take(150).Select(u => u.Id).ToHashSet();
+        var recent = matched.Reverse().Take(300)
             .Concat(keyMatches.Reverse().Take(10))
+            .Concat(fileMatches.Reverse().Take(150))
             .Distinct()
             .ToList();
         var summaries = await client.Inbox.FetchAsync(
@@ -181,6 +186,7 @@ internal static class GmailConnectionService
             .ToList();
         var selected = verified
             .OrderByDescending(s => s.UniqueId.Id).Take(15)
+            .Concat(verified.Where(s => fileUids.Contains(s.UniqueId.Id)).OrderByDescending(s => s.UniqueId.Id).Take(150))
             .Concat(verified.Where(s => keyUids.Contains(s.UniqueId.Id))
                 .OrderByDescending(s => s.UniqueId.Id).Take(10))
             .GroupBy(s => s.UniqueId.Id).Select(group => group.First())
@@ -220,7 +226,7 @@ internal static class GmailConnectionService
                         StringComparison.OrdinalIgnoreCase))
                 {
                     attachmentsComplete = false;
-                    if (attachment.Octets is > 0 and <= MavkaEncryptedFileEnvelope.MaxEnvelopeBytes)
+                    if (attachment.Octets is > 0 and <= MavkaEncryptedFileEnvelope.MaxSingleWireBytes)
                     {
                         try
                         {
@@ -228,10 +234,10 @@ internal static class GmailConnectionService
                                 summary.UniqueId, attachment, timeout.Token);
                             if (binaryPart is MimePart securedPart)
                             {
-                                using var ciphertextStream = new MemoryStream();
+                                using var ciphertextStream = new BoundedWriteStream(MavkaEncryptedFileEnvelope.MaxSingleEnvelopeBytes);
                                 securedPart.Content.DecodeTo(ciphertextStream);
                                 if (ciphertextStream.Length > 0 &&
-                                    ciphertextStream.Length <= MavkaEncryptedFileEnvelope.MaxEnvelopeBytes)
+                                    ciphertextStream.Length <= MavkaEncryptedFileEnvelope.MaxSingleWireBytes)
                                 {
                                     string envelope = new System.Text.UTF8Encoding(false, true)
                                         .GetString(ciphertextStream.ToArray())
@@ -258,6 +264,25 @@ internal static class GmailConnectionService
                     if (textAttachments.Count >= 3) break;
                     continue;
                 }
+                if (!string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(MavkaFileParts.Extension, StringComparison.OrdinalIgnoreCase))
+                {
+                    attachmentsComplete = false;
+                    if (attachment.Octets is > 0 and <= MavkaFileParts.MaxWireBytes)
+                    {
+                        var item = await client.Inbox.GetBodyPartAsync(summary.UniqueId, attachment, timeout.Token);
+                        if (item is MimePart chunk)
+                        {
+                            using var stream = new BoundedWriteStream(MavkaFileParts.MaxPartBytes);
+                            chunk.Content.DecodeTo(stream);
+                            var encrypted = new System.Text.UTF8Encoding(false, true).GetString(stream.ToArray());
+                            textAttachments.Add(new MavkaTextAttachment(Path.GetFileName(fileName),
+                                "Захищена частина файла · автоматичне складання", SecureFilePart: encrypted));
+                        }
+                    }
+                    else textAttachments.Add(new MavkaTextAttachment(Path.GetFileName(fileName), "Частина файла завелика."));
+                    if (textAttachments.Count >= 3) break;
+                    continue;
+                }
                 var officePreview = MailAttachmentDisplayPolicy.Detect(fileName);
                 if (officePreview != MailAttachmentDisplayPolicy.PreviewType.None)
                 {
@@ -273,7 +298,7 @@ internal static class GmailConnectionService
                 if (string.IsNullOrWhiteSpace(fileName) ||
                     !(fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
                       fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) ||
-                    attachment.Octets > 262144)
+                    attachment.Octets > 370000)
                 {
                     attachmentsComplete = false;
                     continue;
@@ -287,7 +312,7 @@ internal static class GmailConnectionService
                     continue;
                 }
 
-                using var stream = new MemoryStream();
+                using var stream = new BoundedWriteStream(262144);
                 part.Content.DecodeTo(stream);
                 if (stream.Length > 262144)
                 {
@@ -301,6 +326,7 @@ internal static class GmailConnectionService
                 string? usableJson = isJson ? contents : null;
                 string display = isJson ? MavkaJsonPreview.Format(contents) : contents;
                 bool installedKey = false;
+                bool authenticatedJson = false;
 
                 if (isJson && MavkaKeyPackage.IsPackage(contents))
                 {
@@ -365,6 +391,7 @@ internal static class GmailConnectionService
                         if (exchangeKeys is null)
                             throw new KeyNotFoundException("Ключ обміну не налаштовано.");
                         usableJson = MavkaEncryptedEnvelope.Decrypt(contents, exchangeKeys);
+                        authenticatedJson = true;
                         display = "🔐 Зашифрований файл успішно розшифровано.\n\n" +
                                   MavkaJsonPreview.Format(usableJson);
                     }
@@ -384,7 +411,7 @@ internal static class GmailConnectionService
                     }
                 }
                 textAttachments.Add(new MavkaTextAttachment(
-                    Path.GetFileName(fileName), display, usableJson, installedKey));
+                    Path.GetFileName(fileName), display, usableJson, installedKey, AuthenticatedJson: authenticatedJson));
                 if (textAttachments.Count >= 3) break;
             }
 
@@ -423,7 +450,9 @@ internal static class GmailConnectionService
             new[] { uid }, MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope,
             timeout.Token)).FirstOrDefault();
 
-        if (summary?.Envelope?.From?.Mailboxes.Any(m =>
+        if (summary is null)
+        { await client.DisconnectAsync(true, timeout.Token); return; } // Already absent; no destructive action.
+        if (summary.Envelope?.From?.Mailboxes.Any(m =>
                 string.Equals(m.Address, authorizedSender,
                     StringComparison.OrdinalIgnoreCase)) != true)
             throw new InvalidOperationException("Відправник не пройшов повторну перевірку.");
@@ -433,3 +462,4 @@ internal static class GmailConnectionService
         await client.DisconnectAsync(true, timeout.Token);
     }
 }
+
