@@ -108,6 +108,7 @@ internal sealed class GmailInboxCache
                 Attachments = safeAttachments,
                 AttachmentsComplete = false,
                 CachedPreview = true,
+                SingleSecureFile = false,
                 CachedInvoiceNumber = invoice?.Number,
                 CachedInvoiceRecipient = invoice?.Recipient
             };
