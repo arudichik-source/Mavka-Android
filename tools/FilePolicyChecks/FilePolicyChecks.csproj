@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/Mavka.Mobile/MavkaExportPolicy.cs" Link="MavkaExportPolicy.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MailAttachmentDisplayPolicy.cs" Link="MailAttachmentDisplayPolicy.cs" />
   </ItemGroup>
 </Project>
