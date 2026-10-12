@@ -1105,7 +1105,9 @@ public class MainActivity : Activity
                     problem = profile is null
                         ? "Налаштуй профіль перед імпортом."
                         : attachment.RawJson is null
-                            ? "Вкладення не розшифровано або воно не є перевіреним JSON-документом."
+                            ? attachment.Text.StartsWith("🔒", StringComparison.Ordinal)
+                                ? attachment.Text
+                                : "Вкладення не розшифровано або воно не є перевіреним JSON-документом."
                             : "Документ не підтримується або належить іншому підрозділу.";
                     break;
                 }
