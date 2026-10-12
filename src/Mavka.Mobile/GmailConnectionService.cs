@@ -271,9 +271,13 @@ internal static class GmailConnectionService
                 ? date.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm")
                 : "Без дати";
             var textAttachments = new List<MavkaTextAttachment>();
-            bool attachmentsComplete = summary.Attachments.Any() &&
-                summary.Attachments.Count() <= 3;
-            foreach (var attachment in summary.Attachments.Take(10))
+            // Keep the entire bounded attachment set; truncating after three
+            // caused imported documents and Gmail Trash to diverge.
+            const int MaxAttachmentsPerMail = 50;
+            var attachmentCount = summary.Attachments.Count();
+            bool attachmentsComplete = attachmentCount > 0 &&
+                attachmentCount <= MaxAttachmentsPerMail;
+            foreach (var attachment in summary.Attachments.Take(MaxAttachmentsPerMail))
             {
                 var fileName = attachment.FileName;
                 // A .mavkafile is an AES-256-GCM JSON container, not a raw
@@ -319,7 +323,7 @@ internal static class GmailConnectionService
                         textAttachments.Add(new MavkaTextAttachment(
                             Path.GetFileName(fileName),
                             "🔒 Розмір захищеного вкладення не підтримується."));
-                    if (textAttachments.Count >= 3) break;
+                    if (textAttachments.Count >= MaxAttachmentsPerMail) break;
                     continue;
                 }
                 if (!string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(MavkaFileParts.Extension, StringComparison.OrdinalIgnoreCase))
@@ -338,7 +342,7 @@ internal static class GmailConnectionService
                         }
                     }
                     else textAttachments.Add(new MavkaTextAttachment(Path.GetFileName(fileName), "Частина файла завелика."));
-                    if (textAttachments.Count >= 3) break;
+                    if (textAttachments.Count >= MaxAttachmentsPerMail) break;
                     continue;
                 }
                 var officePreview = MailAttachmentDisplayPolicy.Detect(fileName);
@@ -350,7 +354,7 @@ internal static class GmailConnectionService
                     textAttachments.Add(new MavkaTextAttachment(fileName!,
                         MailAttachmentDisplayPolicy.Description(
                             fileName!, attachment.Octets)));
-                    if (textAttachments.Count >= 3) break;
+                    if (textAttachments.Count >= MaxAttachmentsPerMail) break;
                     continue;
                 }
                 if (string.IsNullOrWhiteSpace(fileName) ||
@@ -470,7 +474,7 @@ internal static class GmailConnectionService
                 }
                 textAttachments.Add(new MavkaTextAttachment(
                     Path.GetFileName(fileName), display, usableJson, installedKey, AuthenticatedJson: authenticatedJson));
-                if (textAttachments.Count >= 3) break;
+                if (textAttachments.Count >= MaxAttachmentsPerMail) break;
             }
 
             result.Add(new MavkaMailItem(
