@@ -785,7 +785,7 @@ public class MainActivity : Activity
             "Лист із налаштованої адреси ГОЛОВНОЇ МАВКИ.", 13);
         if (mail.Attachments.Count > 0)
         {
-            Text(_body, "Вкладення TXT / JSON", 19, true);
+            Text(_body, "Вкладення", 19, true);
             foreach (var attachment in mail.Attachments)
             {
                 var fileCard = Card();
@@ -795,7 +795,10 @@ public class MainActivity : Activity
                     : mail.CachedPreview
                         ? "Локальна кешована копія · без імпорту й редагування"
                         : "Перегляд вкладення без автоматичного збереження", 13);
-                Button(fileCard, "Переглянути файл", () =>
+                var metadataOnly = MailAttachmentDisplayPolicy.Detect(attachment.FileName) !=
+                    MailAttachmentDisplayPolicy.PreviewType.None;
+                Button(fileCard, metadataOnly ? "Інформація про вкладення" :
+                    "Переглянути файл", () =>
                     new AlertDialog.Builder(this)
                         .SetTitle("Перегляд вкладення")
                         .SetMessage(attachment.FileName + "\n\n" +
@@ -2250,7 +2253,11 @@ public class MainActivity : Activity
         view.SetTextColor(isSecondary ? Color.Rgb(21, 69, 44) : Color.White);
         view.Background = Rounded(isSecondary ? Color.Rgb(230, 240, 231) :
             Color.Rgb(9, 83, 50), 13);
-        var layout = new LinearLayout.LayoutParams(-1, Dp(47));
+        // Intrinsic height grows with Android's accessibility font scale.
+        // Fixed 47dp buttons previously clipped long localized labels.
+        view.SetMinHeight(Dp(47));
+        view.SetPadding(Dp(12), Dp(8), Dp(12), Dp(8));
+        var layout = new LinearLayout.LayoutParams(-1, -2);
         layout.SetMargins(0, Dp(4), 0, Dp(5));
         parent.AddView(view, layout);
         view.Click += (_, _) => callback();
@@ -2269,7 +2276,8 @@ public class MainActivity : Activity
         };
         view.SetMaxLines(2);
         view.SetPadding(Dp(2), Dp(4), Dp(2), Dp(4));
-        var layout = new LinearLayout.LayoutParams(0, Dp(59), 1f);
+        view.SetMinHeight(Dp(59));
+        var layout = new LinearLayout.LayoutParams(0, -2, 1f);
         layout.SetMargins(Dp(2), 0, Dp(2), 0);
         view.LayoutParameters = layout;
         view.Clickable = true;
