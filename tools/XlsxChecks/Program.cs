@@ -31,4 +31,22 @@ if(amountKnown.Element(s+"v")?.Value!="2.50")throw new Exception("Known value in
 if(!x.ToString().Contains("Тестова канцелярія"))
     throw new Exception("Cyrillic missing");
 if(x.Descendants(s+"f").Any())throw new Exception("Unexpected formulas");
-Console.WriteLine("XLSX package and 200-row regression: PASS");
+var wordBytes = DocxInvoiceBuilder.Create(invoice);
+if(wordBytes.Length < 1000) throw new Exception("DOCX unexpectedly small");
+using var wordStream = new MemoryStream(wordBytes);
+using var wordZip = new ZipArchive(wordStream, ZipArchiveMode.Read);
+foreach (var name in new[]{ "[Content_Types].xml", "_rels/.rels", "word/document.xml" })
+    if (wordZip.GetEntry(name) is null) throw new Exception("Missing Word part: " + name);
+using var documentStream = wordZip.GetEntry("word/document.xml")!.Open();
+var wordDoc = XDocument.Load(documentStream);
+XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+var docRows = wordDoc.Descendants(w + "tr").ToList();
+if (docRows.Count != 202) throw new Exception("DOCX header/200 items/total row mismatch: " + docRows.Count);
+if (!wordDoc.ToString().Contains("ТЕСТ-200") ||
+    !wordDoc.ToString().Contains("Тестова канцелярія 200") ||
+    !wordDoc.ToString().Contains("Тестова частина"))
+    throw new Exception("Cyrillic or last item missing in DOCX");
+if (wordDoc.Descendants(w + "pgSz").Single()
+    .Attribute(w + "orient")?.Value != "landscape")
+    throw new Exception("DOCX layout must be landscape");
+Console.WriteLine("XLSX and DOCX 200-position Office generation: PASS");
