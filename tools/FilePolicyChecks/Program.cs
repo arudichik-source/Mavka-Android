@@ -60,4 +60,30 @@ Check(PrivateVaultListingPolicy.CandidateIds(allPaths.Concat(
     "List honors bounded vault capacity");
 Check(!PrivateVaultListingPolicy.IsId("../" + new string('a',60)),
     "No relative identifier traversal");
-Console.WriteLine("File export, mail metadata and encrypted vault listing policy: 25/25 PASS");
+Check(MavkaExportPolicy.Matches("Download/МаVКа файли/", "Акт.docx"),
+    "Allow DOCX exported copies");
+Check(MavkaExportPolicy.Matches("Download/МаVКа файли/", "Звіт.DOC"),
+    "Allow legacy DOC exported copies");
+Check(!MavkaExportPolicy.Matches("Download/", "Звіт.docx"),
+    "Do not treat unrelated Word files as Mavka-managed");
+Check(!MavkaExportPolicy.Matches("Download/МаVКа файли/", "../secret.doc"),
+    "Reject Word path traversal");
+Check(MailImagePreviewPolicy.IsImage("photo.PNG") &&
+    MailImagePreviewPolicy.IsImage("photo.jpeg") &&
+    MailImagePreviewPolicy.IsImage("photo.webp"),
+    "Image suffix detection");
+Check(!MailImagePreviewPolicy.IsImage("run.exe"),
+    "Reject executable image preview");
+Check(MailImagePreviewPolicy.HasValidSignature("photo.png",
+    new byte[] {137,80,78,71,13,10,26,10,0,0,0,0}),
+    "PNG signature");
+Check(MailImagePreviewPolicy.HasValidSignature("photo.jpg",
+    new byte[] {255,216,255,1,2,3,4,5,6,7,8,9}),
+    "JPEG signature");
+Check(MailImagePreviewPolicy.HasValidSignature("photo.webp",
+    "RIFF0000WEBP"u8),
+    "WebP signature");
+Check(!MailImagePreviewPolicy.HasValidSignature("photo.png",
+    new byte[] {0,1,2,3,4,5,6,7,8,9,10,11}),
+    "Reject altered PNG");
+Console.WriteLine("File export, mail metadata, vault and photo preview: 35/35 PASS");
