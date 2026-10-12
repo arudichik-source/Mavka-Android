@@ -34,23 +34,80 @@ internal sealed record DriveFileCommand(string Format, string FileId, string Dow
         timeout.CancelAfter(TimeSpan.FromMinutes(3));
         using var handler = transport ?? new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false };
         using var client = new HttpClient(handler);
+        // Resume a dropped encrypted download with an HTTP Range request.
+        // This buffer contains only the already encrypted Drive bundle; no
+        // plaintext document ever reaches external storage.
         var url = new Uri(DownloadUrl);
-        for (int redirects = 0; redirects <= 5; redirects++)
+        using var buffer = new MemoryStream(EncryptedSize);
+        byte[] chunk = new byte[64 * 1024];
+        int redirects = 0, retries = 0;
+        while (buffer.Length < EncryptedSize)
         {
             if (!Allowed(url)) throw new IOException("Недозволена адреса Google Drive.");
-            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            if ((int)response.StatusCode is >= 300 and < 400)
+            int offset = checked((int)buffer.Length);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (offset > 0)
+                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(offset, null);
+            try
             {
-                var next = response.Headers.Location ?? throw new IOException("Drive redirect missing.");
-                url = next.IsAbsoluteUri ? next : new Uri(url, next); continue;
+                using var response = await client.SendAsync(
+                    request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+                if ((int)response.StatusCode is >= 300 and < 400)
+                {
+                    if (++redirects > 5) throw new IOException("Забагато перенаправлень Google Drive.");
+                    var next = response.Headers.Location ??
+                        throw new IOException("Відсутній URL перенаправлення.");
+                    url = next.IsAbsoluteUri ? next : new Uri(url, next);
+                    continue;
+                }
+                response.EnsureSuccessStatusCode();
+                if (response.Content.Headers.ContentType?.MediaType == "text/html")
+                    throw new IOException("Google Drive потребує доступу або підтвердження завантаження.");
+                if (offset > 0 && response.StatusCode == HttpStatusCode.OK)
+                {
+                    // Some shared-link endpoints ignore Range. Restart from
+                    // their full 200 response instead of concatenating overlap.
+                    buffer.SetLength(0);
+                    offset = 0;
+                }
+                else if (response.StatusCode == HttpStatusCode.PartialContent)
+                {
+                    var range = response.Content.Headers.ContentRange;
+                    if (range?.From != offset || range.Length != EncryptedSize)
+                        throw new IOException("Google Drive повернув неправильний діапазон.");
+                }
+                else if (offset > 0)
+                    throw new IOException("Google Drive не підтримує відновлення діапазону.");
+
+                if (response.Content.Headers.ContentLength is long length &&
+                    length > EncryptedSize - offset)
+                    throw new IOException("Google Drive повернув завеликий файл.");
+
+                using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
+                int received;
+                while ((received = await input.ReadAsync(chunk, timeout.Token)) > 0)
+                {
+                    if (received > EncryptedSize - buffer.Length)
+                        throw new IOException("Завантаження перевищує очікуваний розмір.");
+                    buffer.Write(chunk, 0, received);
+                }
+                if (buffer.Length != EncryptedSize)
+                {
+                    if (++retries > 3)
+                        throw new IOException("Завантаження Google Drive неповне.");
+                    continue;
+                }
             }
-            response.EnsureSuccessStatusCode();
-            if (response.Content.Headers.ContentType?.MediaType == "text/html")
-                throw new IOException("Google Drive потребує доступу або підтвердження завантаження.");
-            if (response.Content.Headers.ContentLength is long length && length != EncryptedSize)
-                throw new IOException("Google Drive повернув інший розмір файла.");
-            using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
-            var bytes = await BoundedReadAsync(stream, EncryptedSize, timeout.Token);
+            catch (Exception ex) when (
+                ex is HttpRequestException or IOException or TaskCanceledException &&
+                !timeout.IsCancellationRequested && ++retries <= 3)
+            {
+                // Retry missing ciphertext bytes only. A full SHA-256 and
+                // individual AES-GCM tags are verified after reassembly.
+                continue;
+            }
+        }
+        var bytes = buffer.ToArray();
             if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(bytes), Convert.FromHexString(Sha256)))
                 throw new CryptographicException("Контрольна сума файла Google Drive не збігається.");
             using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 8 });
@@ -60,8 +117,6 @@ internal sealed record DriveFileCommand(string Format, string FileId, string Dow
             if (parts.ValueKind != JsonValueKind.Array || parts.GetArrayLength() is < 1 or > 125)
                 throw new IOException("Invalid Drive bundle parts.");
             return parts.EnumerateArray().Select(p => p.GetRawText()).ToArray();
-        }
-        throw new IOException("Забагато перенаправлень Google Drive.");
     }
     internal static async Task<byte[]> BoundedReadAsync(Stream source, int exactBytes, CancellationToken token)
     {
