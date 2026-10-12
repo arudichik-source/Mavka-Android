@@ -66,7 +66,9 @@ internal sealed class PrivateAttachmentStore
 
             // Bound the private vault; a large mailbox must not consume
             // unlimited phone storage. Duplicate files bypass this quota.
-            if (Directory.EnumerateFiles(_folder, "*.bin").Take(100).Count() >= 100)
+            if (Directory.EnumerateFiles(_folder, "*.bin")
+                .Take(PrivateVaultListingPolicy.MaxFiles).Count() >=
+                PrivateVaultListingPolicy.MaxFiles)
                 throw new IOException("Захищене сховище заповнено (100 файлів).");
             byte[] nonce, sealedData;
             using (var keys = OpenKeyStore())
@@ -106,7 +108,7 @@ internal sealed class PrivateAttachmentStore
 
     public MavkaEncryptedFileEnvelope.ReceivedFile Load(string id)
     {
-        if (!IsId(id)) throw new ArgumentException("Invalid file identifier.");
+        if (!PrivateVaultListingPolicy.IsId(id)) throw new ArgumentException("Invalid file identifier.");
         var path = Path.Combine(_folder, id + ".bin");
         var sealedBytes = File.ReadAllBytes(path);
         if (sealedBytes.Length < 64 || sealedBytes.Length > MaxStored ||
@@ -154,7 +156,7 @@ internal sealed class PrivateAttachmentStore
 
     public void Delete(string id)
     {
-        if (!IsId(id)) throw new ArgumentException("Invalid file identifier.");
+        if (!PrivateVaultListingPolicy.IsId(id)) throw new ArgumentException("Invalid file identifier.");
         // Never touch any files outside the private secure-received-files folder.
         var path = Path.Combine(_folder, id + ".bin");
         if (File.Exists(path)) File.Delete(path);
@@ -164,10 +166,9 @@ internal sealed class PrivateAttachmentStore
     {
         if (!Directory.Exists(_folder)) return Array.Empty<StoredFile>();
         var result = new List<StoredFile>();
-        foreach (var path in Directory.EnumerateFiles(_folder, "*.bin").Take(60))
+        foreach (var id in PrivateVaultListingPolicy.CandidateIds(
+            Directory.EnumerateFiles(_folder, "*.bin")))
         {
-            string id = Path.GetFileNameWithoutExtension(path);
-            if (!IsId(id)) continue;
             try
             {
                 using var file = Load(id);
@@ -178,9 +179,6 @@ internal sealed class PrivateAttachmentStore
         }
         return result.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
     }
-
-    private static bool IsId(string? id) => id is { Length: 64 } &&
-        id.All(static c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static KeyStore OpenKeyStore()
     {
