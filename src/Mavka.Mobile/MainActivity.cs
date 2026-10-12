@@ -964,7 +964,7 @@ public class MainActivity : Activity
                             if (_screen == "message")
                                 status.Text = "Gmail відхилив авторизацію. Перевір пароль застосунку.";
                         }
-                        catch (OperationCanceledException)
+                        catch (System.OperationCanceledException)
                         {
                             if (_screen == "message")
                                 status.Text = "Gmail не відповів вчасно. Лист залишено у вхідних.";
