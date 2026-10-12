@@ -143,7 +143,11 @@ internal static class MavkaEncryptedFileEnvelope
         if (fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
             return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
         if (fileName.EndsWith(".doc", StringComparison.OrdinalIgnoreCase)) return "application/msword";
-        throw new ArgumentException("Підтримуються PDF, XLSX, DOCX та DOC.");
+        if (fileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return "image/png";
+        if (fileName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+            fileName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)) return "image/jpeg";
+        if (fileName.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)) return "image/webp";
+        throw new ArgumentException("Підтримуються PDF, XLSX, DOCX, DOC та PNG/JPEG/WebP.");
     }
 
     internal static void ValidateContents(string mime, ReadOnlySpan<byte> data)
@@ -154,6 +158,21 @@ internal static class MavkaEncryptedFileEnvelope
         {
             if (!data.StartsWith("%PDF-"u8))
                 throw new ArgumentException("Вміст не має заголовка PDF.");
+            return;
+        }
+        // Photos are accepted only with a valid magic number. Their entire
+        // content is still authenticated by AES-GCM and checked with SHA-256.
+        if (mime is "image/png" or "image/jpeg" or "image/webp")
+        {
+            bool valid = mime switch
+            {
+                "image/png" => data.StartsWith(new byte[] {137,80,78,71,13,10,26,10}),
+                "image/jpeg" => data.Length >= 12 && data[0] == 0xff &&
+                    data[1] == 0xd8 && data[2] == 0xff,
+                _ => data.Length >= 12 && data.Slice(0,4).SequenceEqual("RIFF"u8) &&
+                    data.Slice(8,4).SequenceEqual("WEBP"u8)
+            };
+            if (!valid) throw new ArgumentException("Некоректний формат зображення.");
             return;
         }
         // OOXML XLSX = ZIP, or password-encrypted Excel = OLE compound file.
