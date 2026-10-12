@@ -99,7 +99,7 @@ internal sealed record DriveFileCommand(string Format, string FileId, string Dow
                 }
             }
             catch (Exception ex) when (
-                ex is HttpRequestException or IOException or TaskCanceledException &&
+                (ex is HttpRequestException or IOException or TaskCanceledException) &&
                 !timeout.IsCancellationRequested && ++retries <= 3)
             {
                 // Retry missing ciphertext bytes only. A full SHA-256 and
