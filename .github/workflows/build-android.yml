@@ -207,31 +207,6 @@ jobs:
 
 
 
-      # New isolated package for post-device-QA improvements.
-      # Never overwrite ua.mavka.mobile.qa31: its Android Keystore and
-      # received documents are tied to that application's identity.
-      - name: Build isolated QA32 APK
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 31
-        shell: bash
-        run: |
-          dotnet clean src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release
-          mkdir -p "$GITHUB_WORKSPACE/qa32-apk"
-          dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release -p:ApplicationId=ua.mavka.mobile.qa32 -p:ApplicationTitle="Mavka-QA32" -p:PublishDir="$GITHUB_WORKSPACE/qa32-apk/"
-          shopt -s nullglob
-          apks=(qa32-apk/*.apk)
-          test "${#apks[@]}" -gt 0
-          for apk in "${apks[@]}"; do
-            pwsh -NoProfile -File tools/Inspect-Android-Apk.ps1 -ApkPath "$apk" -ExpectedPackage ua.mavka.mobile.qa32
-          done
-
-      - name: Upload isolated QA32 APK
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 31
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mavka-QA32-Android-APK
-          path: qa32-apk/*.apk
-          if-no-files-found: error
-
   demo-key-package-tool:
     # Independent synthetic preview tooling, no real credentials or keys.
     runs-on: windows-latest
