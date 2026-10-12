@@ -835,8 +835,37 @@ public class MainActivity : Activity
                                 });
                                 if (_screen == "message")
                                     fileStatus.Text = "Збережено в захищених файлах: " +
-                                        stored.Name + ". Перевірено локальне зчитування. " +
-                                        "Лист можна окремо перемістити у кошик Gmail.";
+                                        stored.Name + ". Перевірено локальне зчитування.";
+                                if (mail.SingleSecureFile && mail.MessageUid != 0 &&
+                                    mail.UidValidity != 0 && _store.HasCredentials)
+                                {
+                                    try
+                                    {
+                                        var password = _store.GetPassword() ??
+                                            throw new InvalidOperationException(
+                                                "Не налаштовано Gmail.");
+                                        await GmailConnectionService.MoveToTrashAsync(
+                                            _store.GetEmail(), password,
+                                            _store.GetMainMavkaEmail(), mail);
+                                        _messages = _messages.Where(item =>
+                                            item.UidValidity != mail.UidValidity ||
+                                            item.MessageUid != mail.MessageUid).ToList();
+                                        SaveInboxCacheSafe();
+                                        if (_screen == "message")
+                                            fileStatus.Text +=
+                                                " Лист перенесено в кошик Gmail.";
+                                    }
+                                    catch (Exception)
+                                    {
+                                        if (_screen == "message")
+                                            fileStatus.Text += " Файл збережено, " +
+                                                "але перенести лист у кошик не вдалося. " +
+                                                "Він залишився у Gmail.";
+                                    }
+                                }
+                                else if (_screen == "message")
+                                    fileStatus.Text += " Лист із кількома вкладеннями " +
+                                        "залишається у Gmail до окремої перевірки.";
                             }
                             catch (KeyNotFoundException)
                             {
