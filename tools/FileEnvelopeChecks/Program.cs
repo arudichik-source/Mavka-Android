@@ -82,8 +82,16 @@ try
     }
     Reject<ArgumentException>(() => MavkaEncryptedFileEnvelope.Encrypt(
         "fake.png", minimalXlsx, current), "Reject spoofed image");
-    if (completed != 18) throw new Exception("Missing file transport regression assertions.");
-    Console.WriteLine($"Generic encrypted PDF/Office/photos: {completed}/18 PASS");
+    var passwordWrapped = MavkaPasswordedEnvelope.Wrap(sealedPdf, "synthetic-demo-only-pass");
+    Check(MavkaPasswordedEnvelope.IsWrapped(passwordWrapped), "Password envelope format");
+    var innerPayload = MavkaPasswordedEnvelope.Unwrap(passwordWrapped, "synthetic-demo-only-pass");
+    using (var verified = MavkaEncryptedFileEnvelope.Decrypt(innerPayload, Resolver))
+        Check(verified.Content.SequenceEqual(minimalPdf), "Password and exchange key layered");
+    Reject<CryptographicException>(() =>
+        MavkaPasswordedEnvelope.Unwrap(passwordWrapped, "synthetic-incorrect-pass"),
+        "Incorrect password must fail authentication");
+    if (completed != 21) throw new Exception("Missing file transport regression assertions.");
+    Console.WriteLine($"Generic encrypted PDF/Office/photos with password: {completed}/21 PASS");
 }
 finally
 {
