@@ -1439,6 +1439,10 @@ public class MainActivity : Activity
             while (batch.NextIndex < batch.Metadata.Count && sent < maximum)
             {
                 string encrypted = await Task.Run(() => queue.Part(batch));
+                var docPassword = _documentPasswords.Load() ??
+                    throw new InvalidOperationException(
+                        "Налаштуй пароль документів до відправлення захищених частин.");
+                encrypted = MavkaPasswordedEnvelope.Wrap(encrypted, docPassword);
                 await RegistrationMailService.SendFilePartAsync(_store.GetEmail(), password,
                     _store.GetMainMavkaEmail(), batch.Metadata.FileName + "." + (batch.NextIndex + 1) + "-" + batch.Metadata.Count, encrypted);
                 batch = await Task.Run(() => queue.Advance(batch)); sent++;
@@ -2020,6 +2024,9 @@ public class MainActivity : Activity
                         string fileName = "Накладна-" + cleanNumber + ".docx";
                         string ciphertext = MavkaEncryptedFileEnvelope.Encrypt(
                             fileName, wordBytes, currentKey);
+                        var documentPassword = _documentPasswords.Load() ??
+                            throw new InvalidOperationException("Налаштуй пароль документів.");
+                        ciphertext = MavkaPasswordedEnvelope.Wrap(ciphertext, documentPassword);
                         await RegistrationMailService.SendProtectedFileAsync(
                             _store.GetEmail(), _store.GetPassword() ??
                                 throw new InvalidOperationException("Пароль Gmail відсутній."),
