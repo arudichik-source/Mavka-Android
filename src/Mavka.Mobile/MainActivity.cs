@@ -1167,7 +1167,8 @@ public class MainActivity : Activity
                 throw new InvalidOperationException("Пароль не збережений.");
             _messages = await GmailConnectionService.ReadFromSenderAsync(
                 _store.GetEmail(), password, sender, _exchangeKeys,
-                _documentPasswords, LoadUserProfile()?.ClientId);
+                _documentPasswords, LoadUserProfile()?.ClientId,
+                validity => _archive.ListMailProcessingStates(validity, sender));
             await ProcessFileTransfersAsync(password, sender);
             var report = await ArchiveAndCleanupAsync(password, sender);
             SaveInboxCacheSafe();
@@ -1350,6 +1351,37 @@ public class MainActivity : Activity
         var remaining = new List<MavkaMailItem>();
         foreach (var mail in _messages)
         {
+            if (mail.PreviouslyArchived)
+            {
+                // The durable ready marker was written only after every
+                // document passed read-back. Retry Trash without downloading
+                // or re-importing the complete message.
+                if (!_archive.IsMailReady(mail.UidValidity, mail.MessageUid, sender))
+                {
+                    remaining.Add(mail with
+                    {
+                        ProcessingIssue = "Немає підтвердження архівування; лист залишено."
+                    });
+                    kept++;
+                    continue;
+                }
+                try
+                {
+                    await GmailConnectionService.MoveToTrashAsync(
+                        _store.GetEmail(), password, sender, mail);
+                    _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, sender);
+                    moved++;
+                }
+                catch (Exception)
+                {
+                    remaining.Add(mail with
+                    {
+                        ProcessingIssue = "Лист уже архівований; Gmail Trash буде повторено."
+                    });
+                    kept++;
+                }
+                continue;
+            }
             if (mail.Attachments.Any(a => a.SecureFilePart is not null ||
                 (a.AuthenticatedJson && DriveFileCommand.TryRead(a.RawJson, out _))))
             { remaining.Add(mail); kept++; continue; }
