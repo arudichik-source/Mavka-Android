@@ -37,7 +37,6 @@ public class MainActivity : Activity
     private string _mailFilter = "all";
     private bool _busy;
     private IReadOnlyList<MavkaMailItem> _messages = Array.Empty<MavkaMailItem>();
-                _inboxCache.Clear();
 
     protected override void OnCreate(Bundle? state)
     {
