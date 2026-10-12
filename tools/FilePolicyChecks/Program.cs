@@ -23,4 +23,18 @@ Check(!MavkaExportPolicy.Matches(null, "copy.pdf"),
     "Unknown folder not eligible");
 Check(!MavkaExportPolicy.Matches("Download/МаVКа файли/", null),
     "Unknown filename not eligible");
-Console.WriteLine("Android export scope policy regression: 10/10 PASS");
+Check(MailAttachmentDisplayPolicy.Detect("preview.PDF") ==
+    MailAttachmentDisplayPolicy.PreviewType.Pdf, "Recognize PDF metadata");
+Check(MailAttachmentDisplayPolicy.Detect("schedule.XLSX") ==
+    MailAttachmentDisplayPolicy.PreviewType.Excel, "Recognize XLSX metadata");
+Check(MailAttachmentDisplayPolicy.Detect("script.exe") ==
+    MailAttachmentDisplayPolicy.PreviewType.None, "Reject executable attachment");
+Check(MailAttachmentDisplayPolicy.Detect("../doc.pdf") ==
+    MailAttachmentDisplayPolicy.PreviewType.None, "Reject traversal in attachments");
+Check(MailAttachmentDisplayPolicy.Detect("folder\\\\sample.pdf") ==
+    MailAttachmentDisplayPolicy.PreviewType.None, "Reject separator");
+Check(MailAttachmentDisplayPolicy.Description("demo.xlsx", 1536)
+    .Contains("1.5 КБ"), "Display binary size metadata");
+Check(MailAttachmentDisplayPolicy.Description("demo.pdf", 50)
+    .Contains("не відкрито й не збережено"), "Disclose no import");
+Console.WriteLine("File export and mail metadata policy regression: 17/17 PASS");
