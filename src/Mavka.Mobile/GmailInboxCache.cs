@@ -38,6 +38,7 @@ internal sealed class GmailInboxCache
             byte[] sealedBytes = File.ReadAllBytes(_path);
             if (sealedBytes.Length is < 29 or > 600_000)
                 return Array.Empty<MavkaMailItem>();
+            if (sealedBytes[0] != 1) return Array.Empty<MavkaMailItem>();
             byte[] nonce = sealedBytes.AsSpan(1, 12).ToArray();
             byte[] ciphertext = sealedBytes.AsSpan(13, sealedBytes.Length - 29).ToArray();
             byte[] tag = sealedBytes.AsSpan(sealedBytes.Length - 16, 16).ToArray();
@@ -63,7 +64,13 @@ internal sealed class GmailInboxCache
                     return Array.Empty<MavkaMailItem>();
                 return payload.Items.Take(30)
                     .Where(m => m.MessageUid != 0 && m.UidValidity != 0)
-                    .Select(m => m with { AttachmentsComplete = false })
+                    .Select(m => m with
+                    {
+                        AttachmentsComplete = false,
+                        CachedPreview = true,
+                        Attachments = m.Attachments.Select(a =>
+                            a with { RawJson = null, InstalledKeyPackage = false }).ToArray()
+                    })
                     .ToArray();
             }
             finally { CryptographicOperations.ZeroMemory(plaintext); }
@@ -91,11 +98,18 @@ internal sealed class GmailInboxCache
                         ? a.Text[..24_000] + "\n[Перегляд скорочено]"
                         : a.Text, null, false))
                 .ToArray();
+            var invoice = mail.Attachments
+                .Select(a => MavkaExchangeParser.TryInvoice(a.RawJson, out var parsed)
+                    ? parsed : null)
+                .FirstOrDefault(x => x is not null);
             var candidate = mail with
             {
                 Body = mail.Body.Length > 12_000 ? mail.Body[..12_000] : mail.Body,
                 Attachments = safeAttachments,
-                AttachmentsComplete = false
+                AttachmentsComplete = false,
+                CachedPreview = true,
+                CachedInvoiceNumber = invoice?.Number,
+                CachedInvoiceRecipient = invoice?.Recipient
             };
             var test = new CachePayload(account, sender, previews.Append(candidate).ToList());
             if (JsonSerializer.SerializeToUtf8Bytes(test).Length > MaxPlaintextBytes)
