@@ -37,6 +37,7 @@ public class MainActivity : Activity
     private string _screen = "home";
     private const int PickDocumentRequest = 1526;
     private const int ExportPrivateCopyRequest = 1527;
+    private const int PickEncryptAndSendRequest = 1528;
     private string _inboxQuery = "";
     private string _mailFilter = "all";
     private bool _busy;
@@ -1575,6 +1576,43 @@ public class MainActivity : Activity
         }
         Button(receivedCard, "Оновити захищені файли", () => _ = ReloadReceivedAsync());
         _ = ReloadReceivedAsync();
+        Button(header, "Надіслати PDF/XLSX із захистом ключами", () =>
+        {
+            if (!_store.HasCredentials || !_exchangeKeys.HasKeyPair ||
+                string.IsNullOrWhiteSpace(_store.GetMainMavkaEmail()))
+            {
+                Toast.MakeText(this,
+                    "Спочатку підключи Gmail та встанови ключі обміну.",
+                    ToastLength.Long)?.Show();
+                return;
+            }
+            new AlertDialog.Builder(this)
+                .SetTitle("Надіслати захищений файл?")
+                .SetMessage("Обери PDF/XLSX до 2 МБ. Мавка зашифрує його чинним " +
+                    "ключем AES-256-GCM і надішле до налаштованої адреси Gmail. " +
+                    "Відкритий файл у лист не вкладатиметься.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("Обрати файл", (_, _) =>
+                {
+                    try
+                    {
+                        var picker = new Intent(Intent.ActionOpenDocument);
+                        picker.AddCategory(Intent.CategoryOpenable);
+                        picker.SetType("*/*");
+                        picker.PutExtra(Intent.ExtraMimeTypes, new[]
+                        {
+                            "application/pdf",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        });
+                        StartActivityForResult(picker, PickEncryptAndSendRequest);
+                    }
+                    catch (Exception)
+                    {
+                        Toast.MakeText(this, "Системний вибір файлів недоступний.",
+                            ToastLength.Long)?.Show();
+                    }
+                }).Show();
+        });
         Button(header, "Відкрити PDF / Excel з пам'яті телефону", () =>
         {
             try
@@ -2263,6 +2301,100 @@ public class MainActivity : Activity
     protected override async void OnActivityResult(int requestCode, Result resultCode, Intent? data)
     {
         base.OnActivityResult(requestCode, resultCode, data);
+        if (requestCode == PickEncryptAndSendRequest)
+        {
+            if (resultCode != Result.Ok || data?.Data is null) return;
+            if (_busy) return;
+            _busy = true;
+            byte[]? fileBytes = null;
+            try
+            {
+                var selected = data.Data;
+                string? name = null;
+                using (var cursor = ContentResolver?.Query(selected,
+                    new[] { Android.Provider.OpenableColumns.DisplayName },
+                    null, null, null))
+                    if (cursor?.MoveToFirst() == true && !cursor.IsNull(0))
+                        name = cursor.GetString(0);
+                if (string.IsNullOrWhiteSpace(name))
+                    throw new ArgumentException("У файла немає коректної назви.");
+                _ = MavkaEncryptedFileEnvelope.MimeFor(name);
+
+                // Bound source reading before loading into memory or creating the
+                // encrypted envelope. No cleartext writes to public storage.
+                var inputFile = name;
+                var sourceUri = selected;
+                var loaded = await Task.Run(() =>
+                {
+                    var buffer = new byte[MavkaEncryptedFileEnvelope.MaxFileBytes + 1];
+                    try
+                    {
+                        using var source = ContentResolver?.OpenInputStream(sourceUri) ??
+                            throw new IOException("Document provider is unavailable.");
+                        int count = 0, read;
+                        while (count < buffer.Length &&
+                            (read = source.Read(buffer, count, buffer.Length - count)) > 0)
+                            count += read;
+                        if (count is < 8 or > MavkaEncryptedFileEnvelope.MaxFileBytes)
+                            throw new ArgumentException("Файл завеликий або порожній.");
+                        return (Buffer: buffer, Length: count);
+                    }
+                    catch
+                    {
+                        System.Security.Cryptography.CryptographicOperations
+                            .ZeroMemory(buffer);
+                        throw;
+                    }
+                });
+                fileBytes = loaded.Buffer;
+                var password = _store.GetPassword() ??
+                    throw new InvalidOperationException("Gmail відключено.");
+                string encrypted = await Task.Run(() =>
+                {
+                    byte[]? key = _exchangeKeys.GetCurrentKey() ??
+                        throw new KeyNotFoundException("Ключ обміну недоступний.");
+                    try
+                    {
+                        return MavkaEncryptedFileEnvelope.Encrypt(inputFile,
+                            fileBytes.AsSpan(0, loaded.Length), key);
+                    }
+                    finally
+                    {
+                        System.Security.Cryptography.CryptographicOperations.ZeroMemory(key);
+                    }
+                });
+                await RegistrationMailService.SendProtectedFileAsync(
+                    _store.GetEmail(), password, _store.GetMainMavkaEmail(),
+                    name, encrypted);
+                Toast.MakeText(this,
+                    "Захищений PDF/XLSX успішно надіслано через Gmail.",
+                    ToastLength.Long)?.Show();
+            }
+            catch (KeyNotFoundException)
+            {
+                Toast.MakeText(this, "Потрібний ключ обміну недоступний.",
+                    ToastLength.Long)?.Show();
+            }
+            catch (ArgumentException)
+            {
+                Toast.MakeText(this,
+                    "Непідтримуваний файл. Потрібен справний PDF/XLSX до 2 МБ.",
+                    ToastLength.Long)?.Show();
+            }
+            catch (Exception)
+            {
+                Toast.MakeText(this,
+                    "Не вдалося надіслати захищений файл. Перевір Gmail і мережу.",
+                    ToastLength.Long)?.Show();
+            }
+            finally
+            {
+                if (fileBytes is not null)
+                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(fileBytes);
+                _busy = false;
+            }
+            return;
+        }
         if (requestCode == ExportPrivateCopyRequest)
         {
             var id = _pendingPrivateExportId;
