@@ -33,7 +33,7 @@ public class MainActivity : Activity
     private ExchangeKeyStore _exchangeKeys = null!;
     private DocumentPasswordStore _documentPasswords = null!;
     private FrameLayout _drawerOverlay = null!;
-    private TextView _home = null!, _inbox = null!, _assets = null!, _settings = null!;
+    private ScrollView _leftDrawer = null!, _rightDrawer = null!;
     private string _screen = "home";
     private const int PickDocumentRequest = 1526;
     private const int ExportPrivateCopyRequest = 1527;
@@ -78,6 +78,9 @@ public class MainActivity : Activity
         var logoLayout = new LinearLayout.LayoutParams(Dp(40), Dp(40));
         logoLayout.SetMargins(0, 0, Dp(8), 0);
         topBar.AddView(appMark, logoLayout);
+        appMark.ContentDescription = "Відкрити ліве меню навігації";
+        appMark.Clickable = true;
+        appMark.Click += (_, _) => ShowDrawer(left: true);
         var brand = new TextView(this) { Text = "Мавка Mobile", TextSize = 20 };
         brand.SetSingleLine(true);
         brand.Ellipsize = Android.Text.TextUtils.TruncateAt.End;
@@ -91,7 +94,8 @@ public class MainActivity : Activity
         hamburger.Background = Rounded(Color.Rgb(25, 82, 53), 12);
         hamburger.SetPadding(0, 0, 0, 0);
         topBar.AddView(hamburger, new LinearLayout.LayoutParams(Dp(58), Dp(52)));
-        hamburger.Click += (_, _) => ShowDrawer();
+        hamburger.ContentDescription = "Відкрити праве меню команд";
+        hamburger.Click += (_, _) => ShowDrawer(left: false);
         root.AddView(topBar);
 
         var scroll = new ScrollView(this) { FillViewport = true };
@@ -100,20 +104,7 @@ public class MainActivity : Activity
         _body = new LinearLayout(this) { Orientation = Orientation.Vertical };
         _body.SetPadding(0, Dp(8), 0, Dp(12));
         scroll.AddView(_body);
-        var nav = new LinearLayout(this) { Orientation = Orientation.Horizontal };
-        _home = Nav("⌂\nГоловна", ShowHome);
-        _inbox = Nav("✉\nВхідні", ShowInbox);
-        _assets = Nav("▣\nМайно", ShowAssets);
-        _settings = Nav("⚙\nНалашт.", ShowSettings);
-        _settings.ContentDescription = "Налаштування";
-        nav.AddView(_home);
-        nav.AddView(_inbox);
-        nav.AddView(_assets);
-        nav.AddView(_settings);
-        nav.SetPadding(Dp(2), Dp(3), Dp(2), Dp(3));
-        nav.SetBackgroundColor(Color.White);
         root.AddView(scroll);
-        root.AddView(nav);
 
         var host = new FrameLayout(this);
         host.AddView(root, new FrameLayout.LayoutParams(-1, -1));
@@ -123,28 +114,38 @@ public class MainActivity : Activity
         _drawerOverlay.Visibility = ViewStates.Gone;
         _drawerOverlay.Click += (_, _) => CloseDrawer();
 
-        var sidePanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
-        sidePanel.Clickable = true;
-        sidePanel.SetBackgroundColor(Color.Rgb(249, 247, 242));
-        sidePanel.SetPadding(Dp(14), Dp(50), Dp(14), Dp(30));
-        Text(sidePanel, "Мавка Mobile", 22, true);
-        Text(sidePanel, "Меню", 15);
-        Button(sidePanel, "Головна", () => { CloseDrawer(); ShowHome(); });
-        Button(sidePanel, "Вхідні", () => { CloseDrawer(); ShowInbox(); });
-        Button(sidePanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
-        Button(sidePanel, "Історія документів", () => { CloseDrawer(); ShowDocuments(); });
-        Button(sidePanel, "МаVКа файли", () => { CloseDrawer(); ShowFiles(); });
-        Button(sidePanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
-        Button(sidePanel, "Ключ обміну", () => { CloseDrawer(); ShowExchangeKey(); });
-        Button(sidePanel, "Пароль документів", () => { CloseDrawer(); ShowDocumentPassword(); });
-        Button(sidePanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
-        Button(sidePanel, "Закрити меню", CloseDrawer);
+        var leftPanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        leftPanel.Clickable = true;
+        leftPanel.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        leftPanel.SetPadding(Dp(14), Dp(50), Dp(14), Dp(30));
+        Text(leftPanel, "Розділи Мавки", 21, true);
+        Button(leftPanel, "Головна", () => { CloseDrawer(); ShowHome(); });
+        Button(leftPanel, "Вхідні", () => { CloseDrawer(); ShowInbox(); });
+        Button(leftPanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
+        Button(leftPanel, "Історія документів", () => { CloseDrawer(); ShowDocuments(); });
+        Button(leftPanel, "МаVКа файли", () => { CloseDrawer(); ShowFiles(); });
+        Button(leftPanel, "Закрити", CloseDrawer);
+        _leftDrawer = new ScrollView(this) { FillViewport = true };
+        _leftDrawer.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        _leftDrawer.AddView(leftPanel);
+        _drawerOverlay.AddView(_leftDrawer,
+            new FrameLayout.LayoutParams(Dp(292), -1, GravityFlags.Left));
 
-        // The menu scrolls on short phones instead of losing lower actions.
-        var drawerScroll = new ScrollView(this) { FillViewport = true };
-        drawerScroll.SetBackgroundColor(Color.Rgb(249, 247, 242));
-        drawerScroll.AddView(sidePanel);
-        _drawerOverlay.AddView(drawerScroll,
+        var rightPanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        rightPanel.Clickable = true;
+        rightPanel.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        rightPanel.SetPadding(Dp(14), Dp(50), Dp(14), Dp(30));
+        Text(rightPanel, "Команди і налаштування", 21, true);
+        Button(rightPanel, "Синхронізація Gmail", () => { CloseDrawer(); ShowSynchronization(); });
+        Button(rightPanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
+        Button(rightPanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
+        Button(rightPanel, "Ключ обміну", () => { CloseDrawer(); ShowExchangeKey(); });
+        Button(rightPanel, "Пароль документів", () => { CloseDrawer(); ShowDocumentPassword(); });
+        Button(rightPanel, "Закрити", CloseDrawer);
+        _rightDrawer = new ScrollView(this) { FillViewport = true };
+        _rightDrawer.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        _rightDrawer.AddView(rightPanel);
+        _drawerOverlay.AddView(_rightDrawer,
             new FrameLayout.LayoutParams(Dp(292), -1, GravityFlags.Right));
         host.AddView(_drawerOverlay, new FrameLayout.LayoutParams(-1, -1));
 
@@ -207,11 +208,6 @@ public class MainActivity : Activity
         // Every new screen starts at its own top, not at the previous scroll offset.
         _scroll.ScrollTo(0, 0);
         _scroll.Post(() => { if (_screen == screen) _scroll.ScrollTo(0, 0); });
-        // Keep all tabs clickable; a selected tab is highlighted rather than disabled.
-        StyleNav(_home, screen == "home");
-        StyleNav(_inbox, screen is "inbox" or "message");
-        StyleNav(_assets, screen == "assets");
-        StyleNav(_settings, screen is "settings" or "mail" or "profile" or "exchange-key" or "document-password");
         Text(_body, title, 24, true);
     }
 
@@ -2303,8 +2299,10 @@ public class MainActivity : Activity
         _ = ReloadListAsync();
     }
 
-    private void ShowDrawer()
+    private void ShowDrawer(bool left)
     {
+        _leftDrawer.Visibility = left ? ViewStates.Visible : ViewStates.Gone;
+        _rightDrawer.Visibility = left ? ViewStates.Gone : ViewStates.Visible;
         _drawerOverlay.Visibility = ViewStates.Visible;
         _drawerOverlay.BringToFront();
     }
