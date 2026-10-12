@@ -148,6 +148,32 @@ jobs:
           if-no-files-found: error
 
 
+      # One-off installation beside both production and existing preview.
+      # The preview key data are non-exportable from Android Keystore; never
+      # uninstall preview just to exercise manual Gmail Trash.
+      - name: Build isolated Gmail Trash QA APK
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 30
+        shell: bash
+        run: |
+          dotnet clean src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release
+          mkdir -p "$GITHUB_WORKSPACE/mailqa-apk"
+          dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release -p:ApplicationId=ua.mavka.mobile.mailqa -p:ApplicationTitle="Mavka-Mail-QA" -p:PublishDir="$GITHUB_WORKSPACE/mailqa-apk/"
+          shopt -s nullglob
+          apks=(mailqa-apk/*.apk)
+          test "${#apks[@]}" -gt 0
+          for apk in "${apks[@]}"; do
+            pwsh -NoProfile -File tools/Inspect-Android-Apk.ps1 -ApkPath "$apk" -ExpectedPackage ua.mavka.mobile.mailqa
+          done
+
+      - name: Upload isolated Gmail Trash QA APK
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 30
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mavka-Mail-Trash-QA-APK
+          path: mailqa-apk/*.apk
+          if-no-files-found: error
+
+
   demo-key-package-tool:
     # Independent synthetic preview tooling, no real credentials or keys.
     runs-on: windows-latest
