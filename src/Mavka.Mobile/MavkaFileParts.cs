@@ -11,7 +11,9 @@ internal static class MavkaFileParts
     public const int MaxFileBytes = 32_000_000;
     public const int MaxPartBytes = 360_000;
     public const int MaxWireBytes = 510_000;
-    public const int MaxBundleBytes = 46_000_000;
+    // A 32 MB source encoded as per-part AES-GCM JSON plus a password layer
+    // expands beyond the previous 46 MB bound; keep a strict 64 MB ceiling.
+    public const int MaxBundleBytes = 64_000_000;
     internal sealed record Header(string TransferId, string FileName, string Mime,
         int Size, string Sha256, int Index, int Count);
     internal sealed record Packet(string Format, string Algorithm, string KeyId,
