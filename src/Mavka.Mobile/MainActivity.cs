@@ -1003,8 +1003,10 @@ public class MainActivity : Activity
                         catch (Exception ex)
                         {
                             if (_screen == "message")
-                                status.Text = "Не вдалося перенести лист у кошик Gmail (" +
-                                    ex.GetType().Name + "). Перевір з'єднання й онови пошту.";
+                                status.Text = ex is InvalidOperationException
+                                    ? ex.Message
+                                    : ExplainMailError(ex) +
+                                      " Лист залишено у вхідних Gmail.";
                         }
                         finally { _busy = false; }
                     })
@@ -1557,8 +1559,10 @@ public class MainActivity : Activity
                     try { _exportedFiles.OpenFile(item); }
                     catch (Exception ex)
                     {
-                        Toast.MakeText(this, "Немає програми для відкриття: " +
-                            ex.GetType().Name, ToastLength.Long)?.Show();
+                        Toast.MakeText(this,
+                            "Не вдалося відкрити файл. Перевір наявність PDF/Excel " +
+                            "переглядача та доступ до файлу.",
+                            ToastLength.Long)?.Show();
                     }
                 });
                 Button(tile, "Поділитися", () =>
@@ -1566,8 +1570,9 @@ public class MainActivity : Activity
                     try { _exportedFiles.ShareFile(item); }
                     catch (Exception ex)
                     {
-                        Toast.MakeText(this, "Не вдалося поділитися: " +
-                            ex.GetType().Name, ToastLength.Long)?.Show();
+                        Toast.MakeText(this,
+                            "Не вдалося поділитися файлом. Перевір доступ до Downloads.",
+                            ToastLength.Long)?.Show();
                     }
                 });
             }
@@ -1596,7 +1601,8 @@ public class MainActivity : Activity
             {
                 if (_screen != "files") return;
                 files = Array.Empty<MavkaExportFile>();
-                readError = "Не вдалося прочитати папку: " + ex.GetType().Name;
+                readError = "Не вдалося відкрити папку експорту. " +
+                    "Перевір дозволи Android та спробуй «Оновити список».";
                 selected.Clear();
             }
             finally
@@ -1629,7 +1635,8 @@ public class MainActivity : Activity
             }
             catch (Exception ex)
             {
-                Toast.MakeText(this, "Помилка читання: " + ex.GetType().Name,
+                Toast.MakeText(this,
+                    "Не вдалося перевірити файли для видалення. Онови список.",
                     ToastLength.Long)?.Show();
                 return;
             }
@@ -1669,7 +1676,7 @@ public class MainActivity : Activity
                     finally { _busy = false; }
                     if (_screen == "files") ShowFiles();
                     Toast.MakeText(this, "Видалено: " + deleted +
-                        (error is null ? "" : "; перервано: " + error),
+                        (error is null ? "" : "; частина файлів залишилася. Перевір доступ."),
                         ToastLength.Long)?.Show();
                 }).Show();
         }
