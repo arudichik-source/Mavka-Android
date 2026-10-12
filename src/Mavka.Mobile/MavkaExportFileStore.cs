@@ -64,7 +64,11 @@ internal sealed class MavkaExportFileStore
             long modified = cursor.IsNull(dateIndex) ? 0 : cursor.GetLong(dateIndex);
             string mime = name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
                 ? "application/pdf"
-                : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                : name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+                    ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    : name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase)
+                        ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        : "application/msword";
             files.Add(new MavkaExportFile(uri, name, mime, size,
                 DateTimeOffset.FromUnixTimeSeconds(Math.Max(0, modified))));
         }
