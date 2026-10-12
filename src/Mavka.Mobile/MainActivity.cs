@@ -2506,18 +2506,15 @@ public class MainActivity : Activity
         card = Card();
         Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 18, true);
         Text(card, _store.GetMainMavkaEmail(), 16);
-        if (string.Equals(LoadUserProfile()?.Unit, "Тестовий підрозділ",
-                StringComparison.Ordinal))
-        {
-            var reset = Card();
-            Text(reset, "Керування тестовою базою", 18, true);
-            Text(reset, "Очищуються лише залишки та рухи тестового підрозділу. " +
-                "Архів, ключі, файли й Gmail зберігаються.", 13);
-            var resetResult = Text(reset, "Очищення ще не проводилося.", 13);
-            Button(reset, "Очистити тестовий облік", () =>
-                TestLedgerResetDialog.Show(this, _ledger, "Тестовий підрозділ",
-                    () => _busy, message => resetResult.Text = message));
-        }
+        var ledgerManagement = Card();
+        Text(ledgerManagement, "Керування локальним обліком", 18, true);
+        Text(ledgerManagement,
+            "Можна очистити залишки та проведені рухи лише підрозділу з поточного профілю. " +
+            "Архів документів, ключі шифрування, Gmail і файли не видаляються.", 13);
+        var ledgerStatus = Text(ledgerManagement, "Змін поки немає.", 13);
+        Button(ledgerManagement, "Очистити локальний облік підрозділу", () =>
+            LocalLedgerResetDialog.Show(this, _ledger, LoadUserProfile()?.Unit ?? "",
+                () => _busy, message => ledgerStatus.Text = message));
 
         var diagnostics = Card();
         Text(diagnostics, "Діагностика", 17, true);
