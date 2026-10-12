@@ -31,7 +31,7 @@ ledger_upgrade = sql_statements(section(
     "private static void CreateEventTable("))
 archive_upgrade = sql_statements(section(
     ARCHIVE, "public override void OnUpgrade(SQLiteDatabase db, int oldVersion, int newVersion)",
-    "private static void CreateStatusTable("))
+    "private static void CreateMailProcessingTable("))
 create_status = sql_statements(section(
     ARCHIVE, "private static void CreateStatusTable(SQLiteDatabase db)",
     "private void UpdateStatus("))
