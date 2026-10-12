@@ -1223,10 +1223,15 @@ public class MainActivity : Activity
             {
                 remaining.Add(mail with
                 {
-                    ProcessingIssue = mail.Attachments.Count == 0
-                        ? "Немає придатного вкладення JSON/TXT. PDF/XLSX із Gmail " +
-                          "поки не імпортуються. Лист залишено."
-                        : "Не всі вкладення підтримуються. Перевір типи файлів; лист залишено."
+                    ProcessingIssue = mail.Attachments.Any(
+                            a => a.SecureFileEnvelope is not null)
+                        ? "Отримано захищений PDF/XLSX. Відкрий лист, перевір та " +
+                          "збережи вкладення. До підтвердження лист залишається у Gmail."
+                        : mail.Attachments.Count == 0
+                            ? "Немає придатного вкладення JSON/TXT. " +
+                              "Незахищені PDF/XLSX автоматично не імпортуються."
+                            : "Не всі вкладення підтримуються. " +
+                              "Перевір типи файлів; лист залишено."
                 });
                 kept++;
                 continue;
