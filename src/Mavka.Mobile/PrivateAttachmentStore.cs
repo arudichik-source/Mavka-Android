@@ -64,6 +64,10 @@ internal sealed class PrivateAttachmentStore
                 return new StoredFile(id, file.FileName, mime, file.Content.Length);
             }
 
+            // Bound the private vault; a large mailbox must not consume
+            // unlimited phone storage. Duplicate files bypass this quota.
+            if (Directory.EnumerateFiles(_folder, "*.bin").Take(100).Count() >= 100)
+                throw new IOException("Захищене сховище заповнено (100 файлів).");
             byte[] nonce, sealedData;
             using (var keys = OpenKeyStore())
             {
@@ -146,6 +150,14 @@ internal sealed class PrivateAttachmentStore
             return new MavkaEncryptedFileEnvelope.ReceivedFile(name, mime, content, hash);
         }
         finally { CryptographicOperations.ZeroMemory(plain); }
+    }
+
+    public void Delete(string id)
+    {
+        if (!IsId(id)) throw new ArgumentException("Invalid file identifier.");
+        // Never touch any files outside the private secure-received-files folder.
+        var path = Path.Combine(_folder, id + ".bin");
+        if (File.Exists(path)) File.Delete(path);
     }
 
     public IReadOnlyList<StoredFile> List()
