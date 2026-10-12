@@ -952,12 +952,21 @@ public class MainActivity : Activity
                                 {
                                     try
                                     {
+                                        // Mark verified read-back before attempting IMAP.
+                                        // Network failure must not trigger repeated
+                                        // attachment decryption on future refreshes.
+                                        _archive.MarkMailReady(
+                                            mail.UidValidity, mail.MessageUid,
+                                            MailProcessingScope());
                                         var password = _store.GetPassword() ??
                                             throw new InvalidOperationException(
                                                 "Не налаштовано Gmail.");
                                         await GmailConnectionService.MoveToTrashAsync(
                                             _store.GetEmail(), password,
                                             _store.GetMainMavkaEmail(), mail);
+                                        _archive.MarkMailTrashed(
+                                            mail.UidValidity, mail.MessageUid,
+                                            MailProcessingScope());
                                         _messages = _messages.Where(item =>
                                             item.UidValidity != mail.UidValidity ||
                                             item.MessageUid != mail.MessageUid).ToList();
