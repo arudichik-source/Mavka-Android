@@ -92,6 +92,50 @@ internal static class RegistrationMailService
         await client.DisconnectAsync(true, timeout.Token);
     }
 
+    /// <summary>
+    /// Explicit user-initiated encrypted PDF/XLSX transfer. Sends only the
+    /// authenticated ciphertext envelope, never plaintext file bytes.
+    /// The address is the configured authorized Gmail correspondent.
+    /// </summary>
+    public static async Task SendProtectedFileAsync(
+        string sender, string appPassword, string recipient,
+        string originalName, string encryptedEnvelope)
+    {
+        if (!System.Net.Mail.MailAddress.TryCreate(sender, out var from) ||
+            !System.Net.Mail.MailAddress.TryCreate(recipient, out var to) ||
+            from.Address != sender || to.Address != recipient)
+            throw new ArgumentException("Некоректна адреса електронної пошти.");
+        _ = MavkaEncryptedFileEnvelope.MimeFor(originalName);
+        if (encryptedEnvelope.Length is < 100 or > MavkaEncryptedFileEnvelope.MaxEnvelopeBytes)
+            throw new ArgumentException("Зашифрований документ завеликий.");
+        using (var parsed = JsonDocument.Parse(encryptedEnvelope))
+        {
+            if (parsed.RootElement.GetProperty("format").GetString() !=
+                MavkaEncryptedFileEnvelope.Format)
+                throw new ArgumentException("Непідтримуваний тип пакета.");
+        }
+
+        var mail = new MimeMessage();
+        mail.From.Add(MailboxAddress.Parse(sender));
+        mail.To.Add(MailboxAddress.Parse(recipient));
+        mail.Subject = "MAVKA_ENCRYPTED_FILE_V1";
+        var body = new BodyBuilder
+        {
+            TextBody = "Захищене вкладення PDF/XLSX. Доступне лише з ключем обміну."
+        };
+        body.Attachments.Add(originalName + MavkaEncryptedFileEnvelope.Extension,
+            Encoding.UTF8.GetBytes(encryptedEnvelope),
+            new ContentType("application", "json"));
+        mail.Body = body.ToMessageBody();
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var connection = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
+        using var client = connection.Client;
+        await client.AuthenticateAsync(sender, appPassword, timeout.Token);
+        await client.SendAsync(mail, timeout.Token);
+        await client.DisconnectAsync(true, timeout.Token);
+    }
+
     private static void SetSecureBody(
         MimeMessage message, string legacySubject, string legacyBody,
         object structuredData, ExchangeKeyStore? keys)
