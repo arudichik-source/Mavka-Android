@@ -32,9 +32,11 @@ try
         var pdf = MavkaEncryptedFileEnvelope.Decrypt(sealedPdf, Resolver);
         Check(pdf.Content.SequenceEqual(minimalPdf), "PDF round trip");
         Check(pdf.FileName == "test.pdf", "Authenticated PDF filename");
+        pdf.Dispose();
+        Check(pdf.Content.All(static x => x == 0), "Decrypted PDF memory cleared");
     }
     {
-        var xlsx = MavkaEncryptedFileEnvelope.Decrypt(sealedXlsx, Resolver);
+        using var xlsx = MavkaEncryptedFileEnvelope.Decrypt(sealedXlsx, Resolver);
         Check(xlsx.Content.SequenceEqual(minimalXlsx), "XLSX round trip with future key");
         Check(xlsx.MimeType.EndsWith("sheet"), "XLSX MIME");
     }
@@ -66,8 +68,8 @@ try
         "too-large.pdf", new byte[MavkaEncryptedFileEnvelope.MaxFileBytes+1], current),
         "Excessive attachment size");
     Check(sealedPdf.Contains("MAVKA_ENCRYPTED_FILE_V1"), "Distinct file format");
-    if (completed != 13) throw new Exception("Missing file transport regression assertions.");
-    Console.WriteLine($"Generic encrypted PDF/XLSX transport tests: {completed}/13 PASS");
+    if (completed != 14) throw new Exception("Missing file transport regression assertions.");
+    Console.WriteLine($"Generic encrypted PDF/XLSX transport tests: {completed}/14 PASS");
 }
 finally
 {
