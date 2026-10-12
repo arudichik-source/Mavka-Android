@@ -1336,6 +1336,8 @@ public class MainActivity : Activity
             return;
         }
         _busy = true;
+        var syncWatch = System.Diagnostics.Stopwatch.StartNew();
+        long metadataMillis = 0, importMillis = 0, trashMillis = 0;
         status.Text = "Перевірка службових листів...";
         try
         {
@@ -1346,15 +1348,21 @@ public class MainActivity : Activity
                 _store.GetEmail(), password, sender, _exchangeKeys,
                 _documentPasswords, LoadUserProfile()?.ClientId,
                 validity => _archive.ListMailProcessingStates(validity, MailProcessingScope()));
+            metadataMillis = syncWatch.ElapsedMilliseconds;
             await ProcessFileTransfersAsync(password, sender);
+            importMillis = syncWatch.ElapsedMilliseconds - metadataMillis;
             var report = await ArchiveAndCleanupAsync(password, sender);
+            trashMillis = syncWatch.ElapsedMilliseconds - metadataMillis - importMillis;
             SaveInboxCacheSafe();
             var syncReport = await SendPendingReceiptsAsync(password, sender);
             try { await SendPendingFilePartsAsync(maximum: 3); }
             catch { syncReport += " Частини файлів залишені в черзі надсилання."; }
             if (_screen is "sync" or "home" or "inbox" or "assets")
                 status.Text = $"Листів у вхідних: {_messages.Count}. " + report +
-                    " " + syncReport;
+                    " " + syncReport +
+                    $" · Час: {syncWatch.Elapsed.TotalSeconds:0.0} с " +
+                    $"(IMAP {metadataMillis / 1000.0:0.0}, файли {importMillis / 1000.0:0.0}, " +
+                    $"архів/Trash {trashMillis / 1000.0:0.0}).";
         }
         catch (MailKit.Security.AuthenticationException)
         {
