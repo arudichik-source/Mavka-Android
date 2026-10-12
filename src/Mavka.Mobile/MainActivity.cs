@@ -920,8 +920,67 @@ public class MainActivity : Activity
             });
         }
 
-        // Gmail cleanup is automatic only after verified durable import.
-        // No manual bypass: a message with unread attachments stays in Inbox.
+        // Automatic Gmail cleanup requires a verified durable import.
+        // Separately, a user can explicitly move a displayed incoming message
+        // to Gmail Trash. This is a reversible mailbox action, not an import,
+        // expunge, local-document deletion, or key reset.
+        if (!_viewingArchivedDocument && mail.MessageUid != 0 && mail.UidValidity != 0)
+        {
+            Button(_body, "Перемістити лист у кошик Gmail", () =>
+            {
+                if (_busy) return;
+                new AlertDialog.Builder(this)
+                    .SetTitle("Перемістити цей лист у кошик?")
+                    .SetMessage("Лист буде переміщено до кошика Gmail, звідки його можна " +
+                        "відновити. Якщо вкладення не були імпортовані, вони не збережуться " +
+                        "в локальному архіві автоматично. Збережені ключі та локальні " +
+                        "документи не видаляються. Продовжити?")
+                    .SetNegativeButton("Скасувати", (_, _) => { })
+                    .SetPositiveButton("У кошик", async (_, _) =>
+                    {
+                        if (_busy) return;
+                        _busy = true;
+                        status.Text = "Перенесення листа до кошика Gmail...";
+                        try
+                        {
+                            var password = _store.GetPassword();
+                            if (string.IsNullOrEmpty(password))
+                                throw new InvalidOperationException("Пароль Gmail відсутній.");
+
+                            // Gmail revalidates UIDVALIDITY, the UID and exact
+                            // authorized sender before the reversible move.
+                            await GmailConnectionService.MoveToTrashAsync(
+                                _store.GetEmail(), password,
+                                _store.GetMainMavkaEmail(), mail);
+                            _messages = _messages.Where(item =>
+                                item.UidValidity != mail.UidValidity ||
+                                item.MessageUid != mail.MessageUid).ToList();
+
+                            if (_screen == "message" && !_viewingArchivedDocument)
+                                ShowInbox();
+                        }
+                        catch (MailKit.Security.AuthenticationException)
+                        {
+                            if (_screen == "message")
+                                status.Text = "Gmail відхилив авторизацію. Перевір пароль застосунку.";
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            if (_screen == "message")
+                                status.Text = "Gmail не відповів вчасно. Лист залишено у вхідних.";
+                        }
+                        catch (Exception ex)
+                        {
+                            if (_screen == "message")
+                                status.Text = "Не вдалося перенести лист у кошик Gmail (" +
+                                    ex.GetType().Name + "). Перевір з'єднання й онови пошту.";
+                        }
+                        finally { _busy = false; }
+                    })
+                    .Show();
+            });
+        }
+
         Button(_body, _viewingArchivedDocument ? "← До архіву" : "← До вхідних",
             _viewingArchivedDocument ? ShowDocuments : ShowInbox);
     }
@@ -2036,7 +2095,8 @@ public class MainActivity : Activity
         var view = new Button(this) { Text = text, TextSize = 14 };
         view.SetAllCaps(false);
         var isSecondary = text.StartsWith("←") || text.StartsWith("Закрити") ||
-                          text.StartsWith("Забути") || text.StartsWith("Видалити");
+                          text.StartsWith("Забути") || text.StartsWith("Видалити") ||
+                          text.StartsWith("Перемістити лист у кошик");
         view.SetTextColor(isSecondary ? Color.Rgb(21, 69, 44) : Color.White);
         view.Background = Rounded(isSecondary ? Color.Rgb(230, 240, 231) :
             Color.Rgb(9, 83, 50), 13);
