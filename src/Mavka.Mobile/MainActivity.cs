@@ -1371,6 +1371,10 @@ public class MainActivity : Activity
         foreach (var mail in messages)
         {
             if (mail.CachedPreview) continue;
+            // Only an AES-GCM failure raised while authenticating a SINGLE
+            // mail attachment can authorize reversible Trash. Do not delete
+            // on missing/rotating keys, network loss or whole-file assembly.
+            bool authenticatingPart = false;
             try
             {
                 var parts = mail.Attachments.Where(a => a.SecureFilePart is not null).Select(a => a.SecureFilePart!).ToList();
@@ -1384,8 +1388,10 @@ public class MainActivity : Activity
                 string? id = null;
                 foreach (var part in parts)
                 {
+                    authenticatingPart = true;
                     var progress = await Task.Run(() => pending.Accept(part, key => _exchangeKeys.GetKey(key),
                         mail.Attachments.Count == 1 ? new PendingFileTransferStore.MailRef(mail.UidValidity, mail.MessageUid) : null, drive?.TransferId));
+                    authenticatingPart = false;
                     id = progress.Id;
                     if (drive is not null && id != drive.TransferId)
                         throw new System.Security.Cryptography.CryptographicException("Drive transfer ID mismatch.");
@@ -1403,10 +1409,58 @@ public class MainActivity : Activity
                     }
                 });
             }
+            catch (KeyNotFoundException)
+            {
+                ReplaceTransferMessage(mail,
+                    "Немає ключа для розшифрування частини. Лист збережено у Gmail; " +
+                    "перевір отримання поточного/майбутнього ключів.");
+            }
+            catch (System.Security.Cryptography.CryptographicException)
+            {
+                const string integrityError =
+                    "Помилка криптографічної перевірки AES-GCM: " +
+                    "частина пошкоджена або ключ не відповідає. Файл не прийнято.";
+                bool isolatedPart = authenticatingPart && mail.Attachments.Count == 1 &&
+                    mail.Attachments[0].SecureFilePart is not null &&
+                    mail.MessageUid != 0 && mail.UidValidity != 0;
+                if (isolatedPart)
+                {
+                    try
+                    {
+                        await GmailConnectionService.MoveToTrashAsync(
+                            _store.GetEmail(), password, sender, mail);
+                        _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, sender);
+                        _messages = _messages.Where(item =>
+                            item.MessageUid != mail.MessageUid ||
+                            item.UidValidity != mail.UidValidity).ToArray();
+                        continue;
+                    }
+                    catch (Exception)
+                    {
+                        ReplaceTransferMessage(mail, integrityError +
+                            " Перенести лист у кошик не вдалося; він залишається у Gmail.");
+                    }
+                }
+                else ReplaceTransferMessage(mail, integrityError +
+                    " Лист збережено для перевірки.");
+            }
+            catch (ArgumentException)
+            {
+                ReplaceTransferMessage(mail,
+                    "Неправильний формат або розмір зашифрованої частини. " +
+                    "Вкладення відхилено; лист залишено у Gmail.");
+            }
+            catch (System.IO.IOException)
+            {
+                ReplaceTransferMessage(mail,
+                    "Помилка мережі або файлового сховища під час передачі. " +
+                    "Отримані частини збережено; повтори синхронізацію.");
+            }
             catch (Exception)
             {
-                ReplaceTransferMessage(mail, "Передачу не завершено. Частини збережено; лист залишається у Gmail. " +
-                    "Перевір ключі, мережу та доступ до зашифрованого файла Drive.");
+                ReplaceTransferMessage(mail,
+                    "Передачу не завершено. Перевір мережу, файлове сховище " +
+                    "або доступ до зашифрованого файла Drive.");
             }
         }
         // Completion is recorded only AFTER whole-file verification and vault read-back.
