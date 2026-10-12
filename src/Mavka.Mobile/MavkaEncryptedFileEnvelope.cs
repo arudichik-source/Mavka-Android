@@ -20,9 +20,10 @@ internal static class MavkaEncryptedFileEnvelope
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     internal sealed record ReceivedFile(string FileName, string MimeType,
-        byte[] Content, string Sha256)
+        byte[] Content, string Sha256) : IDisposable
     {
         public long Length => Content.LongLength;
+        public void Dispose() => CryptographicOperations.ZeroMemory(Content);
     }
 
     public static string Encrypt(string fileName, ReadOnlySpan<byte> content, byte[] key)
