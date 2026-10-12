@@ -18,7 +18,7 @@ internal sealed record MavkaMailItem(
     bool AttachmentsComplete = false, string? ProcessingIssue = null,
     bool CachedPreview = false, string? CachedInvoiceNumber = null,
     string? CachedInvoiceRecipient = null, bool SingleSecureFile = false,
-    bool PreviouslyArchived = false);
+    bool PreviouslyArchived = false, bool AllSecureFileAttachments = false);
 
 internal static class GmailConnectionService
 {
@@ -521,7 +521,11 @@ internal static class GmailConnectionService
                 attachmentsComplete && textAttachments.Count == summary.Attachments.Count(),
                 SingleSecureFile: summary.Attachments.Count() == 1 &&
                     textAttachments.Count == 1 &&
-                    textAttachments[0].SecureFileEnvelope is not null));
+                    textAttachments[0].SecureFileEnvelope is not null,
+                AllSecureFileAttachments: summary.Attachments.Count() > 0 &&
+                    summary.Attachments.Count() <= MaxAttachmentsPerMail &&
+                    textAttachments.Count == summary.Attachments.Count() &&
+                    textAttachments.All(a => a.SecureFileEnvelope is not null)));
         }
 
         await client.DisconnectAsync(true, timeout.Token);
