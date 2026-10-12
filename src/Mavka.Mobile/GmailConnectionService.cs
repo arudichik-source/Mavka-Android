@@ -168,22 +168,48 @@ internal static class GmailConnectionService
         var fileMatches = await client.Inbox.SearchAsync(SearchQuery.FromContains(allowedSender.Trim())
             .And(SearchQuery.SubjectContains(MavkaFileParts.Format)), timeout.Token);
         var fileUids = fileMatches.Reverse().Take(150).Select(u => u.Id).ToHashSet();
-        var recent = matched.Reverse().Take(300)
-            .Concat(keyMatches.Reverse().Take(10))
+        // Fetch ordinary message metadata in small batches rather than all
+        // 300 candidates up front. The exact sender check still determines
+        // when 15 actual authorized messages have been found; spoofed display
+        // names never count toward that number.
+        const MessageSummaryItems summaryItems =
+            MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope |
+            MessageSummaryItems.BodyStructure;
+        bool ExactSender(IMessageSummary summary) =>
+            summary.Envelope?.From?.Mailboxes.Any(m =>
+                string.Equals(m.Address, allowedSender.Trim(),
+                    StringComparison.OrdinalIgnoreCase)) == true;
+
+        var fetched = new Dictionary<uint, IMessageSummary>();
+        foreach (var batch in matched.Reverse().Take(300).Chunk(40))
+        {
+            var batchSummaries = await client.Inbox.FetchAsync(
+                batch, summaryItems, timeout.Token);
+            foreach (var summary in batchSummaries)
+                fetched[summary.UniqueId.Id] = summary;
+            if (fetched.Values.Count(ExactSender) >= 15)
+                break;
+        }
+
+        // Independently include all recent encrypted-file parts and key
+        // provisioning messages, even when they are older than the 15 ordinary
+        // display mails. Never skip multipart messages for speed.
+        var special = keyMatches.Reverse().Take(10)
             .Concat(fileMatches.Reverse().Take(150))
             .Distinct()
+            .Where(uid => !fetched.ContainsKey(uid.Id))
             .ToList();
-        var summaries = await client.Inbox.FetchAsync(
-            recent,
-            MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.BodyStructure,
-            timeout.Token);
+        if (special.Count > 0)
+        {
+            var specialSummaries = await client.Inbox.FetchAsync(
+                special, summaryItems, timeout.Token);
+            foreach (var summary in specialSummaries)
+                fetched[summary.UniqueId.Id] = summary;
+        }
 
         // Exact sender re-check. Process key messages in UID order before
         // the rest so even an old provisioning letter unlocks recent files.
-        var verified = summaries
-            .Where(s => s.Envelope?.From?.Mailboxes.Any(m =>
-                string.Equals(m.Address, allowedSender.Trim(), StringComparison.OrdinalIgnoreCase)) == true)
-            .ToList();
+        var verified = fetched.Values.Where(ExactSender).ToList();
         var selected = verified
             .OrderByDescending(s => s.UniqueId.Id).Take(15)
             .Concat(verified.Where(s => fileUids.Contains(s.UniqueId.Id)).OrderByDescending(s => s.UniqueId.Id).Take(150))
