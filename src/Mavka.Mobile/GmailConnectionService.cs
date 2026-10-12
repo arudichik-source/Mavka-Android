@@ -394,7 +394,7 @@ internal static class GmailConnectionService
                 attachmentsComplete && textAttachments.Count == summary.Attachments.Count(),
                 SingleSecureFile: summary.Attachments.Count() == 1 &&
                     textAttachments.Count == 1 &&
-                    textAttachments[0].SecureFileEnvelope is not null);
+                    textAttachments[0].SecureFileEnvelope is not null));
         }
 
         await client.DisconnectAsync(true, timeout.Token);
