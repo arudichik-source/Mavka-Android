@@ -1029,14 +1029,14 @@ public class MainActivity : Activity
                     if (mail.MessageUid > 0 && mail.UidValidity > 0)
                     {
                         var sender = _store.GetMainMavkaEmail();
-                        _archive.MarkMailReady(mail.UidValidity, mail.MessageUid, sender);
+                        _archive.MarkMailReady(mail.UidValidity, mail.MessageUid, MailProcessingScope());
                         try
                         {
                             var password = _store.GetPassword() ??
                                 throw new InvalidOperationException("Gmail не підключено.");
                             await GmailConnectionService.MoveToTrashAsync(
                                 _store.GetEmail(), password, sender, mail);
-                            _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, sender);
+                            _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, MailProcessingScope());
                             _messages = _messages.Where(m =>
                                 m.MessageUid != mail.MessageUid ||
                                 m.UidValidity != mail.UidValidity).ToArray();
@@ -1336,7 +1336,7 @@ public class MainActivity : Activity
             _messages = await GmailConnectionService.ReadFromSenderAsync(
                 _store.GetEmail(), password, sender, _exchangeKeys,
                 _documentPasswords, LoadUserProfile()?.ClientId,
-                validity => _archive.ListMailProcessingStates(validity, sender));
+                validity => _archive.ListMailProcessingStates(validity, MailProcessingScope()));
             await ProcessFileTransfersAsync(password, sender);
             var report = await ArchiveAndCleanupAsync(password, sender);
             SaveInboxCacheSafe();
@@ -1404,6 +1404,13 @@ public class MainActivity : Activity
         }
         return $"Надіслано підтверджень: {sent}; залишено в черзі: {deferred}.";
     }
+
+    // Durable Gmail UIDs are mailbox-local. Bind processing status to BOTH
+    // account and authorized sender, in addition to IMAP UIDVALIDITY; this
+    // prevents accidentally skipping mail after a Gmail account change.
+    private string MailProcessingScope() =>
+        _store.GetEmail().Trim().ToLowerInvariant() + "|" +
+        _store.GetMainMavkaEmail().Trim().ToLowerInvariant();
 
     private string TransferScope() => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
         System.Text.Encoding.UTF8.GetBytes(_store.GetEmail().Trim().ToLowerInvariant() + ":" +
@@ -1498,7 +1505,7 @@ public class MainActivity : Activity
                     {
                         await GmailConnectionService.MoveToTrashAsync(
                             _store.GetEmail(), password, sender, mail);
-                        _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, sender);
+                        _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, MailProcessingScope());
                         _messages = _messages.Where(item =>
                             item.MessageUid != mail.MessageUid ||
                             item.UidValidity != mail.UidValidity).ToArray();
@@ -1578,7 +1585,7 @@ public class MainActivity : Activity
                 // The durable ready marker was written only after every
                 // document passed read-back. Retry Trash without downloading
                 // or re-importing the complete message.
-                if (!_archive.IsMailReady(mail.UidValidity, mail.MessageUid, sender))
+                if (!_archive.IsMailReady(mail.UidValidity, mail.MessageUid, MailProcessingScope()))
                 {
                     remaining.Add(mail with
                     {
@@ -1591,7 +1598,7 @@ public class MainActivity : Activity
                 {
                     await GmailConnectionService.MoveToTrashAsync(
                         _store.GetEmail(), password, sender, mail);
-                    _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, sender);
+                    _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, MailProcessingScope());
                     moved++;
                 }
                 catch (Exception)
@@ -1671,12 +1678,12 @@ public class MainActivity : Activity
             }
             try
             {
-                _archive.MarkMailReady(mail.UidValidity, mail.MessageUid, sender);
-                if (!_archive.IsMailReady(mail.UidValidity, mail.MessageUid, sender))
+                _archive.MarkMailReady(mail.UidValidity, mail.MessageUid, MailProcessingScope());
+                if (!_archive.IsMailReady(mail.UidValidity, mail.MessageUid, MailProcessingScope()))
                     throw new InvalidOperationException("Mail journal not persisted.");
                 await GmailConnectionService.MoveToTrashAsync(
                     _store.GetEmail(), password, sender, mail);
-                _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, sender);
+                _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, MailProcessingScope());
                 moved++;
             }
             catch (Exception ex)
