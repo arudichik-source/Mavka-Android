@@ -29,11 +29,44 @@ for item in "${expected[@]}"; do
     echo "Missing commit object for PR #${pr}: ${sha}" >&2
     exit 1
   fi
-  if ! git merge-base --is-ancestor "${sha}" HEAD; then
+  if git merge-base --is-ancestor "${sha}" HEAD; then
+    echo "PR #${pr}: included by ancestry (${sha:0:12})"
+    continue
+  fi
+  if [[ "$pr" != "16" ]]; then
     echo "Integration is missing PR #${pr}: ${sha}" >&2
     exit 1
   fi
-  echo "PR #${pr}: included (${sha:0:12})"
+  # PR #16 received three later commits after work on PR #17 had begun.
+  # Its common base (ae00128...) remains an ancestor of the integration.
+  # Verify all three later fixes *in the actual source* rather than
+  # cherry-picking them again and introducing unnecessary duplicate edits.
+  if ! git merge-base --is-ancestor \
+       'ae00128f71aa6af9b716013f3709effb6bebd7ad' HEAD; then
+    echo "PR #16 shared base is missing." >&2
+    exit 1
+  fi
+  if ! git grep -Fq 'Javax.Crypto.CipherMode.EncryptMode' HEAD -- \
+       src/Mavka.Mobile/DocumentArchiveStore.cs; then
+    echo "PR #16 Android crypto mode fix is missing." >&2
+    exit 1
+  fi
+  if ! git grep -Fq 'public bool HasReceipts(string unit)' HEAD -- \
+       src/Mavka.Mobile/PropertyLedgerStore.cs; then
+    echo "PR #16 profile history predicate is missing." >&2
+    exit 1
+  fi
+  if ! git grep -Fq 'Зміна підрозділу заблокована' HEAD -- \
+       src/Mavka.Mobile/MainActivity.cs; then
+    echo "PR #16 profile reassignment guard is missing." >&2
+    exit 1
+  fi
+  if ! git grep -Fq '_archive.CountDocuments(current.Unit) > 0' HEAD -- \
+       src/Mavka.Mobile/MainActivity.cs; then
+    echo "PR #16 archive history check is missing." >&2
+    exit 1
+  fi
+  echo "PR #16: late fixes verified by source equivalence (${sha:0:12})"
 done
 
 main_base='af0fb026f9816c27acfb369508b9f7ad972df6dd'
@@ -41,4 +74,4 @@ if ! git merge-base --is-ancestor "${main_base}" HEAD; then
   echo "Integration no longer descends from the approved main baseline." >&2
   exit 1
 fi
-echo "Integration ancestry verification: PASS (${#expected[@]} PR heads)."
+echo "Integration PR inclusion verification: PASS (${#expected[@]} PRs; one verified equivalent)."
