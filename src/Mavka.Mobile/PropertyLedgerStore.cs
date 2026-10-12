@@ -146,6 +146,49 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                 x.Quantity, x.UnitPrice, x.TotalValue)).ToList();
     }
 
+    /// <summary>
+    /// QA-only reset of accounting for the EXACT test unit. Keys, Gmail,
+    /// archived documents, attachments and any other unit remain untouched.
+    /// Pending confirmations forbid clearing so a queued acknowledgement
+    /// is never silently lost.
+    /// </summary>
+    public int ClearTestUnitLedger(string unit)
+    {
+        if (!string.Equals(unit?.Trim(), "Тестовий підрозділ",
+                StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "Очищення дозволено лише для профілю «Тестовий підрозділ».");
+
+        using var db = WritableDatabase;
+        db.BeginTransaction();
+        try
+        {
+            using (var pending = db.RawQuery(
+                @"SELECT COUNT(*) FROM receipts
+                  WHERE recipient = ? COLLATE NOCASE AND mail_status = 'pending'",
+                new[] { unit }))
+            {
+                if (!pending.MoveToFirst())
+                    throw new InvalidOperationException("Не вдалося перевірити чергу підтверджень.");
+                if (pending.GetInt(0) != 0)
+                    throw new InvalidOperationException(
+                        "Спочатку надішли підтвердження накладних із черги. " +
+                        "Облікові дані не видалено.");
+            }
+
+            int removed = db.Delete("ledger_events", "unit = ? COLLATE NOCASE",
+                new[] { unit });
+            db.Delete("receipt_items",
+                "document_id IN (SELECT document_id FROM receipts WHERE recipient = ? COLLATE NOCASE)",
+                new[] { unit });
+            db.Delete("receipts", "recipient = ? COLLATE NOCASE",
+                new[] { unit });
+            db.SetTransactionSuccessful();
+            return removed;
+        }
+        finally { db.EndTransaction(); }
+    }
+
     public bool HasReceipts(string unit)
     {
         using var db = ReadableDatabase;
