@@ -277,6 +277,28 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         return cursor.MoveToFirst() && cursor.GetString(0) is "ready" or "trashed";
     }
 
+    /// <summary>
+    /// Read the durable processed-mail index once per IMAP refresh. Statuses
+    /// are scoped to UIDVALIDITY and exact sender; an incomplete/missing mail
+    /// has no marker and must still be fetched.
+    /// </summary>
+    public IReadOnlyDictionary<uint, string> ListMailProcessingStates(uint uidValidity, string sender)
+    {
+        var result = new Dictionary<uint, string>();
+        if (uidValidity == 0 || string.IsNullOrWhiteSpace(sender)) return result;
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            @"SELECT uid, status FROM mail_processing
+              WHERE uid_validity = ? AND authorized_sender = ?",
+            new[] { uidValidity.ToString(), sender.Trim().ToLowerInvariant() });
+        while (cursor.MoveToNext())
+        {
+            if (uint.TryParse(cursor.GetString(0), out uint uid) && uid != 0)
+                result[uid] = cursor.GetString(1);
+        }
+        return result;
+    }
+
     private void SetMailStatus(uint validity, uint uid, string sender, string state)
     {
         if (validity == 0 || uid == 0 || string.IsNullOrWhiteSpace(sender))
