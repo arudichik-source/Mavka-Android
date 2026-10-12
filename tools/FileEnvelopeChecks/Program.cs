@@ -68,8 +68,22 @@ try
         "too-large.pdf", new byte[MavkaEncryptedFileEnvelope.MaxFileBytes+1], current),
         "Excessive attachment size");
     Check(sealedPdf.Contains("MAVKA_ENCRYPTED_FILE_V1"), "Distinct file format");
-    if (completed != 14) throw new Exception("Missing file transport regression assertions.");
-    Console.WriteLine($"Generic encrypted PDF/XLSX transport tests: {completed}/14 PASS");
+    byte[] png = {137,80,78,71,13,10,26,10,0,0,0,0};
+    byte[] jpeg = {255,216,255,1,2,3,4,5,6,7,8,9};
+    byte[] webp = Encoding.ASCII.GetBytes("RIFF0000WEBP");
+    foreach (var (name,bytes,mime) in new[] {
+        ("image.png", png,"image/png"), ("image.jpeg", jpeg,"image/jpeg"),
+        ("image.webp",webp,"image/webp")})
+    {
+        var packet = MavkaEncryptedFileEnvelope.Encrypt(name, bytes, current);
+        using var image = MavkaEncryptedFileEnvelope.Decrypt(packet, Resolver);
+        Check(image.Content.SequenceEqual(bytes) && image.MimeType == mime,
+            "Authenticated encrypted image " + mime);
+    }
+    Reject<ArgumentException>(() => MavkaEncryptedFileEnvelope.Encrypt(
+        "fake.png", minimalXlsx, current), "Reject spoofed image");
+    if (completed != 18) throw new Exception("Missing file transport regression assertions.");
+    Console.WriteLine($"Generic encrypted PDF/Office/photos: {completed}/18 PASS");
 }
 finally
 {
