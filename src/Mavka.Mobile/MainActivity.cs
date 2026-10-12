@@ -33,6 +33,7 @@ public class MainActivity : Activity
     private FrameLayout _drawerOverlay = null!;
     private TextView _home = null!, _inbox = null!, _assets = null!, _settings = null!;
     private string _screen = "home";
+    private const int PickDocumentRequest = 1526;
     private string _inboxQuery = "";
     private string _mailFilter = "all";
     private bool _busy;
@@ -1442,10 +1443,33 @@ public class MainActivity : Activity
             "Видалення цих копій не видаляє накладні, залишки, " +
             "підтвердження чи історію з внутрішньої бази Мавки.", 13);
 
+        Text(header, "Файли, завантажені в Gmail чи сторонніх програмах, " +
+            "можна вибрати нижче для перегляду. Це НЕ імпорт до архіву.", 12);
+        Button(header, "Відкрити PDF / Excel з пам'яті телефону", () =>
+        {
+            try
+            {
+                var picker = new Intent(Intent.ActionOpenDocument);
+                picker.AddCategory(Intent.CategoryOpenable);
+                picker.SetType("*/*");
+                picker.PutExtra(Intent.ExtraMimeTypes, new[]
+                {
+                    "application/pdf",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                });
+                StartActivityForResult(picker, PickDocumentRequest);
+            }
+            catch (Android.Content.ActivityNotFoundException)
+            {
+                Toast.MakeText(this, "Системний вибір файлів недоступний.",
+                    ToastLength.Long)?.Show();
+            }
+        });
+
         if (!_exportedFiles.IsSupported)
         {
-            Text(header, "На цій версії Android для папки Downloads необхідний " +
-                "окремий режим Storage Access Framework. Керування поки недоступне.", 14);
+            Text(header, "Перегляд локальних файлів доступний через системний вибір. " +
+                "Автоматичний список експорту потребує Android 10 або новішого.", 14);
             Button(_body, "← На головну", ShowHome);
             return;
         }
@@ -1458,6 +1482,21 @@ public class MainActivity : Activity
         IReadOnlyList<MavkaExportFile> files = Array.Empty<MavkaExportFile>();
         string? readError = null;
         bool fileListLoading = false;
+        Android.Widget.Button? deleteSelectedButton = null;
+        Android.Widget.Button? clearFolderButton = null;
+        void UpdateFileActions()
+        {
+            if (deleteSelectedButton is not null)
+            {
+                deleteSelectedButton.Enabled = selected.Count > 0;
+                deleteSelectedButton.Alpha = deleteSelectedButton.Enabled ? 1f : 0.42f;
+            }
+            if (clearFolderButton is not null)
+            {
+                clearFolderButton.Enabled = files.Count > 0;
+                clearFolderButton.Alpha = clearFolderButton.Enabled ? 1f : 0.42f;
+            }
+        }
 
         // Searching/sorting never hits ContentResolver; MediaStore is queried
         // only on entering the screen or pressing Refresh.
@@ -1493,6 +1532,7 @@ public class MainActivity : Activity
                     var id = item.Uri.ToString()!;
                     if (marker.Checked) selected.Add(id);
                     else selected.Remove(id);
+                    UpdateFileActions();
                 };
                 tile.AddView(marker);
                 Text(tile, (item.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
@@ -1520,6 +1560,7 @@ public class MainActivity : Activity
             }
             if (visible.Count > 100)
                 Text(output, "Відображено перші 100 файлів. Скористайся пошуком.", 13);
+            UpdateFileActions();
         }
 
         async Task ReloadListAsync()
@@ -1620,8 +1661,9 @@ public class MainActivity : Activity
                 }).Show();
         }
 
-        Button(header, "Видалити вибрані", () => ConfirmDeletion(false));
-        Button(header, "Очистити папку", () => ConfirmDeletion(true));
+        deleteSelectedButton = Button(header, "Видалити вибрані", () => ConfirmDeletion(false));
+        clearFolderButton = Button(header, "Очистити папку", () => ConfirmDeletion(true));
+        UpdateFileActions();
         _ = ReloadListAsync();
     }
 
@@ -2083,6 +2125,35 @@ public class MainActivity : Activity
         Button(_body, "← До налаштувань", ShowSettings);
     }
 
+    protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
+    {
+        base.OnActivityResult(requestCode, resultCode, data);
+        if (requestCode != PickDocumentRequest || resultCode != Result.Ok ||
+            data?.Data is null) return;
+
+        var uri = data.Data;
+        var mime = ContentResolver?.GetType(uri);
+        if (mime is not ("application/pdf" or
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+        {
+            Toast.MakeText(this, "Підтримуються лише PDF та XLSX.",
+                ToastLength.Long)?.Show();
+            return;
+        }
+        try
+        {
+            var intent = new Intent(Intent.ActionView);
+            intent.SetDataAndType(uri, mime);
+            intent.AddFlags(ActivityFlags.GrantReadUriPermission);
+            StartActivity(Intent.CreateChooser(intent, "Переглянути файл"));
+        }
+        catch (Android.Content.ActivityNotFoundException)
+        {
+            Toast.MakeText(this, "Немає програми для відкриття цього формату.",
+                ToastLength.Long)?.Show();
+        }
+    }
+
     public override void OnBackPressed()
     {
         if (_drawerOverlay.Visibility == ViewStates.Visible) { CloseDrawer(); return; }
@@ -2142,7 +2213,7 @@ public class MainActivity : Activity
         return view;
     }
 
-    private void Button(LinearLayout parent, string text, Action callback)
+    private Android.Widget.Button Button(LinearLayout parent, string text, Action callback)
     {
         var view = new Button(this) { Text = text, TextSize = 14 };
         view.SetAllCaps(false);
@@ -2156,6 +2227,7 @@ public class MainActivity : Activity
         layout.SetMargins(0, Dp(4), 0, Dp(5));
         parent.AddView(view, layout);
         view.Click += (_, _) => callback();
+        return view;
     }
 
     private TextView Nav(string title, Action action)
