@@ -321,9 +321,9 @@ public class MainActivity : Activity
         }
 
         var status = Text(card, _store.HasCredentials
-            ? _messages.Count > 0
-                ? "Збережені повідомлення: " + _messages.Count +
-                  ". Онови Gmail для перевірки нових листів."
+            ? _messages.Any(mail => mail.CachedPreview)
+                ? "Показано збережені копії листів: " + _messages.Count +
+                  ". Онови Gmail для перевірки нових повідомлень."
                 : "Онови пошту, щоб перевірити нові документи."
             : "Підключи Gmail у Налаштуваннях.", 12);
         Button(card, "Оновити листи", async () =>
@@ -708,8 +708,8 @@ public class MainActivity : Activity
 
         var visible = _messages.Where(mail =>
         {
-            bool invoice = mail.Attachments.Any(a =>
-                MavkaExchangeParser.TryInvoice(a.RawJson, out _));
+            bool invoice = !string.IsNullOrWhiteSpace(mail.CachedInvoiceNumber) ||
+                mail.Attachments.Any(a => MavkaExchangeParser.TryInvoice(a.RawJson, out _));
             if (_mailFilter == "invoices" && !invoice) return false;
             if (_mailFilter == "other" && invoice) return false;
             if (_inboxQuery.Length == 0) return true;
@@ -754,10 +754,13 @@ public class MainActivity : Activity
             var lp = new LinearLayout.LayoutParams(0, -2, 1);
             lp.SetMargins(Dp(11), 0, Dp(5), 0);
             row.AddView(data, lp);
-            Text(data, invoice?.Number ?? mail.Subject, 14, true);
-            Text(data, invoice is null ? "Службове повідомлення" :
-                "Накладна · " + invoice.Recipient, 12);
+            Text(data, invoice?.Number ?? mail.CachedInvoiceNumber ?? mail.Subject, 14, true);
+            Text(data, invoice is null && mail.CachedInvoiceNumber is null
+                ? "Службове повідомлення"
+                : "Документ · " + (invoice?.Recipient ?? mail.CachedInvoiceRecipient ?? ""), 12);
             Text(data, mail.DateText, 11);
+            if (mail.CachedPreview)
+                Text(data, "Локальна копія · онови Gmail для актуального стану", 11);
             if (!string.IsNullOrWhiteSpace(mail.ProcessingIssue))
                 Text(data, mail.ProcessingIssue, 11);
 
@@ -775,6 +778,9 @@ public class MainActivity : Activity
         Text(card, mail.Subject, 19, true);
         Text(card, mail.DateText, 14);
         Text(card, mail.Body, 15);
+        if (mail.CachedPreview)
+            Text(card, "Кешований перегляд: вкладення доступні лише для читання. " +
+                "Онови Gmail перед будь-якими діями з листом.", 12);
         var status = Text(card, mail.ProcessingIssue ??
             "Лист із налаштованої адреси ГОЛОВНОЇ МАВКИ.", 13);
         if (mail.Attachments.Count > 0)
@@ -786,7 +792,9 @@ public class MainActivity : Activity
                 Text(fileCard, attachment.FileName, 16, true);
                 Text(fileCard, _viewingArchivedDocument
                     ? "Збережено в захищеному локальному архіві · лише перегляд"
-                    : "Перегляд вкладення без автоматичного збереження", 13);
+                    : mail.CachedPreview
+                        ? "Локальна кешована копія · без імпорту й редагування"
+                        : "Перегляд вкладення без автоматичного збереження", 13);
                 Button(fileCard, "Переглянути файл", () =>
                     new AlertDialog.Builder(this)
                         .SetTitle("Перегляд вкладення")
