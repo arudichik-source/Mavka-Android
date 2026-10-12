@@ -15,7 +15,7 @@ internal sealed record MavkaMailItem(
     IReadOnlyList<MavkaTextAttachment> Attachments, uint MessageUid, uint UidValidity,
     bool AttachmentsComplete = false, string? ProcessingIssue = null,
     bool CachedPreview = false, string? CachedInvoiceNumber = null,
-    string? CachedInvoiceRecipient = null);
+    string? CachedInvoiceRecipient = null, bool SingleSecureFile = false);
 
 internal static class GmailConnectionService
 {
@@ -243,7 +243,7 @@ internal static class GmailConnectionService
                                 }
                             }
                         }
-                        catch (Exception ex) when (ex is DecoderFallbackException or
+                        catch (Exception ex) when (ex is System.Text.DecoderFallbackException or
                             System.IO.IOException or InvalidOperationException)
                         {
                             textAttachments.Add(new MavkaTextAttachment(
@@ -391,7 +391,10 @@ internal static class GmailConnectionService
             result.Add(new MavkaMailItem(
                 summary.Envelope?.Subject ?? "(без теми)", dateText, body, textAttachments,
                 summary.UniqueId.Id, client.Inbox.UidValidity,
-                attachmentsComplete && textAttachments.Count == summary.Attachments.Count()));
+                attachmentsComplete && textAttachments.Count == summary.Attachments.Count(),
+                SingleSecureFile: summary.Attachments.Count() == 1 &&
+                    textAttachments.Count == 1 &&
+                    textAttachments[0].SecureFileEnvelope is not null);
         }
 
         await client.DisconnectAsync(true, timeout.Token);
