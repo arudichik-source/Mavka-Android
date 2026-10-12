@@ -13,7 +13,9 @@ internal sealed record MavkaTextAttachment(
 internal sealed record MavkaMailItem(
     string Subject, string DateText, string Body,
     IReadOnlyList<MavkaTextAttachment> Attachments, uint MessageUid, uint UidValidity,
-    bool AttachmentsComplete = false, string? ProcessingIssue = null);
+    bool AttachmentsComplete = false, string? ProcessingIssue = null,
+    bool CachedPreview = false, string? CachedInvoiceNumber = null,
+    string? CachedInvoiceRecipient = null);
 
 internal static class GmailConnectionService
 {
