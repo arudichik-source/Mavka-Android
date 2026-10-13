@@ -126,7 +126,6 @@ public class MainActivity : Activity
         Button(leftPanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
         Button(leftPanel, "Історія документів", () => { CloseDrawer(); ShowDocuments(); });
         Button(leftPanel, "МаVКа файли", () => { CloseDrawer(); ShowFiles(); });
-        Button(leftPanel, "Закрити", CloseDrawer);
         _leftDrawer = new ScrollView(this) { FillViewport = true };
         _leftDrawer.SetBackgroundColor(_theme.Surface);
         _leftDrawer.AddView(leftPanel);
@@ -143,7 +142,6 @@ public class MainActivity : Activity
         Button(rightPanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
         Button(rightPanel, "Ключ обміну", () => { CloseDrawer(); ShowExchangeKey(); });
         Button(rightPanel, "Пароль документів", () => { CloseDrawer(); ShowDocumentPassword(); });
-        Button(rightPanel, "Закрити", CloseDrawer);
         _rightDrawer = new ScrollView(this) { FillViewport = true };
         _rightDrawer.SetBackgroundColor(_theme.Surface);
         _rightDrawer.AddView(rightPanel);
@@ -2402,7 +2400,6 @@ public class MainActivity : Activity
         {
             Text(header, "Перегляд локальних файлів доступний через системний вибір. " +
                 "Автоматичний список експорту потребує Android 10 або новішого.", 14);
-            Button(_body, "← На головну", ShowHome);
             return;
         }
 
@@ -2892,15 +2889,55 @@ public class MainActivity : Activity
             "ще використовує попередній пароль, нові пакети ключів не відкриються.", 13);
     }
 
+    private void ShowThemeChooser()
+    {
+        if (_busy)
+        {
+            Toast.MakeText(this, "Дочекайся завершення поточної операції.",
+                ToastLength.Short)?.Show();
+            return;
+        }
+        AlertDialog? chooser = null;
+        chooser = new AlertDialog.Builder(this)
+            .SetTitle("Колірна тема Мавки")
+            .SetSingleChoiceItems(new[] { "Оливкова", "Синя" },
+                _theme.IsBlue ? 1 : 0, (_, args) =>
+                {
+                    chooser?.Dismiss();
+                    string chosen = args.Which == 1
+                        ? MavkaThemePolicy.Blue : MavkaThemePolicy.Olive;
+                    if (chosen == _theme.Id) return;
+                    try
+                    {
+                        MavkaThemePalette.Save(this, chosen);
+                        // Recreate applies every native color consistently,
+                        // including drawers, cards, search and Android status bar.
+                        // SavedInstanceState returns the user to Settings.
+                        Recreate();
+                    }
+                    catch (Exception)
+                    {
+                        Toast.MakeText(this, "Не вдалося зберегти вибір теми.",
+                            ToastLength.Long)?.Show();
+                    }
+                })
+            .SetNegativeButton("Скасувати", (_, _) => { })
+            .Create();
+        chooser.Show();
+    }
+
     private void ShowSettings()
     {
         Begin("settings", "Налаштування");
+        var appearance = Card();
+        Text(appearance, "Оформлення", 20, true);
+        Text(appearance, "Поточна тема: " + _theme.Label +
+            ". Вибір зберігається після перезапуску застосунку.", 14);
+        Button(appearance, "Змінити колірну тему", ShowThemeChooser);
         var card = Card();
         Text(card, "Пошта Gmail", 20, true);
         Text(card, _store.HasCredentials ? _store.GetEmail() : "Не підключено", 16);
         Button(card, "Пошта Gmail →", ShowMail);
-        Button(card, "Ключ обміну →", ShowExchangeKey);
-        Button(card, "Пароль документів →", ShowDocumentPassword);
         card = Card();
         Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 18, true);
         Text(card, _store.GetMainMavkaEmail(), 16);
@@ -3072,7 +3109,6 @@ public class MainActivity : Activity
             }
             catch { status.Text = "Не вдалося очистити налаштування."; }
         });
-        Button(_body, "← До налаштувань", ShowSettings);
     }
 
     protected override async void OnActivityResult(int requestCode, Result resultCode, Intent? data)
@@ -3321,34 +3357,6 @@ public class MainActivity : Activity
         parent.AddView(view, layout);
         view.Click += (_, _) => callback();
         return view;
-    }
-
-    private TextView Nav(string title, Action action)
-    {
-        // TextView has no platform Button minWidth/minHeight: all four tabs
-        // fit on small screens and Android large-font configurations.
-        var view = new TextView(this)
-        {
-            Text = title,
-            TextSize = 12,
-            Gravity = GravityFlags.Center
-        };
-        view.SetMaxLines(2);
-        view.SetPadding(Dp(2), Dp(4), Dp(2), Dp(4));
-        view.SetMinHeight(Dp(59));
-        var layout = new LinearLayout.LayoutParams(0, -2, 1f);
-        layout.SetMargins(Dp(2), 0, Dp(2), 0);
-        view.LayoutParameters = layout;
-        view.Clickable = true;
-        view.Click += (_, _) => action();
-        return view;
-    }
-
-    private void StyleNav(TextView item, bool selected)
-    {
-        item.SetTextColor(selected ? _theme.NavigationSelected : _theme.NavigationMuted);
-        item.SetTypeface(null, selected ? TypefaceStyle.Bold : TypefaceStyle.Normal);
-        item.Background = Rounded(selected ? _theme.NavigationFill : Color.White, 13);
     }
 
     private void AddAssetRow(LinearLayout parent, string name, string description,
