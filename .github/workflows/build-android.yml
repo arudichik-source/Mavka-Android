@@ -48,7 +48,7 @@ jobs:
           dotnet run --project tools/MavkaEncrypt -- create-key "$tmp_dir/demo.mavka-key"
           dotnet run --project tools/MavkaEncrypt -- encrypt "$tmp_dir/demo.mavka-key" "$tmp_dir/input.json" "$tmp_dir/crypted.json"
           grep -q 'MAVKA_ENCRYPTED_V1' "$tmp_dir/crypted.json"
-          printf '%s\\n' '%PDF-1.7' 'SYNTHETIC DOC' '%%EOF' > "$tmp_dir/demo.pdf"
+          printf '%s\n' '%PDF-1.7' 'SYNTHETIC DOC' '%%EOF' > "$tmp_dir/demo.pdf"
           MAVKA_DOCUMENT_PASSWORD='LOCAL-SYNTHETIC-PASSWORD-ONLY' dotnet run --project tools/MavkaEncrypt -- file-password "$tmp_dir/demo.mavka-key" "$tmp_dir/demo.pdf" "$tmp_dir/demo.pdf.mavkafile"
           grep -q 'MAVKA_PASSWORD_WRAPPED_V1' "$tmp_dir/demo.pdf.mavkafile"
 
