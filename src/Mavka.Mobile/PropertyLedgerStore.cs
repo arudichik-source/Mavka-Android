@@ -6,6 +6,11 @@ using System.Text;
 
 namespace Mavka.Mobile;
 
+internal sealed record BackupReceiptLine(int Line, string Name, string Measure,
+    string? Nsn, decimal Quantity, decimal? UnitPrice);
+internal sealed record BackupReceipt(string DocumentId, string Number, string Recipient,
+    string Date, string MailStatus, IReadOnlyList<BackupReceiptLine> Items);
+
 internal sealed record InventoryHolding(
     string Name, string Unit, string? Nsn, decimal Quantity,
     decimal? UnitPrice, decimal? TotalValue);
@@ -118,6 +123,109 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         values.Put("status", "posted");
         values.Put("origin", "mobile");
         database.InsertOrThrow("ledger_events", null, values);
+    }
+
+    public IReadOnlyList<BackupReceipt> ExportReceipts(string unit)
+    {
+        if (string.IsNullOrWhiteSpace(unit)) throw new ArgumentException("Підрозділ не визначений.");
+        var result = new List<BackupReceipt>();
+        using var db = ReadableDatabase;
+        using var receipts = db.RawQuery(
+            @"SELECT document_id,document_number,recipient,document_date,mail_status
+              FROM receipts WHERE recipient = ? COLLATE NOCASE ORDER BY confirmed_utc",
+            new[] { unit.Trim() });
+        while (receipts.MoveToNext())
+        {
+            if (result.Count >= 1000)
+                throw new InvalidOperationException("Для резервної копії понад 1000 накладних потрібне розбиття на частини.");
+            string id = receipts.GetString(0);
+            var items = new List<BackupReceiptLine>();
+            using var lines = db.RawQuery(
+                @"SELECT line_number,name,unit,nsn,quantity,unit_price FROM receipt_items
+                  WHERE document_id = ? ORDER BY line_number", new[] { id });
+            while (lines.MoveToNext())
+            {
+                if (items.Count >= 500) throw new InvalidOperationException("Забагато позицій для резервної копії.");
+                items.Add(new BackupReceiptLine(lines.GetInt(0), lines.GetString(1),
+                    lines.GetString(2), lines.IsNull(3) ? null : lines.GetString(3),
+                    decimal.Parse(lines.GetString(4), CultureInfo.InvariantCulture),
+                    lines.IsNull(5) ? null :
+                        decimal.Parse(lines.GetString(5), CultureInfo.InvariantCulture)));
+            }
+            result.Add(new BackupReceipt(id, receipts.GetString(1), receipts.GetString(2),
+                receipts.GetString(3), receipts.GetString(4), items));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Restores a full, authenticated unit ledger ONLY into an empty unit.
+    /// All receipts, lines, and dated events are committed atomically. Never
+    /// replay Gmail confirmations for restored historical receipts.
+    /// </summary>
+    public int RestoreReceipts(string unit, IReadOnlyList<BackupReceipt> backup)
+    {
+        if (string.IsNullOrWhiteSpace(unit) || backup.Count > 1000)
+            throw new ArgumentException("Неправильна кількість документів резервної копії.");
+        foreach (var receipt in backup)
+        {
+            if (!string.Equals(receipt.Recipient, unit, StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(receipt.DocumentId) ||
+                receipt.DocumentId.Length > 240 ||
+                receipt.Items.Count is < 1 or > 500 ||
+                receipt.MailStatus is not ("sent" or "pending"))
+                throw new ArgumentException("Некоректний запис у резервній копії.");
+            _ = LedgerBalanceCalculator.ParseDate(receipt.Date);
+            foreach (var item in receipt.Items)
+                if (item.Line <= 0 || item.Name.Length is < 1 or > 500 ||
+                    item.Measure.Length is < 1 or > 100 ||
+                    item.Quantity < 0 || item.UnitPrice is < 0)
+                    throw new ArgumentException("Пошкоджено позицію обліку.");
+        }
+        using var db = WritableDatabase;
+        db.BeginTransaction();
+        try
+        {
+            using (var old = db.RawQuery(
+                "SELECT COUNT(*) FROM receipts WHERE recipient = ? COLLATE NOCASE",
+                new[] { unit.Trim() }))
+                if (old.MoveToFirst() && old.GetInt(0) != 0)
+                    throw new InvalidOperationException(
+                        "Відновлення обліку доступне лише в порожньому підрозділі.");
+            foreach (var receipt in backup)
+            {
+                var values = new ContentValues();
+                values.Put("document_id", receipt.DocumentId);
+                values.Put("document_number", receipt.Number);
+                values.Put("recipient", receipt.Recipient);
+                values.Put("document_date", receipt.Date);
+                values.Put("confirmed_utc", DateTimeOffset.UtcNow.ToString("O"));
+                // Historical exports are not new Gmail send requests.
+                values.Put("mail_status", receipt.MailStatus == "sent" ? "sent" : "pending");
+                db.InsertOrThrow("receipts", null, values);
+                var opening = receipt.DocumentId.StartsWith("OPENING:", StringComparison.Ordinal);
+                foreach (var line in receipt.Items)
+                {
+                    var item = new ContentValues();
+                    item.Put("document_id", receipt.DocumentId);
+                    item.Put("line_number", line.Line);
+                    item.Put("name", line.Name);
+                    item.Put("unit", line.Measure);
+                    item.Put("nsn", line.Nsn ?? "");
+                    item.Put("quantity", line.Quantity.ToString(CultureInfo.InvariantCulture));
+                    if (line.UnitPrice.HasValue)
+                        item.Put("unit_price", line.UnitPrice.Value.ToString(CultureInfo.InvariantCulture));
+                    else item.PutNull("unit_price");
+                    db.InsertOrThrow("receipt_items", null, item);
+                    AddEvent(db, receipt.DocumentId, line.Line,
+                        opening ? "opening" : "receipt", receipt.Date, unit,
+                        line.Name, line.Measure, line.Nsn, line.Quantity, line.UnitPrice);
+                }
+            }
+            db.SetTransactionSuccessful();
+            return backup.Count;
+        }
+        finally { db.EndTransaction(); }
     }
 
     public IReadOnlyList<InventoryHolding> ListHoldingsAsOf(string unit, DateOnly date)
