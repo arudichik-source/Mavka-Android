@@ -1734,6 +1734,7 @@ public class MainActivity : Activity
         var card = Card();
         Text(card, "Локальний архів · " + profile.Unit, 17, true);
         Text(card, "Документи доступні без Gmail. Збереження не означає проведення.", 13);
+        Button(card, "Кошик документів (відновлення до 30 днів)", ShowArchiveTrash);
         var search = ProfileInput(card, "Пошук за номером, типом, датою", _documentQuery);
         var rows = new LinearLayout(this) { Orientation = Orientation.Vertical };
         card.AddView(rows);
@@ -1824,6 +1825,27 @@ public class MainActivity : Activity
                         " · Передавання: " + item.DeliveryStatus +
                         " · Синхронізація: " + item.SyncStatus, 12);
                     Button(tile, "Переглянути документ", () => ShowArchivedDocument(item.DocumentId));
+                    if (ArchiveTrashPolicy.CanMoveToTrash(item.PostingStatus))
+                        Button(tile, "У кошик", () =>
+                            new AlertDialog.Builder(this)
+                                .SetTitle("Прибрати документ з активного архіву?")
+                                .SetMessage("«" + item.Number + "» залишатиметься в кошику " +
+                                    "30 днів. Ключі, Gmail і облік не зміняться.")
+                                .SetNegativeButton("Скасувати", (_, _) => { })
+                                .SetPositiveButton("У кошик", (_, _) =>
+                                {
+                                    try
+                                    {
+                                        _archive.MoveToTrash(item.DocumentId, profile.Unit);
+                                        ShowDocuments();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Toast.MakeText(this, ExplainOperationError(ex),
+                                            ToastLength.Long)?.Show();
+                                    }
+                                }).Show());
+                    else Text(tile, "Проведений документ: видалення з архіву заблоковано.", 12);
                 }
                 AddNavigation(); // Also accessible at the end of the current page.
             }
@@ -1840,6 +1862,82 @@ public class MainActivity : Activity
         {
             Text(rows, "Не вдалося прочитати архів. Спробуй відкрити історію ще раз.", 14);
         }
+    }
+
+    private void ShowArchiveTrash()
+    {
+        Begin("archive-trash", "Кошик документів");
+        var profile = LoadUserProfile();
+        if (profile is null)
+        {
+            Text(_body, "Спочатку налаштуй профіль.", 14);
+            return;
+        }
+        var card = Card();
+        Text(card, "Видалені документи · " + profile.Unit, 18, true);
+        Text(card, "Відновлення доступне протягом 30 днів. Проведені накладні " +
+            "не можна видаляти через кошик. Очищення прострочених документів " +
+            "не впливає на ключі чи Gmail.", 13);
+        Button(card, "Повернутися до архіву", ShowDocuments);
+        var list = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        card.AddView(list);
+        void Reload()
+        {
+            list.RemoveAllViews();
+            try
+            {
+                var deleted = _archive.ListTrash(profile.Unit);
+                Text(list, "Документів у кошику: " + deleted.Count, 13);
+                foreach (var item in deleted)
+                {
+                    var row = new LinearLayout(this) { Orientation = Orientation.Vertical };
+                    list.AddView(row);
+                    Text(row, item.Kind + " № " + item.Number + " · " + item.DocumentDate, 15, true);
+                    Text(row, "Переміщено: " + item.DeletedUtc, 12);
+                    if (ArchiveTrashPolicy.CanRestore(item.DeletedUtc, DateTimeOffset.UtcNow))
+                        Button(row, "Відновити документ", () =>
+                        {
+                            try
+                            {
+                                _archive.RestoreFromTrash(item.DocumentId, profile.Unit);
+                                Reload();
+                            }
+                            catch (Exception ex)
+                            {
+                                Toast.MakeText(this, ExplainOperationError(ex),
+                                    ToastLength.Long)?.Show();
+                            }
+                        });
+                    else Text(row, "Строк відновлення минув.", 12);
+                }
+                Button(list, "Очистити документи старші за 30 днів", () =>
+                    new AlertDialog.Builder(this)
+                        .SetTitle("Остаточно видалити прострочені документи?")
+                        .SetMessage("Лише документи, що перебувають у кошику 30 днів " +
+                            "або довше. Цю дію скасувати неможливо.")
+                        .SetNegativeButton("Скасувати", (_, _) => { })
+                        .SetPositiveButton("Видалити прострочені", (_, _) =>
+                        {
+                            try
+                            {
+                                int removed = _archive.PurgeExpiredTrash(profile.Unit);
+                                Toast.MakeText(this, "Очищено документів: " + removed,
+                                    ToastLength.Long)?.Show();
+                                Reload();
+                            }
+                            catch (Exception ex)
+                            {
+                                Toast.MakeText(this, ExplainOperationError(ex),
+                                    ToastLength.Long)?.Show();
+                            }
+                        }).Show());
+            }
+            catch (Exception ex)
+            {
+                Text(list, "Кошик недоступний: " + ExplainOperationError(ex), 13);
+            }
+        }
+        Reload();
     }
 
     private void ShowArchivedDocument(string documentId)
