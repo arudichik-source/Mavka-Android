@@ -61,6 +61,56 @@ else if (args.Length == 4 && (args[0] == "encrypt" || args[0] == "encrypt-passwo
     }
     finally { CryptographicOperations.ZeroMemory(key); }
 }
+else if ((args.Length == 5 || args.Length == 6) &&
+    args[0] == "notice-password")
+{
+    // Desktop Mavka supplies title on first line and body on subsequent
+    // lines of a LOCAL source file, never via command-line process args.
+    // Only the nested AES-GCM + password envelope is written to output.
+    if (File.Exists(args[4]))
+        throw new IOException("Зашифроване повідомлення з таким ім'ям уже існує.");
+    var lines = File.ReadAllLines(args[3], new UTF8Encoding(false, true));
+    if (lines.Length < 2) throw new ArgumentException(
+        "Перша строка — заголовок, наступні — текст повідомлення.");
+    string title = lines[0].Trim(), body = string.Join("\n", lines.Skip(1)).Trim();
+    DateTimeOffset? reminder = null;
+    if (args.Length == 6)
+        reminder = DateTimeOffset.Parse(args[5],
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind);
+    string notice = MavkaNoticeProtocol.CreateJson(args[2], title, body,
+        DateTimeOffset.UtcNow, reminder);
+    var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
+    if (key.Length != 32) throw new ArgumentException("AES-256 exchange key required.");
+    byte[] plain = Encoding.UTF8.GetBytes(notice);
+    try
+    {
+        var id = KeyId(key);
+        var nonce = RandomNumberGenerator.GetBytes(12);
+        var cipher = new byte[plain.Length];
+        var tag = new byte[16];
+        using (var aes = new AesGcm(key, 16))
+            aes.Encrypt(nonce, plain, cipher, tag,
+                Encoding.UTF8.GetBytes("MAVKA_ENCRYPTED_V1:" + id));
+        string inner = JsonSerializer.Serialize(new
+        {
+            format = "MAVKA_ENCRYPTED_V1", algorithm = "AES-256-GCM",
+            keyId = id, nonce = Convert.ToBase64String(nonce),
+            ciphertext = Convert.ToBase64String(cipher),
+            tag = Convert.ToBase64String(tag)
+        });
+        var protectedNotice = MavkaPasswordedEnvelope.Wrap(
+            inner, ReadDocumentPassword());
+        File.WriteAllText(args[4], protectedNotice, new UTF8Encoding(false));
+        Console.WriteLine("Зашифроване службове повідомлення створено. " +
+            "Надішли файл .json як вкладення листа з дозволеної пошти ГОЛОВНОЇ МАВКИ.");
+    }
+    finally
+    {
+        CryptographicOperations.ZeroMemory(plain);
+        CryptographicOperations.ZeroMemory(key);
+    }
+}
 else if (args.Length == 4 && args[0] == "file-password")
 {
     // A complete portable binary attachment: AES-256-GCM exchange key +
@@ -248,6 +298,7 @@ else
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- create-key PRIVATE.mavka-key");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- encrypt PRIVATE.mavka-key input.json encrypted.json");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- encrypt-password PRIVATE.mavka-key input.json protected.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- notice-password PRIVATE.mavka-key UNIT local-notice.txt notice.json [2026-10-14T09:00:00+03:00]");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- file-password PRIVATE.mavka-key input.docx input.docx.mavkafile");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- file-parts-password PRIVATE.mavka-key input.pdf OUTPUT_DIR");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- drive-command-password PRIVATE.mavka-key bundle.json DRIVE_ID HTTPS_URL output.json");
