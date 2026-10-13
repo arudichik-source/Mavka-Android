@@ -38,6 +38,10 @@ public class MainActivity : Activity
     private ScrollView _leftDrawer = null!, _rightDrawer = null!;
     private string _screen = "home";
     private const int PickDocumentRequest = 1526;
+    private const int ExportBackupRequest = 1593;
+    private const int ImportBackupRequest = 1594;
+    private byte[]? _pendingEncryptedBackup;
+    private string? _pendingBackupPassword;
     private const int QrImagePickRequest = 1591;
     private const int QrCameraCaptureRequest = 1592;
     private const int ExportPrivateCopyRequest = 1527;
@@ -3098,6 +3102,67 @@ public class MainActivity : Activity
         chooser.Show();
     }
 
+    private void PromptBackupPassword(bool importing)
+    {
+        if (_busy) return;
+        var input = new EditText(this)
+        {
+            Hint = "Пароль резервної копії (12–128 символів)",
+            InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
+        };
+        input.TransformationMethod = Android.Text.Method.PasswordTransformationMethod.Instance;
+        new AlertDialog.Builder(this)
+            .SetTitle(importing ? "Відновити зашифровану копію?" : "Створити зашифровану копію?")
+            .SetMessage(importing
+                ? "Дані можна відновити тільки в порожній обліковій базі відповідного підрозділу. " +
+                  "Перед відновленням переконайся, що зробив резервну копію поточних даних."
+                : "Збережи пароль окремо. Без нього файл не відновити.")
+            .SetView(input)
+            .SetNegativeButton("Скасувати", (_, _) => { })
+            .SetPositiveButton("Далі", async (_, _) =>
+            {
+                var password = input.Text?.ToString() ?? "";
+                if (password.Length is < 12 or > 128)
+                {
+                    Toast.MakeText(this, "Пароль має містити 12–128 символів.",
+                        ToastLength.Long)?.Show();
+                    return;
+                }
+                if (importing)
+                {
+                    _pendingBackupPassword = password;
+                    var pick = new Intent(Intent.ActionOpenDocument);
+                    pick.AddCategory(Intent.CategoryOpenable);
+                    pick.SetType("application/octet-stream");
+                    try { StartActivityForResult(pick, ImportBackupRequest); }
+                    catch { _pendingBackupPassword = null; }
+                    return;
+                }
+                _busy = true;
+                try
+                {
+                    var service = new PortableBackupService(_archive, _ledger, _profileStore);
+                    _pendingEncryptedBackup = await Task.Run(() => service.Create(password));
+                    var save = new Intent(Intent.ActionCreateDocument);
+                    save.AddCategory(Intent.CategoryOpenable);
+                    save.SetType("application/octet-stream");
+                    save.PutExtra(Intent.ExtraTitle,
+                        "Mavka-backup-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmm") + ".mavkabackup");
+                    StartActivityForResult(save, ExportBackupRequest);
+                }
+                catch (Exception ex)
+                {
+                    if (_pendingEncryptedBackup is not null)
+                        System.Security.Cryptography.CryptographicOperations.ZeroMemory(
+                            _pendingEncryptedBackup);
+                    _pendingEncryptedBackup = null;
+                    Toast.MakeText(this, "Копію не створено: " + ExplainOperationError(ex),
+                        ToastLength.Long)?.Show();
+                }
+                finally { _busy = false; }
+            }).Show();
+    }
+
     private void ShowSettings()
     {
         Begin("settings", "Налаштування");
@@ -3113,6 +3178,17 @@ public class MainActivity : Activity
         card = Card();
         Text(card, "Адреса ГОЛОВНОЇ МАВКИ", 18, true);
         Text(card, _store.GetMainMavkaEmail(), 16);
+        var backupCard = Card();
+        Text(backupCard, "Зашифрована резервна копія", 18, true);
+        Text(backupCard, "Копія містить профіль, архів активних документів і " +
+            "облік із датами. Не містить пароль Gmail, секретні ключі обміну, " +
+            "вкладення приватного сховища чи документи в кошику. " +
+            "Після перенесення потрібна повторна реєстрація.", 12);
+        Button(backupCard, "Створити резервну копію", () =>
+            PromptBackupPassword(false));
+        Button(backupCard, "Відновити з резервної копії", () =>
+            PromptBackupPassword(true));
+
         var ledgerManagement = Card();
         Text(ledgerManagement, "Керування локальним обліком", 18, true);
         Text(ledgerManagement,
@@ -3305,6 +3381,86 @@ public class MainActivity : Activity
     protected override async void OnActivityResult(int requestCode, Result resultCode, Intent? data)
     {
         base.OnActivityResult(requestCode, resultCode, data);
+        if (requestCode == ExportBackupRequest)
+        {
+            var backup = _pendingEncryptedBackup;
+            _pendingEncryptedBackup = null;
+            if (backup is null) return;
+            try
+            {
+                if (resultCode != Result.Ok || data?.Data is null) return;
+                var destination = data.Data;
+                using var stream = ContentResolver?.OpenOutputStream(destination, "w") ??
+                    throw new IOException("Не вдалося відкрити місце збереження.");
+                await stream.WriteAsync(backup);
+                await stream.FlushAsync();
+                Toast.MakeText(this, "Зашифровану резервну копію збережено.",
+                    ToastLength.Long)?.Show();
+            }
+            catch (Exception)
+            {
+                if (data?.Data is not null)
+                    try { ContentResolver?.Delete(data.Data, null, null); }
+                    catch { }
+                Toast.MakeText(this, "Не вдалося зберегти резервну копію.",
+                    ToastLength.Long)?.Show();
+            }
+            finally
+            {
+                System.Security.Cryptography.CryptographicOperations.ZeroMemory(backup);
+            }
+            return;
+        }
+        if (requestCode == ImportBackupRequest)
+        {
+            var password = _pendingBackupPassword;
+            _pendingBackupPassword = null;
+            if (resultCode != Result.Ok || data?.Data is null || password is null)
+                return;
+            if (_busy) return;
+            _busy = true;
+            byte[]? fileBytes = null;
+            try
+            {
+                var sourceUri = data.Data;
+                fileBytes = await Task.Run(() =>
+                {
+                    using var stream = ContentResolver?.OpenInputStream(sourceUri) ??
+                        throw new IOException("Резервна копія недоступна.");
+                    using var buffer = new MemoryStream();
+                    byte[] part = new byte[32768];
+                    int read;
+                    while ((read = stream.Read(part, 0, part.Length)) > 0)
+                    {
+                        if (buffer.Length + read > 40_000_000)
+                            throw new IOException("Завеликий файл резервної копії.");
+                        buffer.Write(part, 0, read);
+                    }
+                    return buffer.ToArray();
+                });
+                var protectedBytes = fileBytes;
+                var service = new PortableBackupService(_archive, _ledger, _profileStore);
+                var restored = await Task.Run(() => service.Restore(protectedBytes, password));
+                Toast.MakeText(this,
+                    "Відновлено документів: " + restored.Documents +
+                    ", облікових записів: " + restored.Receipts +
+                    ". Gmail і ключі потрібно підключити окремо.",
+                    ToastLength.Long)?.Show();
+                ShowSettings();
+            }
+            catch (Exception ex)
+            {
+                Toast.MakeText(this, "Відновлення не виконано: " +
+                    ExplainOperationError(ex), ToastLength.Long)?.Show();
+            }
+            finally
+            {
+                if (fileBytes is not null)
+                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(fileBytes);
+                _busy = false;
+            }
+            return;
+        }
         if (requestCode is QrImagePickRequest or QrCameraCaptureRequest)
         {
             if (resultCode != Result.Ok) return;
