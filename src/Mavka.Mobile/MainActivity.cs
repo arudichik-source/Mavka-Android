@@ -24,6 +24,7 @@ public class MainActivity : Activity
     private UserProfileStore _profileStore = null!;
     private PropertyLedgerStore _ledger = null!;
     private DocumentArchiveStore _archive = null!;
+    private MavkaNoticeStore _noticeStore = null!;
     private MavkaExportFileStore _exportedFiles = null!;
     private PrivateAttachmentStore _privateFiles = null!;
     private string? _pendingPrivateExportId;
@@ -66,6 +67,9 @@ public class MainActivity : Activity
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
         _archive = new DocumentArchiveStore(this);
+        _noticeStore = new MavkaNoticeStore(this);
+        MavkaNoticeAlerts.EnsureChannels(this);
+        MavkaNoticeAlerts.RescheduleOnStart(this, _noticeStore);
         _exportedFiles = new MavkaExportFileStore(this);
         _privateFiles = new PrivateAttachmentStore(this);
         _assetIcons = new AssetIconProvider(this);
@@ -131,6 +135,7 @@ public class MainActivity : Activity
         Text(leftPanel, "Розділи Мавки", 21, true);
         Button(leftPanel, "Головна", () => { CloseDrawer(); ShowHome(); });
         Button(leftPanel, "Вхідні", () => { CloseDrawer(); ShowInbox(); });
+        Button(leftPanel, "Сповіщення та нагадування", () => { CloseDrawer(); ShowNotices(); });
         Button(leftPanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
         Button(leftPanel, "Історія документів", () => { CloseDrawer(); ShowDocuments(); });
         Button(leftPanel, "МаVКа файли", () => { CloseDrawer(); ShowFiles(); });
@@ -235,6 +240,17 @@ public class MainActivity : Activity
         Text(overview, _store.HasCredentials
             ? "Gmail підключено" : "Пошта Gmail не налаштована", 15);
         Text(overview, "Листів у локальному перегляді: " + _messages.Count, 14);
+        var activeProfile = LoadUserProfile();
+        if (activeProfile is not null)
+        {
+            try
+            {
+                var unread = _noticeStore.UnreadCount(activeProfile.Unit);
+                Text(overview, "Непрочитаних службових сповіщень: " + unread, 14);
+                Button(overview, "Сповіщення та нагадування", ShowNotices);
+            }
+            catch { Text(overview, "Сповіщення поки недоступні.", 13); }
+        }
         Text(overview, "Дії з поштою та налаштування — у меню праворуч (☰).", 13);
         var profile = LoadUserProfile();
         var card = Card();
@@ -1740,6 +1756,35 @@ public class MainActivity : Activity
             foreach (var attachment in mail.Attachments)
             {
                 if (attachment.InstalledKeyPackage) continue;
+                // Only exact-sender, AES-GCM authenticated JSON is accepted.
+                // An unsigned Gmail body or plaintext JSON can never
+                // create a notice or schedule any reminder.
+                if (attachment.AuthenticatedJson && profile is not null &&
+                    MavkaNoticeProtocol.TryRead(attachment.RawJson, profile.Unit,
+                        DateTimeOffset.UtcNow, out var incomingNotice) &&
+                    incomingNotice is not null)
+                {
+                    try
+                    {
+                        bool inserted = _noticeStore.Add(
+                            incomingNotice, attachment.RawJson!);
+                        if (_noticeStore.Find(incomingNotice.NoticeId, profile.Unit) is null)
+                            throw new InvalidOperationException("Notice readback failed.");
+                        if (inserted)
+                        {
+                            MavkaNoticeAlerts.ShowNew(this, incomingNotice.NoticeId);
+                            saved++;
+                        }
+                        continue;
+                    }
+                    catch (Exception ex)
+                    {
+                        ready = false;
+                        problem = "Не вдалося зберегти сповіщення: " +
+                            ExplainOperationError(ex) + ". Лист залишено у Gmail.";
+                        break;
+                    }
+                }
                 if (profile is null ||
                     !ArchiveDocumentClassifier.TryClassify(
                         attachment.RawJson, profile.Unit, out var document) ||
@@ -1804,6 +1849,130 @@ public class MainActivity : Activity
         }
         _messages = remaining;
         return $"Архівовано/перевірено вкладень: {saved}; у кошик: {moved}; залишено: {kept}.";
+    }
+
+    private void ShowNotices()
+    {
+        Begin("notices", "Сповіщення та нагадування");
+        var profile = LoadUserProfile();
+        if (profile is null)
+        {
+            Text(_body, "Спочатку заповни профіль підрозділу.", 14);
+            return;
+        }
+        var header = Card();
+        Text(header, "Повідомлення ГОЛОВНОЇ МАВКИ", 18, true);
+        Text(header, "Надходять лише із зашифрованих вкладень від дозволеного " +
+            "відправника. Нові листи перевіряються під час синхронізації Gmail. " +
+            "Нагадування ставиш тільки ти; ГОЛОВНА МАВКА може запропонувати час.", 13);
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu &&
+            !MavkaNoticeAlerts.Allowed(this))
+            Button(header, "Увімкнути сповіщення Android", () =>
+                RequestPermissions(new[] { Android.Manifest.Permission.PostNotifications }, 1917));
+        var listCard = Card();
+        try
+        {
+            var notices = _noticeStore.List(profile.Unit);
+            Text(listCard, "Повідомлень: " + notices.Count +
+                " · непрочитаних: " + notices.Count(n => !n.IsRead), 14);
+            if (notices.Count == 0)
+                Text(listCard, "Службових повідомлень ще немає. " +
+                    "Онови пошту через ☰ → Синхронізація Gmail.", 14);
+            foreach (var row in notices)
+            {
+                var notice = row.Notice;
+                var tile = new LinearLayout(this) { Orientation = Orientation.Vertical };
+                tile.SetPadding(Dp(10), Dp(10), Dp(10), Dp(10));
+                tile.Background = Rounded(_theme.Card, 13, _theme.CardOutline);
+                var layout = new LinearLayout.LayoutParams(-1, -2);
+                layout.BottomMargin = Dp(10);
+                listCard.AddView(tile, layout);
+                Text(tile, (row.IsRead ? "" : "● ") + notice.Title +
+                    (notice.Priority == "important" ? " · Важливе" : ""), 16, true);
+                Text(tile, "Від: ГОЛОВНА МАВКА · " +
+                    notice.IssuedUtc.ToLocalTime().ToString("dd.MM.yyyy HH:mm"), 12);
+                Text(tile, notice.Body, 14);
+                if (!row.IsRead)
+                    Button(tile, "Позначити прочитаним", () =>
+                    {
+                        try { _noticeStore.MarkRead(notice.NoticeId, profile.Unit); ShowNotices(); }
+                        catch (Exception ex) {
+                            Toast.MakeText(this, ExplainOperationError(ex),
+                                ToastLength.Long)?.Show();
+                        }
+                    });
+                if (row.RemindUtc is { } scheduled)
+                    Text(tile, "Нагадати: " +
+                        scheduled.ToLocalTime().ToString("dd.MM.yyyy HH:mm") +
+                        (row.Reminded ? " · виконано" : " · заплановано"), 13);
+                if (notice.SuggestedReminderUtc is { } suggested &&
+                    suggested > DateTimeOffset.UtcNow && row.RemindUtc is null)
+                    Button(tile, "Нагадати у запропонований час: " +
+                        suggested.ToLocalTime().ToString("dd.MM HH:mm"),
+                        () => SaveNoticeReminder(notice, profile.Unit, suggested));
+                Button(tile, "Вибрати дату та час нагадування", () =>
+                    ChooseNoticeReminder(notice, profile.Unit));
+                if (row.RemindUtc is not null && !row.Reminded)
+                    Button(tile, "Скасувати нагадування", () =>
+                        SaveNoticeReminder(notice, profile.Unit, null));
+            }
+        }
+        catch (Exception ex)
+        {
+            Text(listCard, "Не вдалося відкрити сповіщення: " +
+                ExplainOperationError(ex), 13);
+        }
+    }
+
+    private void SaveNoticeReminder(MavkaNotice notice, string unit, DateTimeOffset? when)
+    {
+        try
+        {
+            // Schedule OS alarm first. If SQLite update fails, undo the
+            // changed alarm and restore the previously saved reminder.
+            var previous = _noticeStore.Find(notice.NoticeId, unit)?.RemindUtc;
+            MavkaNoticeAlerts.SetReminder(this, notice.NoticeId, when);
+            try { _noticeStore.SetReminder(notice.NoticeId, unit, when); }
+            catch
+            {
+                MavkaNoticeAlerts.SetReminder(this, notice.NoticeId, previous);
+                throw;
+            }
+            if (when is not null && Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu &&
+                !MavkaNoticeAlerts.Allowed(this))
+                RequestPermissions(new[] { Android.Manifest.Permission.PostNotifications }, 1917);
+            ShowNotices();
+        }
+        catch (Exception ex)
+        {
+            Toast.MakeText(this, "Не вдалося встановити нагадування: " +
+                ExplainOperationError(ex), ToastLength.Long)?.Show();
+        }
+    }
+
+    private void ChooseNoticeReminder(MavkaNotice notice, string unit)
+    {
+        var initial = (notice.SuggestedReminderUtc ?? DateTimeOffset.Now).ToLocalTime();
+        new DatePickerDialog(this, (_, date) =>
+        {
+            new TimePickerDialog(this, (_, time) =>
+            {
+                try
+                {
+                    var local = new DateTime(date.Year, date.Month - 1,
+                        date.DayOfMonth, time.HourOfDay, time.Minute, 0,
+                        DateTimeKind.Unspecified);
+                    var utc = new DateTimeOffset(local,
+                        TimeZoneInfo.Local.GetUtcOffset(local));
+                    SaveNoticeReminder(notice, unit, utc);
+                }
+                catch (Exception ex)
+                {
+                    Toast.MakeText(this, ExplainOperationError(ex),
+                        ToastLength.Long)?.Show();
+                }
+            }, initial.Hour, initial.Minute, true).Show();
+        }, initial.Year, initial.Month - 1, initial.Day).Show();
     }
 
     private void ShowDocuments()
