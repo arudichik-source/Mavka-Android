@@ -37,13 +37,17 @@ create_status = sql_statements(section(
     "private void UpdateStatus("))
 create_mail_index = sql_statements(section(
     ARCHIVE, "private static void CreateMailProcessingTable(SQLiteDatabase db)",
-    "private static void CreateStatusTable("))
+    "private static void CreateSyncJournal("))
+create_sync_journal = sql_statements(section(
+    ARCHIVE, "private static void CreateSyncJournal(SQLiteDatabase db)",
+    "public void RecordSyncEvent("))
 
 assert len(create_events) == 3, create_events
 assert len(ledger_upgrade) == 2, ledger_upgrade
 assert len(archive_upgrade) == 6, archive_upgrade
 assert len(create_status) == 2, create_status
 assert len(create_mail_index) == 1, create_mail_index
+assert len(create_sync_journal) == 2, create_sync_journal
 
 def test_ledger(version: int):
     db = sqlite3.connect(":memory:")
@@ -122,6 +126,8 @@ def test_archive(version: int):
         for statement in archive_upgrade[4:]:
             db.execute(statement)
         db.execute(create_mail_index[0])
+        for statement in create_sync_journal:
+            db.execute(statement)
     doc = db.execute("SELECT sealed_json, posting_status, delivery_status, sync_status "
                      "FROM documents WHERE document_id = 'DEMO-1'").fetchone()
     assert doc == ("SEALED-PAYLOAD", "not_posted", "not_queued", "not_synced"), doc
@@ -132,6 +138,10 @@ def test_archive(version: int):
     assert db.execute("SELECT status FROM mail_processing WHERE uid = '42'").fetchone()[0] == "ready"
     # Idempotent schema definition must be safe if called during a repair.
     db.execute(create_mail_index[0])
+    db.execute(create_sync_journal[0])
+    db.execute("INSERT INTO sync_journal(changed_utc,state,detail) VALUES (?,?,?)",
+               ("2026-10-13T11:00:00Z","complete","IMAP 123 мс"))
+    assert db.execute("SELECT state FROM sync_journal").fetchone()[0] == "complete"
     assert db.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 1
     cols = [r[1] for r in db.execute("PRAGMA table_info(documents)")]
     assert "deleted_utc" in cols, cols
