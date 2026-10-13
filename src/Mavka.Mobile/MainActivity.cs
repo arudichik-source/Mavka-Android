@@ -18,6 +18,7 @@ namespace Mavka.Mobile;
 public class MainActivity : Activity
 {
     private LinearLayout _body = null!;
+    private MavkaThemePalette _theme = null!;
     private GmailCredentialsStore _store = null!;
     private UserProfileStore _profileStore = null!;
     private PropertyLedgerStore _ledger = null!;
@@ -48,10 +49,11 @@ public class MainActivity : Activity
     protected override void OnCreate(Bundle? state)
     {
         base.OnCreate(state);
+        _theme = MavkaThemePalette.Load(this);
         // Keep the editable fields visible above the soft keyboard.
         Window?.SetSoftInputMode(SoftInput.AdjustResize | SoftInput.StateAlwaysHidden);
-        Window?.SetStatusBarColor(Color.Rgb(13, 55, 36));
-        Window?.SetNavigationBarColor(Color.White);
+        Window?.SetStatusBarColor(_theme.Header);
+        Window?.SetNavigationBarColor(_theme.Surface);
         _store = new GmailCredentialsStore(this);
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
@@ -65,13 +67,13 @@ public class MainActivity : Activity
         if (_store.HasCredentials)
             _messages = _inboxCache.Load(_store.GetEmail(), _store.GetMainMavkaEmail());
         var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
-        root.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        root.SetBackgroundColor(_theme.Surface);
         root.SetOnApplyWindowInsetsListener(new SafeInsets(Dp(14), Dp(10), Dp(10)));
 
         var topBar = new LinearLayout(this) { Orientation = Orientation.Horizontal };
         topBar.SetGravity(GravityFlags.CenterVertical);
         topBar.SetPadding(Dp(10), 0, Dp(8), 0);
-        topBar.SetBackgroundColor(Color.Rgb(13, 55, 36));
+        topBar.SetBackgroundColor(_theme.Header);
         var appMark = new ImageView(this);
         appMark.SetImageResource(Resource.Drawable.mavka_app_icon);
         appMark.SetScaleType(ImageView.ScaleType.FitCenter);
@@ -91,7 +93,7 @@ public class MainActivity : Activity
         var hamburger = new Android.Widget.Button(this) { Text = "☰", TextSize = 23 };
         hamburger.SetSingleLine(true);
         hamburger.SetTextColor(Color.White);
-        hamburger.Background = Rounded(Color.Rgb(25, 82, 53), 12);
+        hamburger.Background = Rounded(_theme.HeaderButton, 12);
         hamburger.SetPadding(0, 0, 0, 0);
         topBar.AddView(hamburger, new LinearLayout.LayoutParams(Dp(58), Dp(52)));
         hamburger.ContentDescription = "Відкрити праве меню команд";
@@ -116,7 +118,7 @@ public class MainActivity : Activity
 
         var leftPanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
         leftPanel.Clickable = true;
-        leftPanel.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        leftPanel.SetBackgroundColor(_theme.Surface);
         leftPanel.SetPadding(Dp(14), Dp(50), Dp(14), Dp(30));
         Text(leftPanel, "Розділи Мавки", 21, true);
         Button(leftPanel, "Головна", () => { CloseDrawer(); ShowHome(); });
@@ -126,14 +128,14 @@ public class MainActivity : Activity
         Button(leftPanel, "МаVКа файли", () => { CloseDrawer(); ShowFiles(); });
         Button(leftPanel, "Закрити", CloseDrawer);
         _leftDrawer = new ScrollView(this) { FillViewport = true };
-        _leftDrawer.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        _leftDrawer.SetBackgroundColor(_theme.Surface);
         _leftDrawer.AddView(leftPanel);
         _drawerOverlay.AddView(_leftDrawer,
             new FrameLayout.LayoutParams(Dp(292), -1, GravityFlags.Left));
 
         var rightPanel = new LinearLayout(this) { Orientation = Orientation.Vertical };
         rightPanel.Clickable = true;
-        rightPanel.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        rightPanel.SetBackgroundColor(_theme.Surface);
         rightPanel.SetPadding(Dp(14), Dp(50), Dp(14), Dp(30));
         Text(rightPanel, "Команди і налаштування", 21, true);
         Button(rightPanel, "Синхронізація Gmail", () => { CloseDrawer(); ShowSynchronization(); });
@@ -143,25 +145,33 @@ public class MainActivity : Activity
         Button(rightPanel, "Пароль документів", () => { CloseDrawer(); ShowDocumentPassword(); });
         Button(rightPanel, "Закрити", CloseDrawer);
         _rightDrawer = new ScrollView(this) { FillViewport = true };
-        _rightDrawer.SetBackgroundColor(Color.Rgb(249, 247, 242));
+        _rightDrawer.SetBackgroundColor(_theme.Surface);
         _rightDrawer.AddView(rightPanel);
         _drawerOverlay.AddView(_rightDrawer,
             new FrameLayout.LayoutParams(Dp(292), -1, GravityFlags.Right));
         host.AddView(_drawerOverlay, new FrameLayout.LayoutParams(-1, -1));
 
         SetContentView(host);
-        ShowHome();
+        if (state?.GetString("mavka_restored_screen") == "settings")
+            ShowSettings();
+        else ShowHome();
         // Orientation changes are handled by this Activity, not a new OnCreate.
         // Do not replay welcome after restoring an existing Activity.
         if (state is null)
             StartWelcomeSplash(host);
     }
 
+    protected override void OnSaveInstanceState(Bundle outState)
+    {
+        outState.PutString("mavka_restored_screen", _screen);
+        base.OnSaveInstanceState(outState);
+    }
+
     private async void StartWelcomeSplash(FrameLayout host)
     {
         // Approved artwork is bundled inside the APK; no download at startup.
         var welcome = new FrameLayout(this);
-        welcome.SetBackgroundColor(Color.Rgb(12, 55, 41));
+        welcome.SetBackgroundColor(_theme.Header);
 
         try
         {
@@ -298,8 +308,8 @@ public class MainActivity : Activity
         };
         search.SetSingleLine(true);
         search.SetPadding(Dp(12), Dp(7), Dp(12), Dp(7));
-        search.Background = Rounded(Color.Rgb(248, 248, 245), 12,
-            Color.Rgb(234, 236, 229));
+        search.Background = Rounded(_theme.InputSearch, 12,
+            _theme.InputSearchOutline);
         ConfigureKeyboard(search);
         card.AddView(search, new LinearLayout.LayoutParams(-1, Dp(43)));
         search.TextChanged += (_, _) =>
@@ -318,9 +328,9 @@ public class MainActivity : Activity
         {
             var filter = new Button(this) { Text = label, TextSize = 12 };
             filter.SetAllCaps(false);
-            filter.SetTextColor(value == _mailFilter ? Color.White : Color.Rgb(31, 73, 47));
+            filter.SetTextColor(value == _mailFilter ? Color.White : _theme.FilterText);
             filter.Background = Rounded(value == _mailFilter
-                ? Color.Rgb(9, 84, 50) : Color.Rgb(235, 240, 235), 11);
+                ? _theme.FilterAction : _theme.SoftFilter, 11);
             var layout = new LinearLayout.LayoutParams(0, Dp(37), 1);
             layout.SetMargins(Dp(2), 0, Dp(2), 0);
             filters.AddView(filter, layout);
@@ -331,9 +341,9 @@ public class MainActivity : Activity
                     .Select(index => filters.GetChildAt(index)).OfType<Button>())
                 {
                     bool active = child.Text == label;
-                    child.SetTextColor(active ? Color.White : Color.Rgb(31, 73, 47));
-                    child.Background = Rounded(active ? Color.Rgb(9, 84, 50) :
-                        Color.Rgb(235, 240, 235), 11);
+                    child.SetTextColor(active ? Color.White : _theme.FilterText);
+                    child.Background = Rounded(active ? _theme.FilterAction :
+                        _theme.SoftFilter, 11);
                 }
                 ShowInboxContent();
             };
@@ -766,9 +776,9 @@ public class MainActivity : Activity
                 TextSize = 25, Gravity = GravityFlags.Center
             };
             glyph.SetTextColor(invoice is null ?
-                Color.Rgb(32, 91, 59) : Color.Rgb(191, 92, 42));
+                _theme.PositiveIcon : Color.Rgb(191, 92, 42));
             glyph.Background = Rounded(invoice is null
-                ? Color.Rgb(231, 242, 233) : Color.Rgb(252, 237, 224), 12);
+                ? _theme.PositiveIconFill : Color.Rgb(252, 237, 224), 12);
             row.AddView(glyph, new LinearLayout.LayoutParams(Dp(48), Dp(48)));
 
             var data = new LinearLayout(this) { Orientation = Orientation.Vertical };
@@ -786,7 +796,7 @@ public class MainActivity : Activity
                 Text(data, mail.ProcessingIssue, 11);
 
             var arrow = Text(row, "›", 27, true);
-            arrow.SetTextColor(Color.Rgb(48, 81, 58));
+            arrow.SetTextColor(_theme.NavigationArrow);
             row.Clickable = true;
             row.Click += (_, _) => ShowMessage(mail);
             if (!mail.CachedPreview && mail.MessageUid != 0 && mail.UidValidity != 0)
@@ -1791,10 +1801,10 @@ public class MainActivity : Activity
                         };
                         button.SetAllCaps(false);
                         button.SetMinHeight(Dp(48));
-                        button.SetTextColor(enabled ? Color.Rgb(21, 69, 44) :
-                            Color.Rgb(126, 135, 128));
-                        button.Background = Rounded(enabled ? Color.Rgb(230, 240, 231) :
-                            Color.Rgb(241, 241, 238), 12);
+                        button.SetTextColor(enabled ? _theme.AccentText :
+                            _theme.MutedText);
+                        button.Background = Rounded(enabled ? _theme.SoftAction :
+                            _theme.MutedAction, 12);
                         var layout = new LinearLayout.LayoutParams(0, -2, 1);
                         layout.SetMargins(Dp(2), Dp(3), Dp(2), Dp(3));
                         nav.AddView(button, layout);
@@ -1813,7 +1823,7 @@ public class MainActivity : Activity
                         TextSize = 13,
                         Gravity = GravityFlags.Center
                     };
-                    pageLabel.SetTextColor(Color.Rgb(21, 69, 44));
+                    pageLabel.SetTextColor(_theme.AccentText);
                     nav.AddView(pageLabel, new LinearLayout.LayoutParams(Dp(62), -2));
                     AddPageButton("Наступна →", page.PageIndex + 1,
                         page.PageIndex + 1 < page.PageCount);
@@ -3257,7 +3267,7 @@ public class MainActivity : Activity
             (password ? noPersonalizedLearning : 0));
         field.SetSelectAllOnFocus(false);
         field.SetPadding(Dp(12), Dp(7), Dp(12), Dp(7));
-        field.Background = Rounded(Color.Rgb(251, 250, 245), 12, Color.Rgb(219, 227, 218));
+        field.Background = Rounded(_theme.Input, 12, _theme.InputOutline);
     }
 
     private GradientDrawable Rounded(Color fill, float radius, Color? border = null)
@@ -3274,7 +3284,7 @@ public class MainActivity : Activity
     {
         var card = new LinearLayout(this) { Orientation = Orientation.Vertical };
         card.SetPadding(Dp(15), Dp(13), Dp(15), Dp(13));
-        card.Background = Rounded(Color.White, 18, Color.Rgb(238, 235, 227));
+        card.Background = Rounded(_theme.Card, 18, _theme.CardOutline);
         card.Elevation = Dp(2);
         var lp = new LinearLayout.LayoutParams(-1, -2);
         lp.SetMargins(Dp(2), Dp(7), Dp(2), Dp(8));
@@ -3285,7 +3295,7 @@ public class MainActivity : Activity
     private TextView Text(LinearLayout parent, string caption, float size, bool bold = false)
     {
         var view = new TextView(this) { Text = caption, TextSize = size };
-        view.SetTextColor(bold ? Color.Rgb(20, 47, 33) : Color.Rgb(92, 100, 94));
+        view.SetTextColor(bold ? _theme.Heading : _theme.BodyText);
         if (bold) view.SetTypeface(null, TypefaceStyle.Bold);
         view.SetPadding(0, Dp(3), 0, Dp(7));
         parent.AddView(view);
@@ -3299,9 +3309,9 @@ public class MainActivity : Activity
         var isSecondary = text.StartsWith("←") || text.StartsWith("Закрити") ||
                           text.StartsWith("Забути") || text.StartsWith("Видалити") ||
                           text.StartsWith("Перемістити лист у кошик");
-        view.SetTextColor(isSecondary ? Color.Rgb(21, 69, 44) : Color.White);
-        view.Background = Rounded(isSecondary ? Color.Rgb(230, 240, 231) :
-            Color.Rgb(9, 83, 50), 13);
+        view.SetTextColor(isSecondary ? _theme.AccentText : Color.White);
+        view.Background = Rounded(isSecondary ? _theme.SoftAction :
+            _theme.PrimaryAction, 13);
         // Intrinsic height grows with Android's accessibility font scale.
         // Fixed 47dp buttons previously clipped long localized labels.
         view.SetMinHeight(Dp(47));
@@ -3336,9 +3346,9 @@ public class MainActivity : Activity
 
     private void StyleNav(TextView item, bool selected)
     {
-        item.SetTextColor(selected ? Color.Rgb(11, 78, 47) : Color.Rgb(105, 112, 106));
+        item.SetTextColor(selected ? _theme.NavigationSelected : _theme.NavigationMuted);
         item.SetTypeface(null, selected ? TypefaceStyle.Bold : TypefaceStyle.Normal);
-        item.Background = Rounded(selected ? Color.Rgb(230, 241, 231) : Color.White, 13);
+        item.Background = Rounded(selected ? _theme.NavigationFill : Color.White, 13);
     }
 
     private void AddAssetRow(LinearLayout parent, string name, string description,
@@ -3347,8 +3357,8 @@ public class MainActivity : Activity
         var row = new LinearLayout(this) { Orientation = Orientation.Horizontal };
         row.SetGravity(GravityFlags.CenterVertical);
         row.SetPadding(Dp(9), Dp(9), Dp(8), Dp(9));
-        row.Background = Rounded(Color.Rgb(250, 249, 245), 14,
-            Color.Rgb(238, 235, 227));
+        row.Background = Rounded(_theme.ListRow, 14,
+            _theme.CardOutline);
         var layout = new LinearLayout.LayoutParams(-1, -2);
         layout.SetMargins(0, Dp(4), 0, Dp(4));
         parent.AddView(row, layout);
@@ -3368,7 +3378,7 @@ public class MainActivity : Activity
             Text = quantity, TextSize = 13,
             Gravity = GravityFlags.CenterVertical | GravityFlags.Right
         };
-        amount.SetTextColor(Color.Rgb(15, 47, 32));
+        amount.SetTextColor(_theme.StrongText);
         amount.SetTypeface(null, TypefaceStyle.Bold);
         row.AddView(amount, new LinearLayout.LayoutParams(Dp(82), -2));
 
