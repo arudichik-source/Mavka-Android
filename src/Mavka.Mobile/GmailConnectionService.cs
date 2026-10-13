@@ -138,7 +138,8 @@ internal static class GmailConnectionService
         ExchangeKeyStore? exchangeKeys = null,
         DocumentPasswordStore? documentPasswords = null,
         string? recipientClientId = null,
-        Func<uint, IReadOnlyDictionary<uint, string>>? processedIndex = null)
+        Func<uint, IReadOnlyDictionary<uint, string>>? processedIndex = null,
+        bool noticesOnly = false)
     {
         if (string.IsNullOrWhiteSpace(allowedSender) ||
             !System.Net.Mail.MailAddress.TryCreate(allowedSender.Trim(), out var parsed) ||
@@ -161,7 +162,10 @@ internal static class GmailConnectionService
 
         // Server-side search minimizes access to unrelated mail.
         var matched = await client.Inbox.SearchAsync(
-            SearchQuery.FromContains(allowedSender.Trim()), timeout.Token);
+            noticesOnly
+                ? SearchQuery.FromContains(allowedSender.Trim()).And(
+                    SearchQuery.SubjectContains(MavkaNoticeProtocol.Format))
+                : SearchQuery.FromContains(allowedSender.Trim()), timeout.Token);
         if (matched.Count == 0)
         {
             await client.DisconnectAsync(true, timeout.Token);
@@ -170,10 +174,12 @@ internal static class GmailConnectionService
 
         // Search key provisioning mails separately, because the first key package
         // may predate the latest 15 ordinary emails.
-        var keyMatches = await client.Inbox.SearchAsync(
-            SearchQuery.FromContains(allowedSender.Trim())
-                .And(SearchQuery.SubjectContains(MavkaKeyPackage.MailSubject)),
-            timeout.Token);
+        var keyMatches = noticesOnly
+            ? Array.Empty<UniqueId>()
+            : (await client.Inbox.SearchAsync(
+                SearchQuery.FromContains(allowedSender.Trim())
+                    .And(SearchQuery.SubjectContains(MavkaKeyPackage.MailSubject)),
+                timeout.Token)).ToArray();
         var keyUids = keyMatches.Reverse().Take(10).Select(uid => uid.Id).ToHashSet();
 
         var fileMatches = await client.Inbox.SearchAsync(SearchQuery.FromContains(allowedSender.Trim())
