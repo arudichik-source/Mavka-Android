@@ -20,6 +20,7 @@ public class MainActivity : Activity
     private LinearLayout _body = null!;
     private MavkaThemePalette _theme = null!;
     private GmailCredentialsStore _store = null!;
+    private QrPairingStore _qrPairing = null!;
     private UserProfileStore _profileStore = null!;
     private PropertyLedgerStore _ledger = null!;
     private DocumentArchiveStore _archive = null!;
@@ -37,6 +38,8 @@ public class MainActivity : Activity
     private ScrollView _leftDrawer = null!, _rightDrawer = null!;
     private string _screen = "home";
     private const int PickDocumentRequest = 1526;
+    private const int QrImagePickRequest = 1591;
+    private const int QrCameraCaptureRequest = 1592;
     private const int ExportPrivateCopyRequest = 1527;
     private const int PickEncryptAndSendRequest = 1528;
     private string _inboxQuery = "";
@@ -55,6 +58,7 @@ public class MainActivity : Activity
         Window?.SetStatusBarColor(_theme.Header);
         Window?.SetNavigationBarColor(_theme.Surface);
         _store = new GmailCredentialsStore(this);
+        _qrPairing = new QrPairingStore(this);
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
         _archive = new DocumentArchiveStore(this);
@@ -1360,6 +1364,32 @@ public class MainActivity : Activity
                 _documentPasswords, LoadUserProfile()?.ClientId,
                 validity => _archive.ListMailProcessingStates(validity, MailProcessingScope()));
             metadataMillis = syncWatch.ElapsedMilliseconds;
+            try
+            {
+                var pendingQr = _qrPairing.LoadPending();
+                var currentProfile = LoadUserProfile();
+                if (pendingQr is not null && currentProfile is not null)
+                {
+                    if (DateTimeOffset.UtcNow >= pendingQr.ExpiresUtc)
+                        _qrPairing.ClearPending();
+                    else foreach (var mail in _messages)
+                        if (!mail.PreviouslyArchived &&
+                            QrPairingProtocol.VerifyAck(mail.Body, pendingQr,
+                                currentProfile.ClientId, DateTimeOffset.UtcNow))
+                        {
+                            _qrPairing.MarkConfirmed(pendingQr.MainEmail);
+                            _archive.MarkMailReady(mail.UidValidity, mail.MessageUid,
+                                MailProcessingScope());
+                            _archive.RecordSyncEvent("pairing", "QR-зв'язок підтверджено");
+                            break;
+                        }
+                }
+            }
+            catch
+            {
+                // Pairing is optional. Never relax Gmail authentication or
+                // prevent existing encrypted transfers after a bad QR.
+            }
             await ProcessFileTransfersAsync(password, sender);
             importMillis = syncWatch.ElapsedMilliseconds - metadataMillis;
             var report = await ArchiveAndCleanupAsync(password, sender);
@@ -1630,6 +1660,25 @@ public class MainActivity : Activity
         var remaining = new List<MavkaMailItem>();
         foreach (var mail in _messages)
         {
+            if (QrPairingProtocol.IsAck(mail.Body) &&
+                _archive.IsMailReady(mail.UidValidity, mail.MessageUid,
+                    MailProcessingScope()))
+            {
+                try
+                {
+                    await GmailConnectionService.MoveToTrashAsync(
+                        _store.GetEmail(), password, sender, mail);
+                    _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid,
+                        MailProcessingScope());
+                    moved++;
+                }
+                catch
+                {
+                    remaining.Add(mail);
+                    kept++;
+                }
+                continue;
+            }
             if (mail.PreviouslyArchived)
             {
                 // The durable ready marker was written only after every
@@ -2745,6 +2794,38 @@ public class MainActivity : Activity
                         "Mavka Client ID", current.ClientId);
             });
 
+        var pairingCard = Card();
+        Text(pairingCard, "Зв'язок із ГОЛОВНОЮ МАВКОЮ через QR", 18, true);
+        Text(pairingCard, "QR містить лише одноразове запрошення, дійсне 10 хвилин. " +
+            "Для підтвердження потрібне підписане одноразовим секретом повідомлення " +
+            "від налаштованої адреси ГОЛОВНОЇ МАВКИ. QR не передає ключі майна.", 13);
+        var qrStatus = Text(pairingCard,
+            _qrPairing.ConfirmedEmail is { } pairedEmail
+                ? "QR-зв'язок підтверджено: " + pairedEmail
+                : "Підключення QR ще не підтверджено.", 13);
+        Button(pairingCard, "Сканувати QR камерою", () =>
+        {
+            try
+            {
+                var intent = new Intent(Android.Provider.MediaStore.ActionImageCapture);
+                StartActivityForResult(intent, QrCameraCaptureRequest);
+            }
+            catch (Exception)
+            {
+                qrStatus.Text = "Камера недоступна. Скористайся фото QR-коду.";
+            }
+        });
+        Button(pairingCard, "Вибрати фото QR-коду", () =>
+        {
+            var intent = new Intent(Intent.ActionGetContent);
+            intent.SetType("image/*");
+            intent.AddCategory(Intent.CategoryOpenable);
+            StartActivityForResult(Intent.CreateChooser(intent, "Фото QR-коду Мавки"),
+                QrImagePickRequest);
+        });
+        Text(pairingCard, "Після сканування підтверди адресу і надішли запит. " +
+            "Для перевірки відповіді обери ☰ → Синхронізація Gmail.", 12);
+
         Text(card, "Підрозділ", 15, true);
         var unit = ProfileInput(card, "Назва підрозділу", current?.Unit);
         Text(card, "ПІБ", 15, true);
@@ -3224,6 +3305,75 @@ public class MainActivity : Activity
     protected override async void OnActivityResult(int requestCode, Result resultCode, Intent? data)
     {
         base.OnActivityResult(requestCode, resultCode, data);
+        if (requestCode is QrImagePickRequest or QrCameraCaptureRequest)
+        {
+            if (resultCode != Result.Ok) return;
+            try
+            {
+                string raw;
+                if (requestCode == QrImagePickRequest && data?.Data is not null)
+                {
+                    raw = await Task.Run(() => QrPhotoDecoder.ReadQrFromUri(
+                        ContentResolver ?? throw new InvalidOperationException("Немає доступу до фото."),
+                        data.Data));
+                }
+                else if (data?.Extras?.Get("data") is Bitmap captured)
+                {
+                    using (captured)
+                        raw = await Task.Run(() => QrPhotoDecoder.ReadQr(captured));
+                }
+                else throw new InvalidOperationException(
+                    "Камера не повернула QR-фото. Обери знімок із галереї.");
+                var invitation = QrPairingProtocol.ParseInvitation(raw, DateTimeOffset.UtcNow);
+                var profile = LoadUserProfile() ??
+                    throw new InvalidOperationException("Спочатку збережи профіль користувача.");
+                if (!string.Equals(invitation.MainEmail, _store.GetMainMavkaEmail(),
+                    StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        "Адреса в QR не збігається з адресою ГОЛОВНОЇ МАВКИ. " +
+                        "Перевір її у налаштуваннях Gmail.");
+                new AlertDialog.Builder(this)
+                    .SetTitle("Підтвердити QR-зв'язок?")
+                    .SetMessage("ГОЛОВНА МАВКА: " + invitation.MainEmail +
+                        "\nТермін: " + invitation.ExpiresUtc.ToLocalTime().ToString("HH:mm:ss") +
+                        "\n\nЗапит не передає паролі, ключі чи базу. " +
+                        "Зв'язок не вважається встановленим до перевірки відповіді.")
+                    .SetNegativeButton("Скасувати", (_, _) => { })
+                    .SetPositiveButton("Надіслати запит", async (_, _) =>
+                    {
+                        if (_busy) return;
+                        _busy = true;
+                        try
+                        {
+                            if (!_store.HasCredentials)
+                                throw new InvalidOperationException("Спочатку підключи Gmail.");
+                            _qrPairing.SavePending(invitation);
+                            var password = _store.GetPassword() ??
+                                throw new InvalidOperationException("Немає пароля Gmail.");
+                            await RegistrationMailService.SendQrPairRequestAsync(
+                                _store.GetEmail(), password, invitation.MainEmail,
+                                profile, invitation);
+                            Toast.MakeText(this,
+                                "Запит на QR-підключення надіслано. Очікуємо підтвердження.",
+                                ToastLength.Long)?.Show();
+                        }
+                        catch (Exception)
+                        {
+                            _qrPairing.ClearPending();
+                            Toast.MakeText(this,
+                                "QR-запит не надіслано. Перевір Gmail.",
+                                ToastLength.Long)?.Show();
+                        }
+                        finally { _busy = false; }
+                    }).Show();
+            }
+            catch (Exception ex)
+            {
+                Toast.MakeText(this, "QR: " + ExplainOperationError(ex),
+                    ToastLength.Long)?.Show();
+            }
+            return;
+        }
         if (requestCode == PickEncryptAndSendRequest)
         {
             if (resultCode != Result.Ok || data?.Data is null) return;
