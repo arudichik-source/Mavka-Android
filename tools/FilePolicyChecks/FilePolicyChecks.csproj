@@ -14,6 +14,7 @@
     <Compile Include="../../src/Mavka.Mobile/IncomingAttachmentSecurityPolicy.cs" Link="IncomingAttachmentSecurityPolicy.cs" />
     <Compile Include="../../src/Mavka.Mobile/MavkaThemePolicy.cs" Link="MavkaThemePolicy.cs" />
     <Compile Include="../../src/Mavka.Mobile/ArchiveTrashPolicy.cs" Link="ArchiveTrashPolicy.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MavkaNoticeProtocol.cs" Link="MavkaNoticeProtocol.cs" />
     <Compile Include="../../src/Mavka.Mobile/QrPairingProtocol.cs" Link="QrPairingProtocol.cs" />
     <Compile Include="../../src/Mavka.Mobile/PortableBackupEnvelope.cs" Link="PortableBackupEnvelope.cs" />
   </ItemGroup>
