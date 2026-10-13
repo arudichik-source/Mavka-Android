@@ -18,7 +18,7 @@ internal static class MavkaNoticeProtocol
     public const string Format = "MAVKA_NOTICE_V1";
 
     public static bool TryRead(string? json, string expectedUnit,
-        DateTimeOffset now, out MavkaNotice? notice)
+        DateTimeOffset now, out MavkaNotice? notice, bool enforceFreshness = true)
     {
         notice = null;
         if (string.IsNullOrWhiteSpace(json) || json.Length > 12000 ||
@@ -49,7 +49,8 @@ internal static class MavkaNoticeProtocol
                 issued is null ||
                 !DateTimeOffset.TryParse(issued, CultureInfo.InvariantCulture,
                     DateTimeStyles.RoundtripKind, out var issuedAt) ||
-                issuedAt > now.AddMinutes(5) || issuedAt < now.AddDays(-180))
+                (enforceFreshness &&
+                    (issuedAt > now.AddMinutes(5) || issuedAt < now.AddDays(-180))))
                 return false;
 
             DateTimeOffset? remind = null;
@@ -57,8 +58,8 @@ internal static class MavkaNoticeProtocol
             {
                 if (!DateTimeOffset.TryParse(suggested, CultureInfo.InvariantCulture,
                         DateTimeStyles.RoundtripKind, out var candidate) ||
-                    candidate < now.AddMinutes(-1) ||
-                    candidate > now.AddYears(1)) return false;
+                    (enforceFreshness && (candidate < now.AddMinutes(-1) ||
+                    candidate > now.AddYears(1)))) return false;
                 remind = candidate;
             }
             notice = new MavkaNotice(id.ToLowerInvariant(), unit.Trim(), title,
