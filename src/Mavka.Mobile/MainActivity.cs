@@ -3019,33 +3019,50 @@ public class MainActivity : Activity
         ConfigureKeyboard(mainMavkaEmail);
         card.AddView(mainMavkaEmail);
 
-        Button(card, "Зберегти адресу ГОЛОВНОЇ МАВКИ", () =>
-        {
-            var address = (mainMavkaEmail.Text ?? "").Trim();
-            if (!System.Net.Mail.MailAddress.TryCreate(address, out var parsed) ||
-                !string.Equals(parsed?.Address, address, StringComparison.OrdinalIgnoreCase))
-            {
-                status.Text = "Введи правильну адресу головної Мавки.";
-                return;
-            }
-            try
-            {
-                _store.SaveMainMavkaEmail(address);
-                _messages = Array.Empty<MavkaMailItem>();
-                _inboxCache.Clear(); // Do not retain messages after sender change.
-                status.Text = "Адресу головної Мавки збережено.";
-            }
-            catch { status.Text = "Не вдалося зберегти адресу."; }
-        });
-
-        var save = new Button(this) { Text = "Перевірити й зберегти" };
+        var save = new Button(this) { Text = "Зберегти налаштування пошти" };
         StylePrimaryButton(save);
         card.AddView(save);
         save.Click += async (_, _) =>
         {
             if (_busy) return;
             var address = (email.Text ?? "").Trim();
-            var password = (secret.Text ?? "").Replace(" ", "").Trim();
+            var typedPassword = (secret.Text ?? "").Replace(" ", "").Trim();
+            var password = typedPassword;
+            var senderAddress = (mainMavkaEmail.Text ?? "").Trim();
+            if (!System.Net.Mail.MailAddress.TryCreate(senderAddress, out var parsedSender) ||
+                !string.Equals(parsedSender?.Address, senderAddress,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                status.Text = "Введи правильну адресу ГОЛОВНОЇ МАВКИ.";
+                return;
+            }
+            bool senderChanged = !string.Equals(senderAddress,
+                _store.GetMainMavkaEmail(), StringComparison.OrdinalIgnoreCase);
+            // One save action handles sender updates, including before the
+            // Gmail app password has been configured. It never connects to
+            // IMAP merely to save an unchanged credential.
+            if ((address.Length == 0 && !_store.HasCredentials) ||
+                (_store.HasCredentials && typedPassword.Length == 0 &&
+                 string.Equals(address, _store.GetEmail(), StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    _store.SaveMainMavkaEmail(senderAddress);
+                    if (senderChanged)
+                    {
+                        _messages = Array.Empty<MavkaMailItem>();
+                        _inboxCache.Clear();
+                    }
+                    status.Text = _store.HasCredentials
+                        ? "Адресу ГОЛОВНОЇ МАВКИ збережено. Gmail залишається підключеним."
+                        : "Відправника збережено. Для отримання листів додай Gmail.";
+                }
+                catch (Exception)
+                {
+                    status.Text = "Не вдалося зберегти відправника.";
+                }
+                return;
+            }
             if (!address.EndsWith("@gmail.com", StringComparison.OrdinalIgnoreCase) ||
                 !System.Net.Mail.MailAddress.TryCreate(address, out var parsed) ||
                 !string.Equals(parsed.Address, address, StringComparison.OrdinalIgnoreCase))
@@ -3071,6 +3088,7 @@ public class MainActivity : Activity
                 stage = "5/5: Захищене збереження Android";
                 status.Text = stage;
                 _store.Save(address, password);
+                _store.SaveMainMavkaEmail(senderAddress);
                 _messages = Array.Empty<MavkaMailItem>();
                 _inboxCache.Clear();
                 secret.Text = "";
