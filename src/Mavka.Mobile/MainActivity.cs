@@ -2017,6 +2017,62 @@ public class MainActivity : Activity
                             }
                         }).Show();
                 });
+                Text(exportCard, "Можна зберегти Word окремим файлом .docx.mavkafile: " +
+                    "його вміст захищений ключем обміну та паролем документів. " +
+                    "Це контейнер Мавки, а не відкритий DOCX.", 12);
+                Button(exportCard, "Зберегти запаролений Word (.mavkafile)", async () =>
+                {
+                    if (_busy) return;
+                    if (!_exchangeKeys.HasKeyPair)
+                    {
+                        exportStatus.Text = "Спочатку встанови ключі обміну.";
+                        return;
+                    }
+                    var documentPassword = _documentPasswords.Load();
+                    if (string.IsNullOrWhiteSpace(documentPassword))
+                    {
+                        exportStatus.Text = "Спочатку налаштуй пароль документів.";
+                        return;
+                    }
+                    _busy = true;
+                    byte[]? plain = null, key = null;
+                    try
+                    {
+                        exportStatus.Text = "Створюємо подвійно зашифрований Word...";
+                        plain = await Task.Run(() => DocxInvoiceBuilder.Create(invoice));
+                        key = _exchangeKeys.GetCurrentKey() ??
+                            throw new KeyNotFoundException("Поточний ключ не знайдено.");
+                        var cleanNumber = new string(invoice.Number.Where(ch =>
+                            char.IsLetterOrDigit(ch) || ch is '-' or '_').Take(55).ToArray());
+                        if (cleanNumber.Length == 0) cleanNumber = "document";
+                        var wordFileName = "Накладна-" + cleanNumber + ".docx";
+                        var inner = MavkaEncryptedFileEnvelope.Encrypt(wordFileName, plain, key);
+                        var protectedFile = MavkaPasswordedEnvelope.Wrap(inner, documentPassword);
+                        // Check password layer before publishing encrypted bytes.
+                        if (!string.Equals(MavkaPasswordedEnvelope.Unwrap(
+                            protectedFile, documentPassword), inner, StringComparison.Ordinal))
+                            throw new InvalidOperationException("Парольну перевірку не пройдено.");
+                        var outputName = wordFileName + ".mavkafile";
+                        await Task.Run(() =>
+                            _exportedFiles.SavePasswordedFile(protectedFile, outputName));
+                        if (_screen == "message")
+                            exportStatus.Text = "Зашифрований і запаролений Word збережено у МаVКа файли.";
+                    }
+                    catch (Exception ex)
+                    {
+                        if (_screen == "message")
+                            exportStatus.Text = "Не вдалося зберегти Word: " +
+                                ExplainOperationError(ex);
+                    }
+                    finally
+                    {
+                        if (plain is not null)
+                            System.Security.Cryptography.CryptographicOperations.ZeroMemory(plain);
+                        if (key is not null)
+                            System.Security.Cryptography.CryptographicOperations.ZeroMemory(key);
+                        _busy = false;
+                    }
+                });
                 Text(exportCard, "Word формується в пам’яті та надсилається " +
                     "ГОЛОВНІЙ МАВЦІ лише як зашифроване вкладення .docx.mavkafile. " +
                     "Незахищений DOCX не записується до завантажень.", 12);
