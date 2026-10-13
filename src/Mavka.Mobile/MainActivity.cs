@@ -1881,6 +1881,29 @@ public class MainActivity : Activity
             !MavkaNoticeAlerts.Allowed(this))
             Button(header, "Увімкнути сповіщення Android", () =>
                 RequestPermissions(new[] { Android.Manifest.Permission.PostNotifications }, 1917));
+        Text(header, MavkaNoticeBackground.Enabled(this)
+            ? "Автоматична перевірка пошти увімкнена (приблизно кожні 15 хвилин)."
+            : "Автоматична перевірка вимкнена. Нові повідомлення з'являються після ручної синхронізації.", 12);
+        Button(header, MavkaNoticeBackground.Enabled(this)
+            ? "Вимкнути фонову перевірку сповіщень"
+            : "Увімкнути фонову перевірку (15 хв)", () =>
+        {
+            try
+            {
+                if (!MavkaNoticeBackground.Enabled(this) &&
+                    (!_store.HasCredentials || LoadUserProfile() is null))
+                    throw new InvalidOperationException(
+                        "Для автоматичної перевірки потрібні Gmail та профіль.");
+                MavkaNoticeBackground.SetEnabled(this,
+                    !MavkaNoticeBackground.Enabled(this));
+                ShowNotices();
+            }
+            catch (Exception ex)
+            {
+                Toast.MakeText(this, ExplainOperationError(ex),
+                    ToastLength.Long)?.Show();
+            }
+        });
         var listCard = Card();
         try
         {
