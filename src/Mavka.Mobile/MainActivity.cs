@@ -1959,7 +1959,7 @@ public class MainActivity : Activity
             {
                 try
                 {
-                    var local = new DateTime(date.Year, date.Month - 1,
+                    var local = new DateTime(date.Year, date.Month + 1,
                         date.DayOfMonth, time.HourOfDay, time.Minute, 0,
                         DateTimeKind.Unspecified);
                     var utc = new DateTimeOffset(local,
