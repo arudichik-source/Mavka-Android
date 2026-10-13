@@ -108,5 +108,54 @@ var invalidCountRejected = false;
 try { DocumentPageWindow.For(-1, 0); }
 catch (ArgumentOutOfRangeException) { invalidCountRejected = true; }
 Check(invalidCountRejected, "Negative count rejected");
+// Archive retention: posted documents are never destructively removed.
+Check(ArchiveTrashPolicy.CanMoveToTrash("not_posted"),
+    "Unposted document can move to recoverable trash");
+Check(!ArchiveTrashPolicy.CanMoveToTrash("posted"),
+    "Posted invoice cannot be removed by a document UI action");
+var now = DateTimeOffset.UtcNow;
+Check(ArchiveTrashPolicy.CanRestore(now.AddDays(-29).ToString("O"), now),
+    "29-day archive trash can be restored");
+Check(!ArchiveTrashPolicy.CanRestore(now.AddDays(-31).ToString("O"), now),
+    "Expired archive trash cannot be restored");
+Check(ArchiveTrashPolicy.CanPurge(now.AddDays(-31).ToString("O"), now),
+    "Expired archive trash can be explicitly purged");
+Check(!ArchiveTrashPolicy.CanPurge(now.AddDays(-29).ToString("O"), now),
+    "Non-expired archive may never be purged");
+
+// The QR alone does not grant access: the desktop must produce a valid HMAC
+// under the secret in the 10-minute QR invitation.
+var invitationJson = QrPairingProtocol.Generate("main@example.com", now);
+var invitation = QrPairingProtocol.ParseInvitation(invitationJson, now);
+const string clientId = "synthetic-client-123";
+var qrAck = QrPairingProtocol.CreateAck(invitation, clientId);
+Check(QrPairingProtocol.VerifyAck(qrAck, invitation, clientId, now),
+    "Valid main-device QR confirmation");
+Check(!QrPairingProtocol.VerifyAck(qrAck, invitation, "another-client", now),
+    "QR reply bound to exact mobile client");
+Check(!QrPairingProtocol.VerifyAck(qrAck, invitation, clientId, now.AddMinutes(11)),
+    "QR confirmation expires after ten minutes");
+var separate = QrPairingProtocol.ParseInvitation(
+    QrPairingProtocol.Generate("main@example.com", now), now);
+Check(!QrPairingProtocol.VerifyAck(qrAck, separate, clientId, now),
+    "QR reply bound to particular pairing session");
+Check(!QrPairingProtocol.VerifyAck(
+        qrAck.Replace("MAVKA_QR_PAIR_ACK_V1","FORGED"), invitation, clientId, now),
+    "Tampered QR response rejected");
+
+// Portable AES-256-GCM backup tests without any Android Keystore.
+const string syntheticBackup = "{\"unit\":\"Тестовий підрозділ\",\"items\":[1,2,3]}";
+var encryptedBackup = PortableBackupEnvelope.Encrypt(
+    syntheticBackup, "SYNTHETIC-BACKUP-PASSWORD-TEST");
+Check(PortableBackupEnvelope.Decrypt(
+    encryptedBackup, "SYNTHETIC-BACKUP-PASSWORD-TEST") == syntheticBackup,
+    "Portable encrypted backup exact roundtrip");
+bool rejectedWrongPassword = false;
+try { PortableBackupEnvelope.Decrypt(encryptedBackup, "ANOTHER-SYNTHETIC-SECRET"); }
+catch (System.Security.Cryptography.CryptographicException) { rejectedWrongPassword = true; }
+Check(rejectedWrongPassword, "Wrong backup password authentication rejected");
+Check(!System.Text.Encoding.UTF8.GetString(encryptedBackup).Contains(
+    "Тестовий підрозділ", StringComparison.Ordinal),
+    "Portable backup never stores unencrypted unit name");
 Console.WriteLine("Archive UI pagination: 14/14 checks PASS");
 Console.WriteLine("Archive and profile regression checks: PASS (includes 200 long rows)");
