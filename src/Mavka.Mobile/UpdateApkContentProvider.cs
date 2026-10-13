@@ -54,12 +54,14 @@ internal sealed class UpdateApkContentProvider : ContentProvider
             OpenableColumns.DisplayName, OpenableColumns.Size
         };
         var cursor = new MatrixCursor(names);
-        object?[] cells = names.Select(name => name switch
+        Java.Lang.Object[] cells = names.Select(name => name switch
         {
-            OpenableColumns.DisplayName => (object)"Mavka-Mobile-Update.apk",
-            OpenableColumns.Size => File.Exists(StagedPath(Context!))
-                ? new FileInfo(StagedPath(Context!)).Length : 0L,
-            _ => null
+            OpenableColumns.DisplayName => (Java.Lang.Object)new Java.Lang.String(
+                "Mavka-Mobile-Update.apk"),
+            OpenableColumns.Size => new Java.Lang.Long(
+                File.Exists(StagedPath(Context!))
+                    ? new FileInfo(StagedPath(Context!)).Length : 0L),
+            _ => (Java.Lang.Object)new Java.Lang.String("")
         }).ToArray();
         cursor.AddRow(cells);
         return cursor;
