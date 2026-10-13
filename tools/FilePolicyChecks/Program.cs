@@ -123,4 +123,8 @@ Check(!IncomingAttachmentSecurityPolicy.RejectPlaintext(true, false, true),
     "Password-sealed key enrollment is not disguised as a document");
 Check(!IncomingAttachmentSecurityPolicy.RejectPlaintext(false, false, false),
     "Legacy unkeyed initial setup remains possible");
-Console.WriteLine("File, preview, UID and encrypted-only admission policies: 46/46 PASS");
+Check(MavkaExportPolicy.Matches("Download/МаVКа файли/", "Захищений.docx.mavkafile"),
+    "Allow password-and-key-protected Office container");
+Check(!MavkaExportPolicy.Matches("Download/", "Захищений.docx.mavkafile"),
+    "Encrypted files must not be managed outside dedicated Mavka folder");
+Console.WriteLine("File, preview, UID and encrypted-only admission policies: 48/48 PASS");
