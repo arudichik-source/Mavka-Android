@@ -173,7 +173,10 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                 string.IsNullOrWhiteSpace(receipt.DocumentId) ||
                 receipt.DocumentId.Length > 240 ||
                 receipt.Items.Count is < 1 or > 500 ||
-                receipt.MailStatus is not ("sent" or "pending"))
+                receipt.MailStatus is not ("sent" or "pending" or "not_required") ||
+                (receipt.DocumentId.StartsWith("OPENING:", StringComparison.Ordinal)
+                    ? receipt.MailStatus != "not_required"
+                    : receipt.MailStatus == "not_required"))
                 throw new ArgumentException("Некоректний запис у резервній копії.");
             _ = LedgerBalanceCalculator.ParseDate(receipt.Date);
             foreach (var item in receipt.Items)
@@ -201,7 +204,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                 values.Put("document_date", receipt.Date);
                 values.Put("confirmed_utc", DateTimeOffset.UtcNow.ToString("O"));
                 // Historical exports are not new Gmail send requests.
-                values.Put("mail_status", receipt.MailStatus == "sent" ? "sent" : "pending");
+                values.Put("mail_status", receipt.MailStatus);
                 db.InsertOrThrow("receipts", null, values);
                 var opening = receipt.DocumentId.StartsWith("OPENING:", StringComparison.Ordinal);
                 foreach (var line in receipt.Items)
