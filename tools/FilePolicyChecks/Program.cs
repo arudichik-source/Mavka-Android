@@ -185,4 +185,33 @@ using (var backupDoc = System.Text.Json.JsonDocument.Parse(backup))
     catch (System.Security.Cryptography.CryptographicException) { rejected = true; }
     Check(rejected, "Corrupt backup GCM tag must reject without plaintext");
 }
-Console.WriteLine("File, QR, archive trash and passworded backup policies: 63/63 PASS");
+var syntheticNow = DateTimeOffset.UtcNow;
+var noticeJson = MavkaNoticeProtocol.CreateJson("Тестовий підрозділ",
+    "Тестове сповіщення", "Синтетичне службове повідомлення",
+    syntheticNow, syntheticNow.AddHours(5), "important");
+Check(MavkaNoticeProtocol.TryRead(noticeJson, "Тестовий підрозділ",
+    syntheticNow, out var parsedNotice) && parsedNotice is not null &&
+    parsedNotice.Priority == "important" &&
+    parsedNotice.SuggestedReminderUtc == syntheticNow.AddHours(5),
+    "Authenticated notice schema with optional local reminder suggestion");
+Check(!MavkaNoticeProtocol.TryRead(noticeJson, "Інший підрозділ",
+    syntheticNow, out _), "Notice for another unit is not importable");
+Check(!MavkaNoticeProtocol.TryRead(noticeJson, "Тестовий підрозділ",
+    syntheticNow.AddDays(181), out _), "Stale notice is rejected during new Gmail import");
+Check(MavkaNoticeProtocol.TryRead(noticeJson, "Тестовий підрозділ",
+    syntheticNow.AddDays(181), out _, enforceFreshness: false),
+    "Stored previously authenticated notices remain readable");
+var maliciousNotice = noticeJson.Replace("MAVKA_NOTICE_V1", "MAVKA_NOTICE_WRONG_V1");
+Check(!MavkaNoticeProtocol.TryRead(maliciousNotice, "Тестовий підрозділ",
+    syntheticNow, out _), "Unsupported notice format rejected");
+var badPriority = noticeJson.Replace("important", "execute");
+Check(!MavkaNoticeProtocol.TryRead(badPriority, "Тестовий підрозділ",
+    syntheticNow, out _), "Remote code/action priority must be rejected");
+Check(!MavkaNoticeProtocol.TryRead("{", "Тестовий підрозділ",
+    syntheticNow, out _), "Malformed notice rejected");
+Check(MavkaNoticeProtocol.TryRead(MavkaNoticeProtocol.CreateJson(
+    "Тестовий підрозділ", "Без нагадування", "Лише повідомлення",
+    syntheticNow), "Тестовий підрозділ", syntheticNow,
+    out var noAlarmNotice) && noAlarmNotice?.SuggestedReminderUtc is null,
+    "Remote sender cannot force a reminder by default");
+Console.WriteLine("File, QR, notices, trash and protected backups: 71/71 PASS");
