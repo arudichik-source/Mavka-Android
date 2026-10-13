@@ -2017,68 +2017,6 @@ public class MainActivity : Activity
                             }
                         }).Show();
                 });
-                Text(exportCard, "Word експортується як DOCX з власним Office-паролем. " +
-                    "У відкритому вигляді на диск файл не записується.", 12);
-                Button(exportCard, "Зберегти Word із паролем", () =>
-                {
-                    if (_busy) return;
-                    var secret = new EditText(this)
-                    {
-                        Hint = "Пароль Word (12–128 символів)",
-                        InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
-                    };
-                    secret.TransformationMethod =
-                        Android.Text.Method.PasswordTransformationMethod.Instance;
-                    new AlertDialog.Builder(this)
-                        .SetTitle("Пароль для Word")
-                        .SetMessage("Потрібен для відкриття DOCX у Microsoft Word. " +
-                            "У Мавці пароль цього експортованого файла не зберігається.")
-                        .SetView(secret)
-                        .SetNegativeButton("Скасувати", (_, _) => { })
-                        .SetPositiveButton("Створити", async (_, _) =>
-                        {
-                            var password = secret.Text?.ToString() ?? "";
-                            if (password.Length is < 12 or > 128)
-                            {
-                                exportStatus.Text = "Пароль повинен містити 12–128 символів.";
-                                return;
-                            }
-                            if (_busy) return;
-                            _busy = true;
-                            byte[]? bytes = null;
-                            try
-                            {
-                                exportStatus.Text = "Генеруємо парольний Word...";
-                                bytes = await Task.Run(() =>
-                                    ProtectedDocxBuilder.CreateInvoice(this, invoice, password));
-                                var cleanNumber = new string(invoice.Number.Where(ch =>
-                                    char.IsLetterOrDigit(ch) || ch is '-' or '_')
-                                    .Take(55).ToArray());
-                                if (string.IsNullOrWhiteSpace(cleanNumber))
-                                    cleanNumber = "document";
-                                var name = "Накладна-" + cleanNumber + "-" +
-                                    DateTime.UtcNow.ToString("yyyyMMdd_HHmmss") + ".docx";
-                                var encrypted = bytes;
-                                await Task.Run(() => _exportedFiles.SaveProtectedDocx(encrypted, name));
-                                if (_screen == "message")
-                                    exportStatus.Text = "Парольний Word збережено у МаVКа файли.";
-                            }
-                            catch (Exception ex)
-                            {
-                                if (_screen == "message")
-                                    exportStatus.Text = "Не вдалося захистити Word: " +
-                                        ExplainOperationError(ex) +
-                                        ". Незахищений DOCX не збережено.";
-                            }
-                            finally
-                            {
-                                if (bytes is not null)
-                                    System.Security.Cryptography.CryptographicOperations
-                                        .ZeroMemory(bytes);
-                                _busy = false;
-                            }
-                        }).Show();
-                });
                 Text(exportCard, "Word формується в пам’яті та надсилається " +
                     "ГОЛОВНІЙ МАВЦІ лише як зашифроване вкладення .docx.mavkafile. " +
                     "Незахищений DOCX не записується до завантажень.", 12);
