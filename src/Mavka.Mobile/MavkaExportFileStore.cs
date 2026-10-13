@@ -62,7 +62,9 @@ internal sealed class MavkaExportFileStore
             var uri = ContentUris.WithAppendedId(collection, id);
             long size = cursor.IsNull(sizeIndex) ? 0 : cursor.GetLong(sizeIndex);
             long modified = cursor.IsNull(dateIndex) ? 0 : cursor.GetLong(dateIndex);
-            string mime = name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
+            string mime = name.EndsWith(".mavkafile", StringComparison.OrdinalIgnoreCase)
+                ? "application/octet-stream"
+                : name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
                 ? "application/pdf"
                 : name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
                     ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -183,6 +185,57 @@ internal sealed class MavkaExportFileStore
             }
             throw;
         }
+    }
+
+    /// <summary>
+    /// Export only a doubly encrypted wire envelope. Never write plaintext
+    /// DOCX, nor a key-only package that lacks its own document password.
+    /// </summary>
+    public Android.Net.Uri SavePasswordedFile(string envelope, string fileName)
+    {
+        if (!IsSupported)
+            throw new NotSupportedException("Android 10+ MediaStore export required.");
+        if (!MavkaExportPolicy.Matches(MavkaExportPolicy.RelativePath, fileName) ||
+            !fileName.EndsWith(".mavkafile", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Некоректна назва зашифрованого файла.");
+        if (envelope.Length is < 150 or > 5_000_000 ||
+            !MavkaPasswordedEnvelope.IsWrapped(envelope))
+            throw new ArgumentException("Потрібен окремо запаролений та зашифрований контейнер.");
+        var bytes = System.Text.Encoding.UTF8.GetBytes(envelope);
+        var resolver = _context.ContentResolver ??
+            throw new InvalidOperationException("Android ContentResolver unavailable.");
+        var values = new ContentValues();
+        values.Put(MediaStore.IMediaColumns.DisplayName, fileName);
+        values.Put(MediaStore.IMediaColumns.MimeType, "application/octet-stream");
+        values.Put(MediaStore.IMediaColumns.RelativePath, MavkaExportPolicy.RelativePath);
+        values.Put(MediaStore.IMediaColumns.IsPending, 1);
+        Android.Net.Uri? created = null;
+        try
+        {
+            created = resolver.Insert(MediaStore.Downloads.ExternalContentUri, values) ??
+                throw new InvalidOperationException("Cannot create protected document.");
+            using (var output = resolver.OpenOutputStream(created) ??
+                   throw new InvalidOperationException("Cannot write protected document."))
+            {
+                output.Write(bytes, 0, bytes.Length);
+                output.Flush();
+            }
+            var ready = new ContentValues();
+            ready.Put(MediaStore.IMediaColumns.IsPending, 0);
+            if (resolver.Update(created, ready, null, null) != 1)
+                throw new InvalidOperationException("Cannot finalize protected document.");
+            return created;
+        }
+        catch
+        {
+            if (created is not null)
+            {
+                try { resolver.Delete(created, null, null); }
+                catch { /* Partial encrypted output remains pending. */ }
+            }
+            throw;
+        }
+        finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes); }
     }
 
     private void EnsureExportedCopy(MavkaExportFile file)
