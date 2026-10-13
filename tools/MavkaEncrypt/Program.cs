@@ -97,7 +97,17 @@ else if (args.Length == 6 && (args[0] == "drive-command" || args[0] == "drive-co
         if (new FileInfo(args[2]).Length > MavkaFileParts.MaxBundleBytes) throw new ArgumentException("Bundle too large.");
         var bundle = File.ReadAllBytes(args[2]); using var doc = JsonDocument.Parse(bundle);
         if (doc.RootElement.GetProperty("format").GetString() != "MAVKA_FILE_BUNDLE_V1") throw new ArgumentException("Encrypted bundle expected.");
-        var id = doc.RootElement.GetProperty("parts")[0].GetProperty("metadata").GetProperty("transferId").GetString()!;
+        var firstPart = doc.RootElement.GetProperty("parts")[0].GetRawText();
+        // Password-protected Drive bundles contain encrypted *password
+        // wrappers*, so their inner metadata must be opened locally for
+        // constructing the transfer-bound authenticated command. Never
+        // persist the unwrapped part to disk.
+        if (MavkaPasswordedEnvelope.IsWrapped(firstPart))
+            firstPart = MavkaPasswordedEnvelope.Unwrap(
+                firstPart, ReadDocumentPassword());
+        using var firstDocument = JsonDocument.Parse(firstPart);
+        var id = firstDocument.RootElement.GetProperty("metadata")
+            .GetProperty("transferId").GetString()!;
         var command = new DriveFileCommand(DriveFileCommand.Kind,args[3],args[4],bundle.Length,Convert.ToHexString(SHA256.HashData(bundle)),id);
         string json = JsonSerializer.Serialize(command,MavkaFileParts.Json);
         if (!DriveFileCommand.TryRead(json,out _)) throw new ArgumentException("Invalid Drive download link or metadata.");
