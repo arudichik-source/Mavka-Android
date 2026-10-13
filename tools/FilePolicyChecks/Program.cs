@@ -127,4 +127,13 @@ Check(MavkaExportPolicy.Matches("Download/МаVКа файли/", "Захище�
     "Allow password-and-key-protected Office container");
 Check(!MavkaExportPolicy.Matches("Download/", "Захищений.docx.mavkafile"),
     "Encrypted files must not be managed outside dedicated Mavka folder");
-Console.WriteLine("File, preview, UID and encrypted-only admission policies: 48/48 PASS");
+Check(MavkaThemePolicy.Normalize(null) == MavkaThemePolicy.Olive,
+    "Default theme remains olive");
+Check(MavkaThemePolicy.Normalize("unknown-value") == MavkaThemePolicy.Olive,
+    "Unknown persisted theme must fall back safely");
+Check(MavkaThemePolicy.Normalize(MavkaThemePolicy.Blue) == MavkaThemePolicy.Blue,
+    "Explicit blue theme is preserved");
+Check(MavkaThemePolicy.Label(MavkaThemePolicy.Blue) == "Синя" &&
+    MavkaThemePolicy.Label(MavkaThemePolicy.Olive) == "Оливкова",
+    "Theme selector labels match persisted choices");
+Console.WriteLine("File, UID, encrypted-only and blue theme policies: 52/52 PASS");
