@@ -8,8 +8,8 @@
     <ApplicationTitle>Mavka Mobile</ApplicationTitle>
     <!-- Monotonically increasing Android versionCode for in-place upgrades.
          The installed APK must also have the same signing certificate. -->
-    <ApplicationVersion>20261013</ApplicationVersion>
-    <ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
+    <ApplicationVersion>20261014</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0.1</ApplicationDisplayVersion>
 
     <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
     <TargetSdkVersion>35</TargetSdkVersion>
