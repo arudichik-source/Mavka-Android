@@ -77,7 +77,7 @@ internal static class AndroidApkUpdateInstaller
         Android.Content.PM.Signature[]? signatures =
             Build.VERSION.SdkInt >= BuildVersionCodes.P
                 ? package.SigningInfo?.GetApkContentsSigners()
-                : package.Signatures;
+                : package.Signatures?.ToArray();
         if (signatures is null || signatures.Length != 1)
             throw new InvalidOperationException(
                 "APK має невідомий або багатокомпонентний підпис.");
