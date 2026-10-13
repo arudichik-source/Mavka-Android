@@ -12,5 +12,6 @@
     <Compile Include="../../src/Mavka.Mobile/MailImagePreviewPolicy.cs" Link="MailImagePreviewPolicy.cs" />
     <Compile Include="../../src/Mavka.Mobile/GmailProcessingSelectionPolicy.cs" Link="GmailProcessingSelectionPolicy.cs" />
     <Compile Include="../../src/Mavka.Mobile/IncomingAttachmentSecurityPolicy.cs" Link="IncomingAttachmentSecurityPolicy.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MavkaThemePolicy.cs" Link="MavkaThemePolicy.cs" />
   </ItemGroup>
 </Project>
