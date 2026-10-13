@@ -136,4 +136,53 @@ Check(MavkaThemePolicy.Normalize(MavkaThemePolicy.Blue) == MavkaThemePolicy.Blue
 Check(MavkaThemePolicy.Label(MavkaThemePolicy.Blue) == "Синя" &&
     MavkaThemePolicy.Label(MavkaThemePolicy.Olive) == "Оливкова",
     "Theme selector labels match persisted choices");
-Console.WriteLine("File, UID, encrypted-only and blue theme policies: 52/52 PASS");
+// Archive delete must never mutate postings, and restore is time-bound.
+var now = DateTimeOffset.UtcNow;
+Check(ArchiveTrashPolicy.CanMoveToTrash("not_posted"),
+    "Unposted archive document may enter 30-day trash");
+Check(!ArchiveTrashPolicy.CanMoveToTrash("posted"),
+    "Posted inventory evidence must not be deletable");
+Check(ArchiveTrashPolicy.CanRestore(now.AddDays(-2).ToString("O"), now),
+    "Recover a recent archived document");
+Check(!ArchiveTrashPolicy.CanRestore(now.AddDays(-31).ToString("O"), now) &&
+    ArchiveTrashPolicy.CanPurge(now.AddDays(-31).ToString("O"), now),
+    "Expired documents can be purged only after 30 days");
+
+// QR invitation is only a 10-minute challenge, never authority by itself.
+var qrText = QrPairingProtocol.Generate("main@example.org", now);
+var invite = QrPairingProtocol.ParseInvitation(qrText, now);
+Check(invite.MainEmail == "main@example.org" &&
+    invite.ExpiresUtc == now.AddMinutes(10), "QR invitation domain and lifetime");
+var ack = QrPairingProtocol.CreateAck(invite, "MAVKA-CLIENT-1");
+Check(QrPairingProtocol.VerifyAck(ack, invite, "MAVKA-CLIENT-1", now),
+    "Correct QR HMAC acknowledgment succeeds");
+Check(!QrPairingProtocol.VerifyAck(ack, invite, "MAVKA-CLIENT-2", now),
+    "Different device cannot reuse the HMAC");
+Check(!QrPairingProtocol.VerifyAck(ack, invite, "MAVKA-CLIENT-1",
+    now.AddMinutes(11)), "Expired QR acknowledgment is rejected");
+
+// Password-protected backups are independent of phone-specific Keystore.
+var sample = "{\\\"format\\\":\\\"MAVKA_BACKUP_DATA_V1\\\",\\\"unit\\\":\\\"Тестовий підрозділ\\\"}";
+var backup = PortableBackupEnvelope.Encrypt(sample, "SYNTHETIC-PORTABLE-BACKUP-PASS");
+Check(PortableBackupEnvelope.Decrypt(backup,
+    "SYNTHETIC-PORTABLE-BACKUP-PASS") == sample,
+    "Independent AES-256 portable backup roundtrip");
+bool invalidBackupPassword = false;
+try { PortableBackupEnvelope.Decrypt(backup, "WRONG-PORTABLE-BACKUP-PASS"); }
+catch (System.Security.Cryptography.CryptographicException) { invalidBackupPassword = true; }
+Check(invalidBackupPassword, "Wrong backup password must fail GCM authentication");
+using (var backupDoc = System.Text.Json.JsonDocument.Parse(backup))
+{
+    var root = backupDoc.RootElement;
+    string modified = System.Text.Encoding.UTF8.GetString(backup);
+    string validTag = root.GetProperty("tag").GetString()!;
+    string altered = modified.Replace(validTag,
+        Convert.ToBase64String(new byte[16]), StringComparison.Ordinal);
+    bool rejected = false;
+    try { PortableBackupEnvelope.Decrypt(
+        System.Text.Encoding.UTF8.GetBytes(altered),
+        "SYNTHETIC-PORTABLE-BACKUP-PASS"); }
+    catch (System.Security.Cryptography.CryptographicException) { rejected = true; }
+    Check(rejected, "Corrupt backup GCM tag must reject without plaintext");
+}
+Console.WriteLine("File, QR, archive trash and passworded backup policies: 63/63 PASS");
