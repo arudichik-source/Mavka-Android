@@ -9,6 +9,7 @@
     <Compile Include="../../src/Mavka.Mobile/MavkaKeyPackage.cs" Link="MavkaKeyPackage.cs" />
     <Compile Include="../../src/Mavka.Mobile/MavkaEncryptedFileEnvelope.cs" Link="MavkaEncryptedFileEnvelope.cs" />
     <Compile Include="../../src/Mavka.Mobile/MavkaPasswordedEnvelope.cs" Link="MavkaPasswordedEnvelope.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MavkaNoticeProtocol.cs" Link="MavkaNoticeProtocol.cs" />
   <Compile Include="../../src/Mavka.Mobile/MavkaFileParts.cs" Link="MavkaFileParts.cs" />
 <Compile Include="../../src/Mavka.Mobile/DriveFileCommand.cs" Link="DriveFileCommand.cs" />
 </ItemGroup>
