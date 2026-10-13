@@ -123,6 +123,10 @@ def test_archive(version: int):
                             "sync_status":"not_synced"}[name] + "'")
             for statement in create_status:
                 db.execute(statement)
+            db.execute("""INSERT INTO document_status_history
+                          (document_id,domain,state,changed_utc)
+                          VALUES (?,?,?,?)""",
+                       ("DEMO-1","archive","saved","2026-10-11T00:00:00Z"))
         for statement in archive_upgrade[4:]:
             db.execute(statement)
         db.execute(create_mail_index[0])
