@@ -52,6 +52,19 @@ jobs:
           MAVKA_DOCUMENT_PASSWORD='LOCAL-SYNTHETIC-PASSWORD-ONLY' dotnet run --project tools/MavkaEncrypt -- file-password "$tmp_dir/demo.mavka-key" "$tmp_dir/demo.pdf" "$tmp_dir/demo.pdf.mavkafile"
           grep -q 'MAVKA_PASSWORD_WRAPPED_V1' "$tmp_dir/demo.pdf.mavkafile"
 
+      - name: Verify desktop QR pairing utility
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build tools/QrPairingTool/QrPairingTool.csproj -c Release
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          dotnet run --project tools/QrPairingTool -- invite main@example.org "$tmp_dir/qr.png"
+          test -s "$tmp_dir/qr.png"
+          test -s "$tmp_dir/qr.png.json"
+          dotnet run --project tools/QrPairingTool -- ack "$tmp_dir/qr.png.json" TEST-CLIENT "$tmp_dir/ack.json"
+          grep -q 'MAVKA_QR_PAIR_ACK_V1' "$tmp_dir/ack.json"
+
       - name: Verify asset icon categories
         run: dotnet run --project tools/AssetIconChecks/AssetIconChecks.csproj
 
