@@ -35,6 +35,7 @@ jobs:
           dotnet run --project tools/ArchiveChecks
           dotnet run --project tools/LedgerChecks
           dotnet run --project tools/XlsxChecks
+          dotnet run --project tools/ApkUpdateChecks
           dotnet run --project tools/TransferChecks
           dotnet run --project tools/FileEnvelopeChecks
           dotnet run --project tools/FilePolicyChecks
