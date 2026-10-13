@@ -41,7 +41,7 @@ create_mail_index = sql_statements(section(
 
 assert len(create_events) == 3, create_events
 assert len(ledger_upgrade) == 2, ledger_upgrade
-assert len(archive_upgrade) == 4, archive_upgrade
+assert len(archive_upgrade) == 6, archive_upgrade
 assert len(create_status) == 2, create_status
 assert len(create_mail_index) == 1, create_mail_index
 
@@ -93,7 +93,7 @@ def test_ledger(version: int):
     db.close()
 
 
-def test_archive():
+def test_archive(version: int):
     db = sqlite3.connect(":memory:")
     db.execute("""CREATE TABLE documents (
         document_id TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL,
@@ -105,12 +105,23 @@ def test_archive():
                 "2026-10-11T00:00:00Z", "2026-10-11T00:00:00Z", "saved",
                 "HASH-EXAMPLE", "document.json", "SEALED-PAYLOAD"))
     with db:
-        for statement in archive_upgrade[:3]:
+        if version == 1:
+            for statement in archive_upgrade[:3]:
+                db.execute(statement)
+            for statement in create_status:
+                db.execute(statement)
+            db.execute(archive_upgrade[3])  # Backfill archive audit
+        else:
+            for name in ("posting_status","delivery_status","sync_status"):
+                db.execute("ALTER TABLE documents ADD COLUMN " + name +
+                           " TEXT NOT NULL DEFAULT '" +
+                           {"posting_status":"not_posted","delivery_status":"not_queued",
+                            "sync_status":"not_synced"}[name] + "'")
+            for statement in create_status:
+                db.execute(statement)
+        for statement in archive_upgrade[4:]:
             db.execute(statement)
-        for statement in create_status:
-            db.execute(statement)
-        db.execute(archive_upgrade[3])  # Backfill archive=saved audit row
-        db.execute(create_mail_index[0])  # Upgraded v1 needs durable Gmail state
+        db.execute(create_mail_index[0])
     doc = db.execute("SELECT sealed_json, posting_status, delivery_status, sync_status "
                      "FROM documents WHERE document_id = 'DEMO-1'").fetchone()
     assert doc == ("SEALED-PAYLOAD", "not_posted", "not_queued", "not_synced"), doc
@@ -122,10 +133,16 @@ def test_archive():
     # Idempotent schema definition must be safe if called during a repair.
     db.execute(create_mail_index[0])
     assert db.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 1
+    cols = [r[1] for r in db.execute("PRAGMA table_info(documents)")]
+    assert "deleted_utc" in cols, cols
+    db.execute("UPDATE documents SET deleted_utc = '2026-10-13T08:00:00Z' WHERE document_id = 'DEMO-1'")
+    assert db.execute("SELECT deleted_utc FROM documents WHERE document_id = 'DEMO-1'").fetchone()[0] == "2026-10-13T08:00:00Z"
+    assert db.execute("SELECT sealed_json FROM documents WHERE document_id = 'DEMO-1'").fetchone()[0] == "SEALED-PAYLOAD"
     db.close()
 
 
 test_ledger(1)
 test_ledger(2)
-test_archive()
-print("SQLite SQL migration fixtures: v1->v3, v2->v3, archive v1->v2 PASS")
+test_archive(1)
+test_archive(2)
+print("SQLite SQL migration fixtures: ledger v1/v2->v3, archive v1/v2->v3 PASS")
