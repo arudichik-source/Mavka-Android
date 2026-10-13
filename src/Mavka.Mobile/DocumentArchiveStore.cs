@@ -15,6 +15,8 @@ internal sealed record ArchivedDocumentSummary(
     string PostingStatus, string DeliveryStatus, string SyncStatus,
     string? DeletedUtc = null);
 
+internal sealed record MailSyncEvent(string Utc, string State, string Detail);
+
 internal sealed record ArchivedDocument(
     string DocumentId, string Kind, string Number, string Unit, string DocumentDate,
     string ReceivedUtc, string SavedUtc, string Status, string ContentSha256,
@@ -55,6 +57,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         db.ExecSQL("CREATE INDEX idx_document_unit_date ON documents(unit, document_date)");
         CreateStatusTable(db);
         CreateMailProcessingTable(db);
+        CreateSyncJournal(db);
         db.ExecSQL("CREATE INDEX IF NOT EXISTS idx_document_trash ON documents(unit,deleted_utc)");
     }
 
@@ -77,6 +80,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         db.ExecSQL("ALTER TABLE documents ADD COLUMN deleted_utc TEXT NULL");
         db.ExecSQL("CREATE INDEX IF NOT EXISTS idx_document_trash ON documents(unit,deleted_utc)");
         CreateMailProcessingTable(db);
+        CreateSyncJournal(db);
     }
 
     private static void CreateMailProcessingTable(SQLiteDatabase db)
@@ -88,6 +92,46 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
             status TEXT NOT NULL,
             updated_utc TEXT NOT NULL,
             PRIMARY KEY(uid_validity, uid, authorized_sender))");
+    }
+
+    private static void CreateSyncJournal(SQLiteDatabase db)
+    {
+        db.ExecSQL(@"CREATE TABLE IF NOT EXISTS sync_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            changed_utc TEXT NOT NULL,
+            state TEXT NOT NULL,
+            detail TEXT NOT NULL)");
+        db.ExecSQL("CREATE INDEX IF NOT EXISTS idx_sync_journal_id ON sync_journal(id DESC)");
+    }
+
+    public void RecordSyncEvent(string state, string detail)
+    {
+        if (string.IsNullOrWhiteSpace(state) || state.Length > 50 ||
+            string.IsNullOrWhiteSpace(detail) || detail.Length > 280)
+            throw new ArgumentException("Invalid sync event.");
+        using var db = WritableDatabase;
+        var data = new ContentValues();
+        data.Put("changed_utc", DateTimeOffset.UtcNow.ToString("O"));
+        data.Put("state", state);
+        data.Put("detail", detail);
+        db.InsertOrThrow("sync_journal", null, data);
+        // Retain only last 500 diagnostics; never store message bodies,
+        // identities, passwords, key IDs or URLs in the event detail.
+        db.ExecSQL(@"DELETE FROM sync_journal WHERE id NOT IN
+            (SELECT id FROM sync_journal ORDER BY id DESC LIMIT 500)");
+    }
+
+    public IReadOnlyList<MailSyncEvent> ListSyncEvents(int maximum = 100)
+    {
+        var entries = new List<MailSyncEvent>();
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            "SELECT changed_utc,state,detail FROM sync_journal ORDER BY id DESC LIMIT ?",
+            new[] { Math.Clamp(maximum, 1, 200).ToString() });
+        while (cursor.MoveToNext())
+            entries.Add(new MailSyncEvent(cursor.GetString(0),
+                cursor.GetString(1), cursor.GetString(2)));
+        return entries;
     }
 
     private static void CreateStatusTable(SQLiteDatabase db)
