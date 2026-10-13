@@ -182,8 +182,12 @@ internal static class GmailConnectionService
                 timeout.Token)).ToArray();
         var keyUids = keyMatches.Reverse().Take(10).Select(uid => uid.Id).ToHashSet();
 
-        var fileMatches = await client.Inbox.SearchAsync(SearchQuery.FromContains(allowedSender.Trim())
-            .And(SearchQuery.SubjectContains(MavkaFileParts.Format)), timeout.Token);
+        var fileMatches = noticesOnly
+            ? Array.Empty<UniqueId>()
+            : (await client.Inbox.SearchAsync(
+                SearchQuery.FromContains(allowedSender.Trim())
+                    .And(SearchQuery.SubjectContains(MavkaFileParts.Format)),
+                timeout.Token)).ToArray();
         var fileUids = fileMatches.Reverse().Take(150).Select(u => u.Id).ToHashSet();
         // A completed archive item is never fetched again merely to retry
         // Gmail Trash. The remote operation still revalidates the exact From
