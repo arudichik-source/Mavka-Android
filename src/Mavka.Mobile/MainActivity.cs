@@ -1102,6 +1102,7 @@ public class MainActivity : Activity
             info.AddView(positionList);
             int displayed = 0;
             var more = new Android.Widget.Button(this) { Text = "Показати ще 25 позицій" };
+            StylePrimaryButton(more);
             info.AddView(more);
             void AppendNextPage()
             {
@@ -2715,6 +2716,7 @@ public class MainActivity : Activity
         });
 
         var sendButton = new Android.Widget.Button(this) { Text = "Надіслати реєстрацію ГОЛОВНІЙ МАВЦІ" };
+        StylePrimaryButton(sendButton);
         card.AddView(sendButton);
         sendButton.Click += (_, _) =>
         {
@@ -3037,6 +3039,7 @@ public class MainActivity : Activity
         });
 
         var save = new Button(this) { Text = "Перевірити й зберегти" };
+        StylePrimaryButton(save);
         card.AddView(save);
         save.Click += async (_, _) =>
         {
@@ -3336,6 +3339,15 @@ public class MainActivity : Activity
         view.SetPadding(0, Dp(3), 0, Dp(7));
         parent.AddView(view);
         return view;
+    }
+
+    private void StylePrimaryButton(Android.Widget.Button button)
+    {
+        button.SetAllCaps(false);
+        button.SetTextColor(Color.White);
+        button.Background = Rounded(_theme.PrimaryAction, 13);
+        button.SetMinHeight(Dp(47));
+        button.SetPadding(Dp(12), Dp(8), Dp(12), Dp(8));
     }
 
     private Android.Widget.Button Button(LinearLayout parent, string text, Action callback)
