@@ -163,13 +163,25 @@ public class MainActivity : Activity
         host.AddView(_drawerOverlay, new FrameLayout.LayoutParams(-1, -1));
 
         SetContentView(host);
-        if (state?.GetString("mavka_restored_screen") == "settings")
+        if (Intent?.GetBooleanExtra("show_mavka_notices", false) == true)
+            ShowNotices();
+        else if (state?.GetString("mavka_restored_screen") == "settings")
             ShowSettings();
         else ShowHome();
         // Orientation changes are handled by this Activity, not a new OnCreate.
         // Do not replay welcome after restoring an existing Activity.
         if (state is null)
             StartWelcomeSplash(host);
+    }
+
+    protected override void OnNewIntent(Intent? intent)
+    {
+        base.OnNewIntent(intent);
+        if (intent?.GetBooleanExtra("show_mavka_notices", false) == true)
+        {
+            SetIntent(intent);
+            ShowNotices();
+        }
     }
 
     protected override void OnSaveInstanceState(Bundle outState)
