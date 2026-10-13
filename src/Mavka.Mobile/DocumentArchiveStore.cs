@@ -12,13 +12,15 @@ namespace Mavka.Mobile;
 internal sealed record ArchivedDocumentSummary(
     string DocumentId, string Kind, string Number, string Unit, string DocumentDate,
     string SavedUtc, string Status,
-    string PostingStatus, string DeliveryStatus, string SyncStatus);
+    string PostingStatus, string DeliveryStatus, string SyncStatus,
+    string? DeletedUtc = null);
 
 internal sealed record ArchivedDocument(
     string DocumentId, string Kind, string Number, string Unit, string DocumentDate,
     string ReceivedUtc, string SavedUtc, string Status, string ContentSha256,
     string FileName, string Json,
-    string PostingStatus, string DeliveryStatus, string SyncStatus);
+    string PostingStatus, string DeliveryStatus, string SyncStatus,
+    string? DeletedUtc = null);
 
 /// <summary>
 /// Independent on-device archive. A Gmail message may be moved only after every
@@ -30,7 +32,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
     private const string KeyAlias = "mavka_document_archive_aes_v1";
 
     public DocumentArchiveStore(Context context)
-        : base(context, "mavka_document_archive_v1.db", null, 2) { }
+        : base(context, "mavka_document_archive_v1.db", null, 3) { }
 
     public override void OnCreate(SQLiteDatabase db)
     {
@@ -48,26 +50,32 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
             sealed_json TEXT NOT NULL,
             posting_status TEXT NOT NULL DEFAULT 'not_posted',
             delivery_status TEXT NOT NULL DEFAULT 'not_queued',
-            sync_status TEXT NOT NULL DEFAULT 'not_synced')");
+            sync_status TEXT NOT NULL DEFAULT 'not_synced',
+            deleted_utc TEXT NULL)");
         db.ExecSQL("CREATE INDEX idx_document_unit_date ON documents(unit, document_date)");
         CreateStatusTable(db);
         CreateMailProcessingTable(db);
+        db.ExecSQL("CREATE INDEX IF NOT EXISTS idx_document_trash ON documents(unit,deleted_utc)");
     }
 
     public override void OnUpgrade(SQLiteDatabase db, int oldVersion, int newVersion)
     {
-        if (oldVersion != 1 || newVersion != 2)
+        if (oldVersion is < 1 or > 2 || newVersion != 3)
             throw new InvalidOperationException("Unsupported document archive migration.");
-        // Append-only: preserve every previously saved encrypted document.
-        db.ExecSQL("ALTER TABLE documents ADD COLUMN posting_status TEXT NOT NULL DEFAULT 'not_posted'");
-        db.ExecSQL("ALTER TABLE documents ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'not_queued'");
-        db.ExecSQL("ALTER TABLE documents ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'not_synced'");
-        CreateStatusTable(db);
-        db.ExecSQL(@"INSERT INTO document_status_history
-             (document_id, domain, state, changed_utc)
-             SELECT document_id, 'archive', status, saved_utc FROM documents");
-        // v1 installations predate Gmail UID journaling. The fresh-schema
-        // OnCreate path already creates the table; upgrade must do likewise.
+        // v1 -> v2 -> v3. Never drop/recreate archived encrypted records.
+        if (oldVersion == 1)
+        {
+            db.ExecSQL("ALTER TABLE documents ADD COLUMN posting_status TEXT NOT NULL DEFAULT 'not_posted'");
+            db.ExecSQL("ALTER TABLE documents ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'not_queued'");
+            db.ExecSQL("ALTER TABLE documents ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'not_synced'");
+            CreateStatusTable(db);
+            db.ExecSQL(@"INSERT INTO document_status_history
+                 (document_id, domain, state, changed_utc)
+                 SELECT document_id, 'archive', status, saved_utc FROM documents");
+            CreateMailProcessingTable(db);
+        }
+        db.ExecSQL("ALTER TABLE documents ADD COLUMN deleted_utc TEXT NULL");
+        db.ExecSQL("CREATE INDEX IF NOT EXISTS idx_document_trash ON documents(unit,deleted_utc)");
         CreateMailProcessingTable(db);
     }
 
@@ -170,6 +178,110 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         finally { db.EndTransaction(); }
     }
 
+    public void MoveToTrash(string documentId, string unit)
+    {
+        if (string.IsNullOrWhiteSpace(unit) || string.IsNullOrWhiteSpace(documentId))
+            throw new ArgumentException("Вкажи документ і підрозділ.");
+        using var db = WritableDatabase;
+        db.BeginTransaction();
+        try
+        {
+            using var cursor = db.RawQuery(
+                "SELECT posting_status, deleted_utc FROM documents WHERE document_id = ? AND unit = ? COLLATE NOCASE",
+                new[] { documentId, unit.Trim() });
+            if (!cursor.MoveToFirst()) throw new InvalidOperationException("Документ не знайдено.");
+            if (!cursor.IsNull(1)) throw new InvalidOperationException("Документ уже в кошику.");
+            if (!ArchiveTrashPolicy.CanMoveToTrash(cursor.GetString(0)))
+                throw new InvalidOperationException(
+                    "Проведений документ не можна видаляти з архіву. Спочатку потрібна окрема облікова операція скасування.");
+            var now = DateTimeOffset.UtcNow.ToString("O");
+            var values = new ContentValues();
+            values.Put("deleted_utc", now);
+            if (db.Update("documents", values,
+                "document_id = ? AND unit = ? COLLATE NOCASE AND deleted_utc IS NULL",
+                new[] { documentId, unit.Trim() }) != 1)
+                throw new InvalidOperationException("Документ не переміщено до кошика.");
+            InsertArchiveEvent(db, documentId, "trash", "moved", now);
+            db.SetTransactionSuccessful();
+        }
+        finally { db.EndTransaction(); }
+    }
+
+    public void RestoreFromTrash(string documentId, string unit)
+    {
+        using var db = WritableDatabase;
+        db.BeginTransaction();
+        try
+        {
+            using var cursor = db.RawQuery(
+                "SELECT deleted_utc FROM documents WHERE document_id = ? AND unit = ? COLLATE NOCASE",
+                new[] { documentId, unit.Trim() });
+            if (!cursor.MoveToFirst() || cursor.IsNull(0) ||
+                !ArchiveTrashPolicy.CanRestore(cursor.GetString(0), DateTimeOffset.UtcNow))
+                throw new InvalidOperationException("Строк відновлення документа минув або документ відсутній.");
+            var values = new ContentValues();
+            values.PutNull("deleted_utc");
+            if (db.Update("documents", values, "document_id = ? AND unit = ? COLLATE NOCASE",
+                new[] { documentId, unit.Trim() }) != 1)
+                throw new InvalidOperationException("Не вдалося відновити документ.");
+            InsertArchiveEvent(db, documentId, "trash", "restored", DateTimeOffset.UtcNow.ToString("O"));
+            db.SetTransactionSuccessful();
+        }
+        finally { db.EndTransaction(); }
+    }
+
+    public int PurgeExpiredTrash(string unit)
+    {
+        if (string.IsNullOrWhiteSpace(unit)) throw new ArgumentException("Підрозділ не визначено.");
+        using var db = WritableDatabase;
+        db.BeginTransaction();
+        try
+        {
+            var expired = new List<string>();
+            using (var cursor = db.RawQuery(
+                @"SELECT document_id, deleted_utc FROM documents
+                  WHERE unit = ? COLLATE NOCASE AND deleted_utc IS NOT NULL
+                    AND posting_status <> 'posted'",
+                new[] { unit.Trim() }))
+                while (cursor.MoveToNext())
+                    if (ArchiveTrashPolicy.CanPurge(cursor.GetString(1), DateTimeOffset.UtcNow))
+                        expired.Add(cursor.GetString(0));
+            foreach (var id in expired)
+            {
+                db.Delete("documents", "document_id = ?", new[] { id });
+                db.Delete("document_status_history", "document_id = ?", new[] { id });
+            }
+            db.SetTransactionSuccessful();
+            return expired.Count;
+        }
+        finally { db.EndTransaction(); }
+    }
+
+    private static void InsertArchiveEvent(SQLiteDatabase db, string documentId,
+        string domain, string state, string when)
+    {
+        var ev = new ContentValues();
+        ev.Put("document_id", documentId);
+        ev.Put("domain", domain);
+        ev.Put("state", state);
+        ev.Put("changed_utc", when);
+        db.InsertOrThrow("document_status_history", null, ev);
+    }
+
+    public IReadOnlyList<ArchivedDocumentSummary> ListTrash(string unit)
+    {
+        var results = new List<ArchivedDocumentSummary>();
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            @"SELECT document_id, kind, number, unit, document_date, saved_utc,
+                     status, posting_status, delivery_status, sync_status, deleted_utc
+              FROM documents WHERE unit = ? COLLATE NOCASE AND deleted_utc IS NOT NULL
+              ORDER BY deleted_utc DESC LIMIT 1000", new[] { unit.Trim() });
+        while (cursor.MoveToNext())
+            results.Add(ReadSummary(cursor));
+        return results;
+    }
+
     public void MarkPosted(string documentId) => UpdateStatus(documentId, "posting_status", "posted");
     public void MarkDeliveryQueued(string documentId) => UpdateStatus(documentId, "delivery_status", "pending");
     public void MarkDeliverySent(string documentId) => UpdateStatus(documentId, "delivery_status", "sent");
@@ -261,7 +373,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
     {
         using var db = ReadableDatabase;
         using var cursor = db.RawQuery(
-            "SELECT COUNT(*) FROM documents WHERE unit = ? COLLATE NOCASE", new[] { unit });
+            "SELECT COUNT(*) FROM documents WHERE unit = ? COLLATE NOCASE AND deleted_utc IS NULL", new[] { unit });
         return cursor.MoveToFirst() ? cursor.GetInt(0) : 0;
     }
 
@@ -271,14 +383,10 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         using var db = ReadableDatabase;
         using var cursor = db.RawQuery(
             @"SELECT document_id, kind, number, unit, document_date, saved_utc, status,
-                     posting_status, delivery_status, sync_status
-              FROM documents WHERE unit = ? COLLATE NOCASE
+                     posting_status, delivery_status, sync_status, deleted_utc
+              FROM documents WHERE unit = ? COLLATE NOCASE AND deleted_utc IS NULL
               ORDER BY saved_utc DESC, document_id DESC", new[] { unit });
-        while (cursor.MoveToNext())
-            results.Add(new ArchivedDocumentSummary(cursor.GetString(0), cursor.GetString(1),
-                cursor.GetString(2), cursor.GetString(3), cursor.GetString(4),
-                cursor.GetString(5), cursor.GetString(6), cursor.GetString(7),
-                cursor.GetString(8), cursor.GetString(9)));
+        while (cursor.MoveToNext()) results.Add(ReadSummary(cursor));
         return results;
     }
 
@@ -290,11 +398,17 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
             @"SELECT document_id, kind, number, unit, document_date,
                      received_utc, saved_utc, status, content_sha256, file_name, sealed_json,
                      posting_status, delivery_status, sync_status
-              FROM documents WHERE unit = ? COLLATE NOCASE
+              FROM documents WHERE unit = ? COLLATE NOCASE AND deleted_utc IS NULL
               ORDER BY saved_utc DESC LIMIT 1000", new[] { unit });
         while (cursor.MoveToNext()) results.Add(Read(cursor));
         return results;
     }
+
+    private static ArchivedDocumentSummary ReadSummary(Android.Database.ICursor cursor) =>
+        new(cursor.GetString(0), cursor.GetString(1), cursor.GetString(2),
+            cursor.GetString(3), cursor.GetString(4), cursor.GetString(5),
+            cursor.GetString(6), cursor.GetString(7), cursor.GetString(8),
+            cursor.GetString(9), cursor.IsNull(10) ? null : cursor.GetString(10));
 
     private static ArchivedDocument Read(Android.Database.ICursor cursor)
     {
