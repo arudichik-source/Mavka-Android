@@ -24,6 +24,7 @@ internal static class MavkaExportPolicy
         return fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ||
                fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ||
                fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ||
-               fileName.EndsWith(".doc", StringComparison.OrdinalIgnoreCase);
+               fileName.EndsWith(".doc", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".mavkafile", StringComparison.OrdinalIgnoreCase);
     }
 }
