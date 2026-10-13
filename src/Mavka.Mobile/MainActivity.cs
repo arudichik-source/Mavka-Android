@@ -179,7 +179,6 @@ public class MainActivity : Activity
         base.OnNewIntent(intent);
         if (intent?.GetBooleanExtra("show_mavka_notices", false) == true)
         {
-            SetIntent(intent);
             ShowNotices();
         }
     }
