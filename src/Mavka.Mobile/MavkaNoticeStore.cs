@@ -94,7 +94,8 @@ internal sealed class MavkaNoticeStore(Context context)
             Convert.FromHexString(hash), Convert.FromHexString(cursor.GetString(4))))
             throw new CryptographicException("Захищене повідомлення пошкоджене.");
         if (!MavkaNoticeProtocol.TryRead(json, unit,
-            DateTimeOffset.UtcNow, out var notice) || notice is null)
+            DateTimeOffset.UtcNow, out var notice,
+            enforceFreshness: false) || notice is null)
             throw new CryptographicException("Не вдалося перевірити збережене повідомлення.");
         DateTimeOffset? remindAt = cursor.IsNull(2) ? null :
             DateTimeOffset.FromUnixTimeMilliseconds(cursor.GetLong(2));
