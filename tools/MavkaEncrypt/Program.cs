@@ -61,6 +61,36 @@ else if (args.Length == 4 && (args[0] == "encrypt" || args[0] == "encrypt-passwo
     }
     finally { CryptographicOperations.ZeroMemory(key); }
 }
+else if (args.Length == 4 && args[0] == "file-password")
+{
+    // A complete portable binary attachment: AES-256-GCM exchange key +
+    // independent password-derived AES-256-GCM outer envelope.
+    if (File.Exists(args[3]))
+        throw new InvalidOperationException("Output file exists. Refusing overwrite.");
+    var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
+    if (key.Length != 32) throw new ArgumentException("AES-256 key expected.");
+    var length = new FileInfo(args[2]).Length;
+    if (length is < 8 or > MavkaEncryptedFileEnvelope.MaxSingleFileBytes)
+        throw new ArgumentException("Use file-parts-password for files over 2 MB.");
+    byte[] plain = File.ReadAllBytes(args[2]);
+    try
+    {
+        var fileName = Path.GetFileName(args[2]);
+        var inner = MavkaEncryptedFileEnvelope.Encrypt(fileName, plain, key);
+        var password = ReadDocumentPassword();
+        var protectedFile = MavkaPasswordedEnvelope.Wrap(inner, password);
+        if (!string.Equals(MavkaPasswordedEnvelope.Unwrap(protectedFile, password),
+                inner, StringComparison.Ordinal))
+            throw new CryptographicException("Failed password-layer verification.");
+        File.WriteAllText(args[3], protectedFile, new UTF8Encoding(false));
+        Console.WriteLine("One password/key-protected file created: " + fileName);
+    }
+    finally
+    {
+        CryptographicOperations.ZeroMemory(key);
+        CryptographicOperations.ZeroMemory(plain);
+    }
+}
 else if (args.Length == 4 && (args[0] == "file-parts" || args[0] == "file-parts-password"))
 {
     var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
@@ -218,6 +248,7 @@ else
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- create-key PRIVATE.mavka-key");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- encrypt PRIVATE.mavka-key input.json encrypted.json");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- encrypt-password PRIVATE.mavka-key input.json protected.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- file-password PRIVATE.mavka-key input.docx input.docx.mavkafile");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- file-parts-password PRIVATE.mavka-key input.pdf OUTPUT_DIR");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- drive-command-password PRIVATE.mavka-key bundle.json DRIVE_ID HTTPS_URL output.json");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- demo-package output.json");
