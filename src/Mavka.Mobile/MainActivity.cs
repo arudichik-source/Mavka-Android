@@ -3163,6 +3163,112 @@ public class MainActivity : Activity
             }).Show();
     }
 
+    private void ShowGoogleDriveUpdate()
+    {
+        Begin("apk-update", "Оновлення через Google Drive");
+        var card = Card();
+        Text(card, "Оновлення Мавки без видалення даних", 18, true);
+        Text(card, "Встав посилання Google Drive на APK. Файл має бути доступний " +
+            "для завантаження за посиланням (без входу в Google). " +
+            "Установлення можливе тільки для ua.mavka.mobile з новішим " +
+            "versionCode та тим самим Android-сертифікатом підпису.", 13);
+        Text(card, "На відміну від документів, APK не розшифровується ключем " +
+            "обміну. Його справжність перевіряється підписом Android. " +
+            "Оновити окрему QA31 таким способом не вийде: у неї інший пакет.",
+            13);
+        var link = ProfileInput(card,
+            "https://drive.google.com/file/d/…/view", "");
+        var status = Text(card,
+            "Встав посилання або продовж установлення вже завантаженого APK.", 13);
+        Button(card, "Завантажити / встановити оновлення", async () =>
+        {
+            if (_busy) return;
+            _busy = true;
+            var apkPath = UpdateApkContentProvider.StagedPath(this);
+            try
+            {
+                var typed = (link.Text ?? "").Trim();
+                if (typed.Length != 0)
+                {
+                    status.Text = "Завантаження APK із Google Drive...";
+                    var progress = new Progress<(long Bytes, long? Total)>(value =>
+                    {
+                        if (_screen != "apk-update") return;
+                        status.Text = value.Total is long total && total > 0
+                            ? "Завантаження: " + (100 * value.Bytes / total) +
+                              "% · " + (value.Bytes / 1024 / 1024) + " МБ"
+                            : "Завантажено: " + (value.Bytes / 1024 / 1024) + " МБ";
+                    });
+                    await DriveApkDownloader.DownloadAsync(typed, apkPath, progress);
+                }
+                else if (!File.Exists(apkPath))
+                    throw new ArgumentException("Спочатку встав посилання Google Drive.");
+                status.Text = "Перевірка APK, версії та сертифіката підпису...";
+                var verified = await Task.Run(() =>
+                    AndroidApkUpdateInstaller.Verify(this, apkPath));
+                if (_screen != "apk-update") return;
+                status.Text = "APK перевірено: " + (verified.ApkBytes / 1024 / 1024) +
+                    " МБ · Android versionCode " + verified.NewVersion +
+                    ". Інсталятор відкривається лише після підтвердження.";
+                new AlertDialog.Builder(this)
+                    .SetTitle("Установити оновлення Мавки?")
+                    .SetMessage("Поточна версія: " + verified.CurrentVersion +
+                        "\nНова версія: " + verified.NewVersion +
+                        "\nSHA-256: " + verified.ApkSha256 +
+                        "\n\nПакет і підпис перевірено. " +
+                        "Android додатково перевірить підпис перед установленням. " +
+                        "Мавка не видаляє локальний облік, Gmail і ключі.")
+                    .SetNegativeButton("Не зараз", (_, _) => { })
+                    .SetPositiveButton("Продовжити", (_, _) =>
+                    {
+                        try
+                        {
+                            if (!AndroidApkUpdateInstaller.HasInstallerPermission(this))
+                            {
+                                status.Text = "Надай Android дозвіл на оновлення " +
+                                    "з цього джерела. Потім повернися й натисни ту саму кнопку.";
+                                AndroidApkUpdateInstaller.RequestInstallerPermission(this);
+                                return;
+                            }
+                            AndroidApkUpdateInstaller.LaunchSystemInstaller(this, apkPath);
+                        }
+                        catch (Exception ex)
+                        {
+                            status.Text = "Установлення неможливе: " +
+                                ExplainOperationError(ex);
+                        }
+                    }).Show();
+            }
+            catch (Exception ex)
+            {
+                if (_screen == "apk-update")
+                    status.Text = "Оновлення відхилено: " +
+                        ExplainOperationError(ex);
+            }
+            finally { _busy = false; }
+        });
+        Button(card, "Видалити завантажений інсталяційний APK", () =>
+            new AlertDialog.Builder(this)
+                .SetTitle("Очистити завантажений APK?")
+                .SetMessage("Видаляється лише тимчасовий інсталяційний файл, " +
+                    "а не застосунок, документи чи база.")
+                .SetNegativeButton("Скасувати", (_, _) => { })
+                .SetPositiveButton("Очистити", (_, _) =>
+                {
+                    if (_busy) return;
+                    try
+                    {
+                        var path = UpdateApkContentProvider.StagedPath(this);
+                        if (File.Exists(path)) File.Delete(path);
+                        status.Text = "Тимчасовий APK видалено. Дані Мавки збережені.";
+                    }
+                    catch (Exception)
+                    {
+                        status.Text = "Не вдалося видалити тимчасовий APK.";
+                    }
+                }).Show());
+    }
+
     private void ShowSettings()
     {
         Begin("settings", "Налаштування");
@@ -3171,6 +3277,12 @@ public class MainActivity : Activity
         Text(appearance, "Поточна тема: " + _theme.Label +
             ". Вибір зберігається після перезапуску застосунку.", 14);
         Button(appearance, "Змінити колірну тему", ShowThemeChooser);
+        var updateCard = Card();
+        Text(updateCard, "Оновлення Мавки", 18, true);
+        Text(updateCard, "Встановлення за посиланням Google Drive. " +
+            "Мавка перевіряє пакет, новішу версію та підпис APK. " +
+            "Поточна база й ключі не видаляються.", 13);
+        Button(updateCard, "Оновити через Google Drive", ShowGoogleDriveUpdate);
         var card = Card();
         Text(card, "Пошта Gmail", 20, true);
         Text(card, _store.HasCredentials ? _store.GetEmail() : "Не підключено", 16);
