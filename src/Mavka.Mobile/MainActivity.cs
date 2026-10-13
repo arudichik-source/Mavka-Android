@@ -260,32 +260,8 @@ public class MainActivity : Activity
             : "Gmail не підключено.", 14);
         Button(card, "Оновити повідомлення", async () =>
             await RefreshMessagesAsync(status));
-        Button(card, "Повторити надсилання підтверджень", async () =>
-        {
-            if (_busy) return;
-            if (!_store.HasCredentials ||
-                string.IsNullOrWhiteSpace(_store.GetMainMavkaEmail()))
-            {
-                status.Text = "Спочатку налаштуй Gmail та адресу ГОЛОВНОЇ МАВКИ.";
-                return;
-            }
-            _busy = true;
-            status.Text = "Повторно надсилаємо підтвердження...";
-            try
-            {
-                var password = _store.GetPassword() ??
-                    throw new InvalidOperationException("Пароль Gmail відсутній.");
-                var report = await SendPendingReceiptsAsync(
-                    password, _store.GetMainMavkaEmail());
-                if (_screen == "sync") status.Text = report;
-            }
-            catch (Exception ex)
-            {
-                if (_screen == "sync")
-                    status.Text = "Помилка надсилання: " + ExplainOperationError(ex);
-            }
-            finally { _busy = false; }
-        });
+        Text(card, "Оновлення пошти автоматично повторює відправлення " +
+            "підтверджень із черги. Окрема кнопка не потрібна.", 12);
         Text(card, "Повідомлення, що вже надійно оброблені, " +
             "не потрібно завантажувати повторно.", 12);
     }
@@ -753,7 +729,7 @@ public class MainActivity : Activity
         {
             var empty = Card();
             Text(empty, _messages.Count == 0
-                ? "Службових листів поки немає. Натисни «Оновити листи»."
+                ? "Службових листів поки немає. Онови їх у меню ☰ → Синхронізація Gmail."
                 : "За цим пошуком листів не знайдено.", 15);
             return;
         }
@@ -2801,26 +2777,8 @@ public class MainActivity : Activity
               "\nМайбутній ключ: " + _exchangeKeys.FutureKeyId
             : "Немає автоматично встановленої пари ключів.", 15);
 
-        Button(card, "Оновити ключі з Gmail", async () =>
-        {
-            if (!_documentPasswords.IsConfigured)
-            {
-                status.Text = "Спочатку один раз збережи пароль документів у налаштуваннях.";
-                return;
-            }
-            if (LoadUserProfile() is null)
-            {
-                status.Text = "Спочатку заповни профіль користувача.";
-                return;
-            }
-            await RefreshMessagesAsync(status);
-            if (_screen == "exchange-key")
-                status.Text = _exchangeKeys.HasKeyPair
-                    ? "Ключі встановлено. Покоління: " + _exchangeKeys.Generation +
-                      "\nПоточний: " + _exchangeKeys.CurrentKeyId +
-                      "\nМайбутній: " + _exchangeKeys.FutureKeyId
-                    : "Ключів не знайдено. Перевір пароль, Gmail і адресата.";
-        });
+        Text(card, "Нові ключі імпортуються під час звичайної синхронізації: " +
+            "☰ → Синхронізація Gmail → Оновити повідомлення.", 13);
         Text(card, "Шифрування вихідних листів активується автоматично після отримання ключів. " +
             "Під час початкової реєстрації, до видачі ключів, лист ще не зашифрований.", 13);
         Text(card, "Тестовий пароль 090699 слабкий. Лише для випробувань без реальних службових даних.", 13);
