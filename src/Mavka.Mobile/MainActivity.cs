@@ -264,6 +264,30 @@ public class MainActivity : Activity
             "підтверджень із черги. Окрема кнопка не потрібна.", 12);
         Text(card, "Повідомлення, що вже надійно оброблені, " +
             "не потрібно завантажувати повторно.", 12);
+        var journal = Card();
+        Text(journal, "Журнал синхронізації", 18, true);
+        Text(journal, "Лише стани операцій і час; вміст документів, " +
+            "паролі та ключі тут не записуються.", 12);
+        Button(journal, "Показати останні події", () =>
+        {
+            try
+            {
+                var events = _archive.ListSyncEvents(50);
+                var details = events.Count == 0
+                    ? "Подій поки немає."
+                    : string.Join("\n", events.Select(e =>
+                        e.Utc + " · " + e.State + " · " + e.Detail));
+                new AlertDialog.Builder(this)
+                    .SetTitle("Синхронізація — останні 50 подій")
+                    .SetMessage(details)
+                    .SetPositiveButton("Закрити", (_, _) => { }).Show();
+            }
+            catch (Exception)
+            {
+                Toast.MakeText(this, "Не вдалося відкрити журнал.",
+                    ToastLength.Long)?.Show();
+            }
+        });
     }
 
         private void ShowInbox()
@@ -1321,6 +1345,8 @@ public class MainActivity : Activity
             return;
         }
         _busy = true;
+        try { _archive.RecordSyncEvent("start", "Розпочато отримання листів"); }
+        catch { /* Do not interrupt encrypted mail processing for diagnostics. */ }
         var syncWatch = System.Diagnostics.Stopwatch.StartNew();
         long metadataMillis = 0, importMillis = 0, trashMillis = 0;
         status.Text = "Перевірка службових листів...";
@@ -1338,6 +1364,13 @@ public class MainActivity : Activity
             importMillis = syncWatch.ElapsedMilliseconds - metadataMillis;
             var report = await ArchiveAndCleanupAsync(password, sender);
             trashMillis = syncWatch.ElapsedMilliseconds - metadataMillis - importMillis;
+            try
+            {
+                _archive.RecordSyncEvent("complete",
+                    "IMAP " + metadataMillis + " мс · вкладення " + importMillis +
+                    " мс · архів/кошик " + trashMillis + " мс");
+            }
+            catch { /* Privacy-safe logging must not affect synchronization. */ }
             SaveInboxCacheSafe();
             var syncReport = await SendPendingReceiptsAsync(password, sender);
             try { await SendPendingFilePartsAsync(maximum: 3); }
