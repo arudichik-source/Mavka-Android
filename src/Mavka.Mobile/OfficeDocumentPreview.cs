@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Xml;
+using System.Xml.Linq;
 
 namespace Mavka.Mobile;
 
@@ -90,32 +91,19 @@ internal static class OfficeDocumentPreview
             throw new InvalidDataException("Таблиця рядків XLSX завелика.");
         var result = new List<string>();
         var totalCharacters = 0;
-        StringBuilder? item = null;
         using var stream = entry.Open();
         using var reader = XmlReader.Create(stream, SecureXmlSettings());
-        while (reader.Read())
+        var document = XDocument.Load(reader, LoadOptions.None);
+        foreach (var si in document.Descendants().Where(e => e.Name.LocalName == "si"))
         {
-            if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "si")
-            {
-                if (result.Count >= MaxSharedStrings)
-                    throw new InvalidDataException("Перевищено межу рядків XLSX.");
-                item = new StringBuilder();
-            }
-            else if (reader.NodeType == XmlNodeType.Element &&
-                     reader.LocalName == "t" && item is not null)
-            {
-                var value = reader.ReadElementContentAsString();
-                totalCharacters += value.Length;
-                if (totalCharacters > MaxSharedCharacters)
-                    throw new InvalidDataException("Перевищено межу текстового вмісту XLSX.");
-                item.Append(value);
-            }
-            else if (reader.NodeType == XmlNodeType.EndElement &&
-                     reader.LocalName == "si" && item is not null)
-            {
-                result.Add(item.ToString());
-                item = null;
-            }
+            if (result.Count >= MaxSharedStrings)
+                throw new InvalidDataException("Перевищено межу рядків XLSX.");
+            var value = string.Concat(si.Descendants()
+                .Where(e => e.Name.LocalName == "t").Select(e => e.Value));
+            totalCharacters += value.Length;
+            if (totalCharacters > MaxSharedCharacters)
+                throw new InvalidDataException("Перевищено межу текстового вмісту XLSX.");
+            result.Add(value);
         }
         return result.ToArray();
     }
