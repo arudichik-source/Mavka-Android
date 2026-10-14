@@ -2636,6 +2636,29 @@ public class MainActivity : Activity
                             }
                             finally { _busy = false; }
                         });
+                    if (entry.Name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ||
+                        entry.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+                        Button(entriesPanel, "Відкрити в бібліотеці", async () =>
+                        {
+                            if (_busy) return;
+                            _busy = true;
+                            try
+                            {
+                                using var file = await Task.Run(() => _privateFiles.Load(entry.Id));
+                                var preview = await Task.Run(() =>
+                                    OfficeDocumentPreview.Read(file.FileName, file.Content));
+                                new AlertDialog.Builder(this)
+                                    .SetTitle(entry.Name)
+                                    .SetMessage(preview)
+                                    .SetPositiveButton("Закрити", (_, _) => { }).Show();
+                            }
+                            catch (Exception ex)
+                            {
+                                Toast.MakeText(this, "Не вдалося відкрити документ: " +
+                                    ExplainOperationError(ex), ToastLength.Long)?.Show();
+                            }
+                            finally { _busy = false; }
+                        });
                     Button(entriesPanel, "Зберегти розшифровану копію", () =>
                     {
                         if (_busy) return;
