@@ -138,7 +138,7 @@ public class MainActivity : Activity
         Button(leftPanel, "Сповіщення та нагадування", () => { CloseDrawer(); ShowNotices(); });
         Button(leftPanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
         Button(leftPanel, "Історія документів", () => { CloseDrawer(); ShowDocuments(); });
-        Button(leftPanel, "МаVКа файли", () => { CloseDrawer(); ShowFiles(); });
+        Button(leftPanel, "Бібліотека документів", () => { CloseDrawer(); ShowFiles(); });
         _leftDrawer = new ScrollView(this) { FillViewport = true };
         _leftDrawer.SetBackgroundColor(_theme.Surface);
         _leftDrawer.AddView(leftPanel);
@@ -165,6 +165,8 @@ public class MainActivity : Activity
         SetContentView(host);
         if (Intent?.GetBooleanExtra("show_mavka_notices", false) == true)
             ShowNotices();
+        else if (Intent?.GetStringExtra("mavka_widget_destination") is { } widgetDestination)
+            OpenWidgetDestination(widgetDestination);
         else if (state?.GetString("mavka_restored_screen") == "settings")
             ShowSettings();
         else ShowHome();
@@ -178,8 +180,20 @@ public class MainActivity : Activity
     {
         base.OnNewIntent(intent);
         if (intent?.GetBooleanExtra("show_mavka_notices", false) == true)
-        {
             ShowNotices();
+        else if (intent?.GetStringExtra("mavka_widget_destination") is { } destination)
+            OpenWidgetDestination(destination);
+    }
+
+    private void OpenWidgetDestination(string destination)
+    {
+        switch (destination)
+        {
+            case "library": ShowFiles(); break;
+            case "notices": ShowNotices(); break;
+            case "assets": ShowAssets(); break;
+            case "inbox": ShowInbox(); break;
+            default: ShowHome(); break;
         }
     }
 
@@ -282,6 +296,7 @@ public class MainActivity : Activity
                     ExplainOperationError(ex), 13);
             }
         }
+        Button(card, "Бібліотека документів", ShowFiles);
         Text(card, "Перехід між розділами — через натискання на логотип ліворуч.", 13);
     }
 
@@ -2513,7 +2528,7 @@ public class MainActivity : Activity
 
     private void ShowFiles()
     {
-        Begin("files", MavkaExportPolicy.FolderTitle);
+        Begin("files", "Бібліотека документів");
         var header = Card();
         Text(header, "Експортовані PDF та Excel", 18, true);
         Text(header, "Тільки копії з папки Download/МаVКа файли. " +
@@ -2573,7 +2588,7 @@ public class MainActivity : Activity
                     finally { _busy = false; }
                 }).Show());
         var receivedCard = Card();
-        Text(receivedCard, "Захищені отримані PDF/Excel/Word і зображення", 18, true);
+        Text(receivedCard, "Отримані PDF, Excel, Word та зображення", 18, true);
         Text(receivedCard, "Окреме зашифроване сховище Android. " +
             "Ці файли не є документами облікового архіву.", 12);
         var receivedList = new LinearLayout(this) { Orientation = Orientation.Vertical };
@@ -2618,6 +2633,29 @@ public class MainActivity : Activity
                             {
                                 Toast.MakeText(this, "Не вдалося відкрити захищене зображення.",
                                     ToastLength.Long)?.Show();
+                            }
+                            finally { _busy = false; }
+                        });
+                    if (entry.Name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ||
+                        entry.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+                        Button(entriesPanel, "Відкрити в бібліотеці", async () =>
+                        {
+                            if (_busy) return;
+                            _busy = true;
+                            try
+                            {
+                                using var file = await Task.Run(() => _privateFiles.Load(entry.Id));
+                                var preview = await Task.Run(() =>
+                                    OfficeDocumentPreview.Read(file.FileName, file.Content));
+                                new AlertDialog.Builder(this)
+                                    .SetTitle(entry.Name)
+                                    .SetMessage(preview)
+                                    .SetPositiveButton("Закрити", (_, _) => { }).Show();
+                            }
+                            catch (Exception ex)
+                            {
+                                Toast.MakeText(this, "Не вдалося відкрити документ: " +
+                                    ExplainOperationError(ex), ToastLength.Long)?.Show();
                             }
                             finally { _busy = false; }
                         });
