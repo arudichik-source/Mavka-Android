@@ -174,10 +174,23 @@ Check(invalidBackupPassword, "Wrong backup password must fail GCM authentication
 using (var backupDoc = System.Text.Json.JsonDocument.Parse(backup))
 {
     var root = backupDoc.RootElement;
-    string modified = System.Text.Encoding.UTF8.GetString(backup);
-    string validTag = root.GetProperty("tag").GetString()!;
-    string altered = modified.Replace(validTag,
-        Convert.ToBase64String(new byte[16]), StringComparison.Ordinal);
+    // Change the actual JSON tag field, not its escaped serialized text.
+    // System.Text.Json may encode '+' as \\u002B, making string.Replace a no-op.
+    using var buffer = new System.IO.MemoryStream();
+    using (var writer = new System.Text.Json.Utf8JsonWriter(buffer))
+    {
+        writer.WriteStartObject();
+        foreach (var property in root.EnumerateObject())
+        {
+            writer.WritePropertyName(property.Name);
+            if (property.NameEquals("tag"))
+                writer.WriteStringValue(Convert.ToBase64String(new byte[16]));
+            else
+                property.Value.WriteTo(writer);
+        }
+        writer.WriteEndObject();
+    }
+    var altered = System.Text.Encoding.UTF8.GetString(buffer.ToArray());
     bool rejected = false;
     try { PortableBackupEnvelope.Decrypt(
         System.Text.Encoding.UTF8.GetBytes(altered),
