@@ -52,7 +52,7 @@ jobs:
           MAVKA_DOCUMENT_PASSWORD='LOCAL-SYNTHETIC-PASSWORD-ONLY' dotnet run --project tools/MavkaEncrypt -- file-password "$tmp_dir/demo.mavka-key" "$tmp_dir/demo.pdf" "$tmp_dir/demo.pdf.mavkafile"
           grep -q 'MAVKA_PASSWORD_WRAPPED_V1' "$tmp_dir/demo.pdf.mavkafile"
           printf '%s\n' 'Тестове повідомлення' 'Це лише синтетична перевірка.' > "$tmp_dir/test-notice.txt"
-          MAVKA_DOCUMENT_PASSWORD='LOCAL-SYNTHETIC-PASSWORD-ONLY' dotnet run --project tools/MavkaEncrypt -- notice-password "$tmp_dir/demo.mavka-key" 'Тестовий підрозділ' "$tmp_dir/test-notice.txt" "$tmp_dir/test-notice.json" 2026-10-14T09:00:00+03:00
+          MAVKA_DOCUMENT_PASSWORD='LOCAL-SYNTHETIC-PASSWORD-ONLY' dotnet run --project tools/MavkaEncrypt -- notice-password "$tmp_dir/demo.mavka-key" 'Тестовий підрозділ' "$tmp_dir/test-notice.txt" "$tmp_dir/test-notice.json" "$(date -u -d '+1 day' +%Y-%m-%dT%H:%M:%S+00:00)"
           grep -q 'MAVKA_PASSWORD_WRAPPED_V1' "$tmp_dir/test-notice.json"
 
       - name: Verify desktop QR pairing utility
