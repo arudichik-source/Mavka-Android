@@ -77,7 +77,11 @@ internal sealed class MavkaNoticeStore(Context context)
             db.SetTransactionSuccessful();
             return true;
         }
-        finally { db.EndTransaction(); }
+        finally
+        {
+            db.EndTransaction();
+            MavkaHomeWidget.Refresh(context);
+        }
     }
 
     public StoredNotice? Find(string id, string unit)
@@ -123,6 +127,19 @@ internal sealed class MavkaNoticeStore(Context context)
         return cursor.MoveToFirst() ? cursor.GetInt(0) : 0;
     }
 
+    public int PendingReminderCount(string unit)
+    {
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            @"SELECT COUNT(*) FROM notices
+              WHERE unit = ? COLLATE NOCASE
+              AND reminder_ms > ? AND reminded = 0",
+            new[] { unit.Trim(),
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(
+                    System.Globalization.CultureInfo.InvariantCulture) });
+        return cursor.MoveToFirst() ? cursor.GetInt(0) : 0;
+    }
+
     public void MarkRead(string id, string unit)
     {
         using var db = WritableDatabase;
@@ -131,6 +148,7 @@ internal sealed class MavkaNoticeStore(Context context)
         if (db.Update("notices", cv, "notice_id = ? AND unit = ? COLLATE NOCASE",
                 new[] { id, unit }) != 1)
             throw new InvalidOperationException("Повідомлення не знайдено.");
+        MavkaHomeWidget.Refresh(context);
     }
 
     public void SetReminder(string id, string unit, DateTimeOffset? when)
@@ -146,6 +164,7 @@ internal sealed class MavkaNoticeStore(Context context)
         if (db.Update("notices", cv, "notice_id = ? AND unit = ? COLLATE NOCASE",
                 new[] { id, unit }) != 1)
             throw new InvalidOperationException("Повідомлення не знайдено.");
+        MavkaHomeWidget.Refresh(context);
     }
 
     public bool ConsumeReminder(string id, DateTimeOffset now)
@@ -153,10 +172,12 @@ internal sealed class MavkaNoticeStore(Context context)
         using var db = WritableDatabase;
         var cv = new ContentValues();
         cv.Put("reminded", 1);
-        return db.Update("notices", cv,
+        bool consumed = db.Update("notices", cv,
             "notice_id = ? AND reminder_ms <= ? AND reminded = 0",
             new[] { id, now.ToUnixTimeMilliseconds().ToString(
                 System.Globalization.CultureInfo.InvariantCulture) }) == 1;
+        if (consumed) MavkaHomeWidget.Refresh(context);
+        return consumed;
     }
 
     public IReadOnlyList<(string Id, DateTimeOffset At)> PendingReminders()
