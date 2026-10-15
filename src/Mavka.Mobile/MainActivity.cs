@@ -68,6 +68,7 @@ public class MainActivity : Activity
         _ledger = new PropertyLedgerStore(this);
         _archive = new DocumentArchiveStore(this);
         _noticeStore = new MavkaNoticeStore(this);
+        MavkaHomeWidget.Refresh(this);
         MavkaNoticeAlerts.EnsureChannels(this);
         MavkaNoticeAlerts.RescheduleOnStart(this, _noticeStore);
         _exportedFiles = new MavkaExportFileStore(this);
