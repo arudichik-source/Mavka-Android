@@ -58,14 +58,16 @@ public sealed class MavkaHomeWidget : AppWidgetProvider
             // labels instead of confidential content or an app crash.
         }
 
+        // A compact 2x2 tile layout keeps every Ukrainian label on one line.
+        // Re-read theme on refresh so the home widget follows the app palette.
+        bool blue = MavkaThemePalette.Load(context).IsBlue;
         foreach (var id in ids)
         {
-            var views = new RemoteViews(context.PackageName, Resource.Layout.mavka_home_widget);
-            views.SetTextViewText(Resource.Id.widget_header,
-                reminders > 0 ? "МАВКА  ·  Нагадувань: " + reminders
-                              : "МАВКА  ·  ШВИДКИЙ ДОСТУП");
-            views.SetTextViewText(Resource.Id.widget_notices,
-                unread > 0 ? "♢\n" + unread + " нових" : "♢\nСповіщення");
+            var views = new RemoteViews(context.PackageName,
+                blue ? Resource.Layout.mavka_home_widget_blue
+                     : Resource.Layout.mavka_home_widget);
+            views.SetTextViewText(Resource.Id.widget_status,
+                $"Нові: {unread} · Нагад.: {reminders}");
             views.SetOnClickPendingIntent(Resource.Id.widget_library, Open(context, "library", id * 10 + 1));
             views.SetOnClickPendingIntent(Resource.Id.widget_notices, Open(context, "notices", id * 10 + 2));
             views.SetOnClickPendingIntent(Resource.Id.widget_assets, Open(context, "assets", id * 10 + 3));
