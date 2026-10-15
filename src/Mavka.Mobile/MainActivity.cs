@@ -347,7 +347,15 @@ public class MainActivity : Activity
         Begin("inbox", "Вхідні");
         var card = Card();
         Text(card, "Листи ГОЛОВНОЇ МАВКИ", 17, true);
-        Text(card, "Лише від " + _store.GetMainMavkaEmail(), 12);
+        var mainSender = _store.GetMainMavkaEmail();
+        if (string.IsNullOrWhiteSpace(mainSender))
+        {
+            Text(card, "Службову адресу ГОЛОВНОЇ МАВКИ ще не налаштовано. " +
+                "Вкажи її самостійно перед синхронізацією.", 13);
+            Button(card, "Налаштувати службову пошту", ShowMail);
+        }
+        else
+            Text(card, "Лише від " + mainSender, 12);
 
         var search = new EditText(this)
         {
