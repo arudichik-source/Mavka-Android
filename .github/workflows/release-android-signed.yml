@@ -86,7 +86,40 @@ jobs:
           $output = @(& $tool.FullName verify --print-certs $apk)
           if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
           $digest = @($output | Where-Object {
-              $_ -match '^Signer #1 certificate SHA-256 digest:\s*([a-fA-F0-9]{64})$'
+              $_ -match 'certificate SHA-256 digest:\s*([a-fA-F0-9]{64})\s*
+          } | ForEach-Object { $Matches[1].ToLowerInvariant() }) | Select-Object -First 1
+          if (!$digest -or $digest -ne $env:MAVKA_EXPECTED_CERT) {
+            throw 'BLOCKED: signing certificate differs from the approved production fingerprint.'
+          }
+          "Verified certificate SHA-256: $digest"
+          $hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+              package = 'ua.mavka.mobile'
+              apkFile = $apks[0].Name
+              apkSha256 = $hash
+              signingCertSha256 = $digest
+              gitCommit = $env:GITHUB_SHA
+              verifiedUtc = [DateTime]::UtcNow.ToString('o')
+          } | ConvertTo-Json
+          $manifest | Set-Content 'mavka-release-manifest.json' -Encoding utf8
+          "MAVKA_VERIFIED_APK=$apk" >> $env:GITHUB_ENV
+      - name: Upload verified production APK and integrity manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mavka-Mobile-VERIFIED-SIGNED-RELEASE
+          path: |
+            ${{ env.MAVKA_VERIFIED_APK }}
+            mavka-release-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Destroy temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${MAVKA_KEYSTORE_PATH:-}" ]]; then
+            rm -f -- "$MAVKA_KEYSTORE_PATH"
+          fi
+
           } | ForEach-Object { $Matches[1].ToLowerInvariant() }) | Select-Object -First 1
           if (!$digest -or $digest -ne $env:MAVKA_EXPECTED_CERT) {
             throw 'BLOCKED: signing certificate differs from the approved production fingerprint.'
