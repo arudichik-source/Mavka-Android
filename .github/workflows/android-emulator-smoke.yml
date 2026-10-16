@@ -1,0 +1,51 @@
+name: Mavka Mobile Clean Emulator Smoke
+
+on:
+  push:
+    branches:
+      - integration/mobile-complete-20261014
+    paths:
+      - 'src/Mavka.Mobile/**'
+      - 'tools/smoke-android-emulator.sh'
+      - '.github/workflows/android-emulator-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install .NET Android workload
+        run: dotnet workload install android
+      - name: Compile release candidate for clean emulator
+        run: dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release
+      - name: Enable Linux KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install APK and launch on Android 15 emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tools/smoke-android-emulator.sh
+      - name: Save synthetic emulator crash evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mavka-Android-Emulator-Synthetic-Launch-Evidence
+          path: emulator-smoke-artifacts/
+          if-no-files-found: ignore

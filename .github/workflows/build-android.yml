@@ -9,6 +9,12 @@ on:
       - main
   workflow_dispatch:
 
+# Only the newest revision of a draft PR needs a costly Android build.
+# Cancel obsolete runs on the same PR; never cancel unrelated branches/main.
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,6 +22,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify consolidated PR ancestry
+        shell: bash
+        run: bash tools/verify-stacked-integration.sh
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -36,9 +48,64 @@ jobs:
           dotnet run --project tools/MavkaEncrypt -- create-key "$tmp_dir/demo.mavka-key"
           dotnet run --project tools/MavkaEncrypt -- encrypt "$tmp_dir/demo.mavka-key" "$tmp_dir/input.json" "$tmp_dir/crypted.json"
           grep -q 'MAVKA_ENCRYPTED_V1' "$tmp_dir/crypted.json"
+          printf '%s\n' '%PDF-1.7' 'SYNTHETIC DOC' '%%EOF' > "$tmp_dir/demo.pdf"
+          MAVKA_DOCUMENT_PASSWORD='LOCAL-SYNTHETIC-PASSWORD-ONLY' dotnet run --project tools/MavkaEncrypt -- file-password "$tmp_dir/demo.mavka-key" "$tmp_dir/demo.pdf" "$tmp_dir/demo.pdf.mavkafile"
+          grep -q 'MAVKA_PASSWORD_WRAPPED_V1' "$tmp_dir/demo.pdf.mavkafile"
+          printf '%s\n' 'Тестове повідомлення' 'Це лише синтетична перевірка.' > "$tmp_dir/test-notice.txt"
+          MAVKA_DOCUMENT_PASSWORD='LOCAL-SYNTHETIC-PASSWORD-ONLY' dotnet run --project tools/MavkaEncrypt -- notice-password "$tmp_dir/demo.mavka-key" 'Тестовий підрозділ' "$tmp_dir/test-notice.txt" "$tmp_dir/test-notice.json" "$(date -u -d '+1 day' +%Y-%m-%dT%H:%M:%S+00:00)"
+          grep -q 'MAVKA_PASSWORD_WRAPPED_V1' "$tmp_dir/test-notice.json"
+
+      - name: Verify desktop QR pairing utility
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build tools/QrPairingTool/QrPairingTool.csproj -c Release
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          dotnet run --project tools/QrPairingTool -- invite main@example.org "$tmp_dir/qr.png"
+          test -s "$tmp_dir/qr.png"
+          test -s "$tmp_dir/qr.png.json"
+          dotnet run --project tools/QrPairingTool -- ack "$tmp_dir/qr.png.json" TEST-CLIENT "$tmp_dir/ack.json"
+          grep -q 'MAVKA_QR_PAIR_ACK_V1' "$tmp_dir/ack.json"
+
+      - name: Verify Google Drive APK update security
+        run: dotnet run --project tools/ApkUpdateChecks/ApkUpdateChecks.csproj
 
       - name: Verify asset icon categories
         run: dotnet run --project tools/AssetIconChecks/AssetIconChecks.csproj
+
+      - name: Verify offline archive and profile contracts
+        run: dotnet run --project tools/ArchiveChecks/ArchiveChecks.csproj
+
+      - name: Verify historical ledger arithmetic
+        run: dotnet run --project tools/LedgerChecks/LedgerChecks.csproj
+
+      - name: Verify XLSX document generation
+        run: dotnet run --project tools/XlsxChecks/XlsxChecks.csproj
+
+      - name: Verify read-only reconciliation
+        run: dotnet run --project tools/ReconciliationChecks/ReconciliationChecks.csproj
+
+      - name: Verify old SQLite schema migrations
+        run: python3 tools/sqlite_migration_smoke.py
+
+      - name: Verify multipart transfers, Word and Drive commands
+        run: dotnet run --project tools/TransferChecks/TransferChecks.csproj
+
+      - name: Verify generic encrypted file format
+        run: dotnet run --project tools/FileEnvelopeChecks/FileEnvelopeChecks.csproj
+
+      - name: Verify export-folder safety policy
+        run: dotnet run --project tools/FilePolicyChecks/FilePolicyChecks.csproj
+
+      - name: Verify long-document PDF pagination
+        run: dotnet run --project tools/PdfFlowChecks/PdfFlowChecks.csproj
+
+      - name: Verify AES-256 PDF password compatibility
+        run: dotnet run --project tools/ProtectedPdfChecks/ProtectedPdfChecks.csproj
+
+      - name: Verify Excel-compatible password encryption
+        run: dotnet run --project tools/ProtectedXlsxChecks/ProtectedXlsxChecks.csproj
 
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
@@ -46,42 +113,51 @@ jobs:
       - name: Build APK
         run: dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release
 
+      - name: Inspect production APK identity (no installation)
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apks=(src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk)
+          test "${#apks[@]}" -ge 1
+          for apk in "${apks[@]}"; do
+            pwsh -NoProfile -File tools/Inspect-Android-Apk.ps1 \
+              -ApkPath "$apk" -ExpectedPackage ua.mavka.mobile
+          done
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Mavka-Mobile-APK
+          name: Mavka-Mobile-RELEASE-CANDIDATE-APK
           path: src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk
 
-      # GitHub-hosted runners generate a fresh debug signing key, which is
-      # incompatible with an APK installed from a previous run. A distinct
-      # app ID lets users test new UI without uninstalling or wiping the
-      # already installed Mavka Mobile and its local database.
-      - name: Build side-by-side test APK (independent data)
-        shell: bash
-        run: |
-          # Clean intermediate Android packaging files to avoid reusing the
-          # production APK manifest when ApplicationId changes in one job.
-          dotnet clean src/Mavka.Mobile/Mavka.Mobile.csproj -f net10.0-android -c Release
-          mkdir -p "$GITHUB_WORKSPACE/preview-apk"
-          dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj \
-            -f net10.0-android -c Release \
-            -p:ApplicationId=ua.mavka.mobile.preview \
-            -p:ApplicationTitle="Mavka-Mobile-TEST" \
-            -p:PublishDir="$GITHUB_WORKSPACE/preview-apk/"
-          echo "Preview APK output files:"
-          find "$GITHUB_WORKSPACE/preview-apk" -maxdepth 1 -type f -print
-          test -n "$(find "$GITHUB_WORKSPACE/preview-apk" -maxdepth 1 -name '*.apk' -print -quit)"
-          aapt_binary="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name aapt -type f | sort -V | tail -n 1)"
-          test -x "$aapt_binary"
-          for apk in "$GITHUB_WORKSPACE"/preview-apk/*.apk; do
-            actual="$("$aapt_binary" dump badging "$apk" | grep '^package:')"
-            echo "APK manifest: $actual"
-            echo "$actual" | grep -F "package: name='ua.mavka.mobile.preview'"
-          done
+  demo-key-package-tool:
+    # Independent synthetic preview tooling, no real credentials or keys.
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-      - name: Upload side-by-side test APK
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Verify synthetic package cryptography
+        shell: pwsh
+        run: dotnet run --project tools/MavkaEncrypt/MavkaEncrypt.csproj -- selftest
+
+      - name: Publish self-contained Windows demo generator
+        shell: pwsh
+        run: |
+          dotnet publish tools/MavkaEncrypt/MavkaEncrypt.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=none -o "$env:GITHUB_WORKSPACE/demo-tool"
+          if (!(Test-Path "$env:GITHUB_WORKSPACE/demo-tool/MavkaEncrypt.exe")) {
+            throw 'The self-contained Windows executable is missing.'
+          }
+
+      - name: Upload demo key package generator
         uses: actions/upload-artifact@v4
         with:
-          name: Mavka-Mobile-TEST-APK
-          path: preview-apk/*.apk
+          name: Mavka-SYNTHETIC-Key-Package-Test-Tool-Windows
+          path: demo-tool/MavkaEncrypt.exe
           if-no-files-found: error
+
