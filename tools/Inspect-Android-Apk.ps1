@@ -13,7 +13,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ApkPath,
 
-    [ValidateSet('ua.mavka.mobile.preview', 'ua.mavka.mobile', 'ua.mavka.mobile.mailqa', 'ua.mavka.mobile.qa31')]
+    [ValidateSet('ua.mavka.mobile.preview', 'ua.mavka.mobile', 'ua.mavka.mobile.mailqa', 'ua.mavka.mobile.qa31', 'ua.mavka.mobile.qa')]
     [string]$ExpectedPackage = 'ua.mavka.mobile.preview',
 
     [switch]$InstallPreview,
