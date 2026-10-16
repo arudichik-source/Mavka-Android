@@ -16,6 +16,8 @@ internal static class MavkaNoticeAlerts
     private const string ChannelMessages = "mavka_main_messages_v1";
     private const string ChannelReminders = "mavka_local_reminders_v1";
     public const string ReminderAction = "ua.mavka.mobile.REMIND_NOTICE";
+    public const string TestReminderAction = "ua.mavka.mobile.REMIND_LOCAL_TEST";
+    private const int TestReminderCode = 36121;
 
     public static void EnsureChannels(Context context)
     {
@@ -88,6 +90,49 @@ internal static class MavkaNoticeAlerts
         }
     }
 
+    /// <summary>
+    /// Independent local OS-alarm smoke test. It never creates a trusted notice,
+    /// adds a record to the encrypted inbox, or sends an email.
+    /// </summary>
+    public static void ScheduleLocalTest(Context context)
+    {
+        if (!Allowed(context))
+            throw new InvalidOperationException(
+                "Дозволь сповіщення для Мавки в налаштуваннях Android.");
+        var alarm = context.GetSystemService(Context.AlarmService) as AlarmManager ??
+            throw new InvalidOperationException("Android AlarmManager недоступний.");
+        var intent = new Intent(context, typeof(MavkaNoticeReminderReceiver));
+        intent.SetAction(TestReminderAction);
+        var pending = PendingIntent.GetBroadcast(context, TestReminderCode, intent,
+            PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable) ??
+            throw new InvalidOperationException("Android не створив тестове нагадування.");
+        // Use the same Doze-compatible (inexact) Android alarm mode as real reminders.
+        alarm.SetAndAllowWhileIdle(AlarmType.RtcWakeup,
+            DateTimeOffset.UtcNow.AddMinutes(2).ToUnixTimeMilliseconds(), pending);
+    }
+
+    public static void ShowLocalTest(Context context)
+    {
+        EnsureChannels(context);
+        if (!Allowed(context)) return;
+        var target = new Intent(context, typeof(MainActivity));
+        target.AddFlags(ActivityFlags.ClearTop | ActivityFlags.SingleTop);
+        target.PutExtra("show_mavka_notices", true);
+        var open = PendingIntent.GetActivity(context, TestReminderCode, target,
+            PendingIntentFlags.Immutable | PendingIntentFlags.UpdateCurrent);
+        var builder = Build.VERSION.SdkInt >= BuildVersionCodes.O
+            ? new Notification.Builder(context, ChannelReminders)
+            : new Notification.Builder(context);
+        builder.SetSmallIcon(Resource.Drawable.mavka_app_icon)
+            .SetContentTitle("Тестове нагадування Мавки")
+            .SetContentText("Локальна перевірка. Службових даних немає.")
+            .SetAutoCancel(true)
+            .SetContentIntent(open)
+            .SetCategory(Notification.CategoryReminder);
+        (context.GetSystemService(Context.NotificationService) as NotificationManager)?
+            .Notify(TestReminderCode, builder.Build());
+    }
+
     public static void RescheduleOnStart(Context context, MavkaNoticeStore store)
     {
         foreach (var row in store.PendingReminders())
@@ -115,8 +160,13 @@ internal sealed class MavkaNoticeReminderReceiver : BroadcastReceiver
 {
     public override void OnReceive(Context? context, Intent? intent)
     {
-        if (context is null || intent?.Action != MavkaNoticeAlerts.ReminderAction)
+        if (context is null) return;
+        if (intent?.Action == MavkaNoticeAlerts.TestReminderAction)
+        {
+            MavkaNoticeAlerts.ShowLocalTest(context);
             return;
+        }
+        if (intent?.Action != MavkaNoticeAlerts.ReminderAction) return;
         var id = intent.GetStringExtra("notice_id");
         if (!Guid.TryParse(id, out _)) return;
         try
