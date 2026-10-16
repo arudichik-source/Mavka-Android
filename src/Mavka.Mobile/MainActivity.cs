@@ -1923,10 +1923,52 @@ public class MainActivity : Activity
             }
             catch (Exception ex)
             {
-                Toast.MakeText(this, ExplainOperationError(ex),
+                // JobScheduler can reject a task due to a missing OS permission,
+                // a disabled component or device background restrictions.
+                // Display only a safe diagnostic; never log credentials or mail.
+                var hint = ex switch
+                {
+                    Java.Lang.SecurityException =>
+                        "Android відхилив запуск фонової перевірки через системний дозвіл.",
+                    InvalidOperationException => ex.Message,
+                    _ => ExplainOperationError(ex)
+                };
+                Toast.MakeText(this, hint, ToastLength.Long)?.Show();
+            }
+        });
+
+        var diagnostic = Card();
+        Text(diagnostic, "Тест нагадування без Gmail", 17, true);
+        Text(diagnostic,
+            "Створює тільки локальне тестове сповіщення приблизно через 2 хв. " +
+            "Не додає документів, не імітує ГОЛОВНУ МАВКУ й не змінює облік.", 12);
+        Button(diagnostic, "Запланувати тестове нагадування (2 хв)", () =>
+        {
+            try
+            {
+                if (!MavkaNoticeAlerts.Allowed(this))
+                {
+                    if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
+                        RequestPermissions(new[] { Android.Manifest.Permission.PostNotifications }, 1917);
+                    Toast.MakeText(this,
+                        "Дозволь сповіщення Android і натисни кнопку ще раз.",
+                        ToastLength.Long)?.Show();
+                    return;
+                }
+                MavkaNoticeAlerts.ScheduleLocalTest(this);
+                Toast.MakeText(this,
+                    "Тестове нагадування заплановано приблизно через 2 хв. " +
+                    "Android може його трохи відкласти.",
+                    ToastLength.Long)?.Show();
+            }
+            catch (Exception ex)
+            {
+                Toast.MakeText(this,
+                    ex is InvalidOperationException ? ex.Message : ExplainOperationError(ex),
                     ToastLength.Long)?.Show();
             }
         });
+
         var listCard = Card();
         try
         {
