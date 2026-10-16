@@ -35,6 +35,15 @@ jobs:
             -p:ApplicationTitle="Mavka Mobile QA" \
             -p:ApplicationVersion=20261016 \
             -p:ApplicationDisplayVersion=1.0.3-qa
+      - name: Verify required Android 14+ JobScheduler network permission
+        shell: bash
+        run: |
+          set -euo pipefail
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$aapt"
+          for apk in src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk; do
+            "$aapt" dump permissions "$apk" | grep -F 'android.permission.ACCESS_NETWORK_STATE'
+          done
       - name: Verify that QA cannot replace the installed production package
         shell: pwsh
         run: |
