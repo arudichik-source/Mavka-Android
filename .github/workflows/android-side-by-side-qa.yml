@@ -1,0 +1,51 @@
+name: Mavka Mobile QA (side-by-side installer)
+
+on:
+  push:
+    branches:
+      - integration/mobile-complete-20261014
+    paths:
+      - 'src/Mavka.Mobile/**'
+      - '.github/workflows/android-side-by-side-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavka-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install Android workload
+        run: dotnet workload install android
+      - name: Build isolated QA APK with a separate Android package ID
+        run: |
+          dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj \
+            -f net10.0-android -c Release \
+            -p:ApplicationId=ua.mavka.mobile.qa \
+            -p:ApplicationTitle="Mavka Mobile QA" \
+            -p:ApplicationVersion=20261016 \
+            -p:ApplicationDisplayVersion=1.0.3-qa
+      - name: Verify that QA cannot replace the installed production package
+        shell: pwsh
+        run: |
+          $apks = @(Get-ChildItem 'src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk')
+          if ($apks.Count -lt 1) { throw 'QA APK missing' }
+          foreach ($apk in $apks) {
+            & tools/Inspect-Android-Apk.ps1 -ApkPath $apk.FullName -ExpectedPackage 'ua.mavka.mobile.qa'
+          }
+      - name: Upload QA installer (install alongside, never replace production)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mavka-Mobile-QA-SIDE-BY-SIDE-APK
+          path: src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk
+          if-no-files-found: error
