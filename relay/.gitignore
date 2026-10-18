@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+dist/
+wrangler.json
+.dev.vars*
+.env*
+*.private.json
+identity*.json
