@@ -93,6 +93,16 @@ test('pinned bootstrap, additive migration, main-controlled enrollment and proof
   assert.equal((await f.request(stranger, '/v1/bootstrap', 'POST', { publicEncryptionKey: stranger.publicEncryptionKey })).status, 401);
   await f.bootstrap(); await f.migrate();
   assert.equal((await f.db.prepare('SELECT count(*) AS n FROM devices').first()).n, 1);
+  const columns = (await f.db.prepare('PRAGMA table_info(devices)').all()).results;
+  assert.equal(columns.find(c => c.name === 'public_encryption_key').notnull, 0);
+  assert.equal(columns.find(c => c.name === 'status').dflt_value, "'pending'");
+  const legacyId = uuid();
+  await f.db.prepare("INSERT INTO devices (device_id, device_type, public_signing_key) VALUES (?, 'mobile', ?)")
+    .bind(legacyId, JSON.stringify(stranger.publicSigningKey)).run();
+  await f.migrate();
+  const legacy = await f.db.prepare('SELECT * FROM devices WHERE device_id = ?').bind(legacyId).first();
+  assert.equal(legacy.public_encryption_key, null); assert.equal(legacy.status, 'pending');
+  await f.db.prepare('DELETE FROM devices WHERE device_id = ?').bind(legacyId).run();
   assert.equal((await f.request(f.main, '/v1/bootstrap', 'POST', { publicEncryptionKey: f.main.publicEncryptionKey })).status, 200);
   assert.equal((await f.request(f.main, '/v1/bootstrap', 'POST', { publicEncryptionKey: mobile.publicEncryptionKey })).status, 409);
   assert.equal((await f.request(mobile, '/v1/devices/activate', 'POST', {})).status, 401);

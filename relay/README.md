@@ -210,6 +210,9 @@ Production version URLs вимкнено (`preview_urls: false`). Команда
 
 Перед виконанням звірити live-схему: `PRAGMA table_info(devices);`
 і `PRAGMA table_info(messages);`. Основні колонки наведені у міграції.
+18.10.2026 колонки підтверджено скриншотами користувача: ключ шифрування
+може бути NULL у старих записах, статус за замовчуванням — `pending`.
+Нова реєстрація через API вимагає обидва валідні публічні ключі.
 Робочу базу не замінювати; міграція додає службові таблиці та індекси.
 Якщо у базі є старі діагностичні записи, їхню долю вирішити окремо:
 непідписані старі пакети не адаптуються автоматично й не видаються через нову чергу.
@@ -227,6 +230,46 @@ npx wrangler deploy
 Клієнтські приватні ключі, AES-ключі й Cloudflare API token у Git не записуються.
 
 ## Локальний клієнт для синтетичного QA
+
+### Реальна ідентичність головної Мавки на Windows
+
+`tools/Initialize-RelayAdmin.ps1` використовує Windows CNG поточного користувача,
+ECDSA/ECDH P-256 та політику `CngExportPolicies.None`. Приватні ключі не записуються
+в JSON і не передаються в Cloudflare. Публічні параметри зберігаються в
+`%LOCALAPPDATA%\MaVka\Relay\admin-public.json`.
+
+На тому ПК й у тому Windows-акаунті, де працюватиме ГОЛОВНА МАВКА, після
+перегляду скрипта виконати з папки `relay` у Windows PowerShell 5.1:
+
+```powershell
+.\tools\Initialize-RelayAdmin.ps1 -Initialize -DatabaseId <UUID_ІСНУЮЧОЇ_D1>
+```
+
+Цей режим працює локально й виводить три публічні значення для Build variables.
+Повторний запуск використовує ту саму ідентичність і перевіряє відповідність
+метаданих ключам у Windows; іншу базу або підміну публічного ключа відхиляє.
+Для повторного перегляду параметрів: `-ShowConfiguration`.
+Не видаляти сховище Windows-ключів: перенесення головної Мавки на інший ПК
+потребуватиме окремого переприв'язування кореневого ключа в Cloudflare.
+Скрипт не змінює політики виконання PowerShell.
+
+Після погодженого розгортання з цим публічним ключем:
+
+```powershell
+.\tools\Initialize-RelayAdmin.ps1 -Bootstrap
+.\tools\Initialize-RelayAdmin.ps1 -Status
+```
+
+Тільки ці два явно вибрані режими звертаються до фіксованої HTTPS-адреси Relay.
+`-Bootstrap` реєструє головний пристрій, `-Status` надсилає підписаний запит до стану.
+Редиректи не дозволені. Кнопки в інтерфейсі ГОЛОВНОЇ МАВКИ ще потрібно підключити
+до цієї ідентичності та протоколу; наявність скрипта не означає готової UI-інтеграції.
+
+У Windows CI `-SelfTest` створює окремі синтетичні CNG-ключі, перевіряє заборону
+експорту, повторне відкриття та стабільність ідентичності, а потім видаляє лише
+власні тестові ключі. Node/Web Crypto перевіряє створений PowerShell-підпис.
+
+### Синтетичний переносний клієнт Node
 
 ```bash
 node tools/relay-client.mjs keygen <НОВА_ПАПКА_ПОЗА_РЕПОЗИТОРІЄМ>
@@ -247,3 +290,5 @@ node tools/relay-client.mjs request <identity.private.json> POST https://mavka-r
 - [Build configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
 - [Web Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/)
 - [D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)
+- [Windows CNG creation parameters](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.cngkeycreationparameters?view=netframework-4.8.1)
+- [ECDsa.SignHash / P1363](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.ecdsa.signhash)

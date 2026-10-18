@@ -4,8 +4,8 @@ CREATE TABLE IF NOT EXISTS devices (
   device_id TEXT PRIMARY KEY,
   device_type TEXT NOT NULL CHECK (device_type IN ('main', 'mobile')),
   public_signing_key TEXT NOT NULL,
-  public_encryption_key TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'revoked')),
+  public_encryption_key TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'revoked')),
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   last_seen_at INTEGER,
   revoked_at INTEGER
