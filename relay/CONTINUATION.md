@@ -11,6 +11,10 @@
   19.10.2026 додатково звірено `sqlite_master`: CHECK для типів/статусів,
   CHECK `expires_at > created_at`, обидва FK на `devices`, індекси recipient/expiry
   сумісні з міграцією. Користувач підтвердив: devices = 0, main = 0, messages = 0.
+- 19.10.2026 користувач погодив міграцію та виконав її додаткову частину через
+  D1 Console. Результат sqlite_master підтвердив усі 3 службові таблиці
+  (relay_nonces, relay_rate_windows, relay_message_ids) та 4 індекси idx_relay_*.
+  Повторна міграція для цього кроку не потрібна; d1_migrations через Console не вели.
 - За скриншотом: Cloudflare Builds підключено до `arudichik-source/Mavka-Android`,
   production branch `main`, `Disable builds` увімкнено.
 - Реальну ідентичність створено скриптом на Windows користувача 19.10.2026.
@@ -63,11 +67,11 @@
 
 1. Підтвердити збереження Cloudflare Build settings і трьох публічних змінних.
    Під час підготовки Production Disable builds ON, Preview branches OFF.
-2. Переглянути та погодити PR #34 і конкретну міграцію
-   `migrations/0001_relay.sql`. Перевірку основної схеми й кількості записів завершено.
-   Міграція додає три службові таблиці та індекси; не замінює базу й не видаляє дані.
-3. Після погодження застосувати міграцію та розгорнути перевірений Worker.
-   Merge, upload, зміни через remote SQL, deploy і bootstrap станом на цю перевірку не виконані.
+2. Переглянути та окремо погодити злиття PR #34 і запуск Worker.
+   Погодження користувача 19.10.2026 стосувалося додавання службових таблиць.
+   Міграцію вже застосовано й перевірено; код Worker ще не розгорнуто.
+3. Після погодження злити перевірений PR і розгорнути Worker.
+   Merge, upload, deploy і bootstrap станом на цю перевірку не виконані.
    Сам `wrangler versions upload` не активує Worker і не встановлює Cron.
 4. На тому самому Windows-акаунті виконати bootstrap існуючою CNG-ідентичністю,
    перевірити signed status, delivery/ACK та Cron з України на синтетичних даних.
