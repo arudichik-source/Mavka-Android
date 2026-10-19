@@ -430,7 +430,10 @@ public class MainActivity : Activity
     private void ShowAssets()
     {
         Begin("assets", "Майно підрозділу");
+        var selected=LoadUserProfile();
+        if(selected is null || !new MobileAccessStore(this).Allows(selected.Unit,true)){Text(_body,"Немає дозволу на перегляд залишків. Налаштування надає головна Мавка.",15);return;}
         var top = Card();
+        Button(top,"Змінити підрозділ",()=>ChooseMobileUnit(ShowAssets));
         var profile = LoadUserProfile();
         Text(top, "Підрозділ: " + (profile?.Unit ?? "не визначений у профілі"), 17, true);
         var dateLabel = Text(top, "Обліковий залишок на кінець дня: " +
@@ -964,6 +967,14 @@ public class MainActivity : Activity
     private void ShowMessage(MavkaMailItem mail)
     {
         Begin("message", "Повідомлення");
+        var accessStore=new MobileAccessStore(this);
+        bool Denied(MavkaTextAttachment a)
+        {
+            if(MavkaExchangeParser.TryInvoice(a.RawJson,out var invoice) && invoice is not null)return !accessStore.Allows(invoice.Recipient);
+            if(MavkaExchangeParser.TryAssets(a.RawJson,out var assets) && assets is not null)return !accessStore.Allows(assets.Unit,true);
+            return false;
+        }
+        if(mail.Attachments.Any(Denied)){Text(_body,"Доступ до даних цього підрозділу відкликано або не надано.",16);return;}
         var card = Card();
         Text(card, mail.Subject, 19, true);
         Text(card, mail.DateText, 14);
@@ -1206,7 +1217,7 @@ public class MainActivity : Activity
                     status.Text = "Спочатку заповни профіль користувача.";
                     return;
                 }
-                if (!profile.IsMvo)
+                if (new MobileAccessStore(this).Load() is not {canConfirmInvoices:true,isMvo:true} || !new MobileAccessStore(this).Allows(invoice.Recipient))
                 {
                     status.Text = "Для підтвердження потрібен профіль МВО (+).";
                     return;
@@ -1830,9 +1841,17 @@ public class MainActivity : Activity
                         break;
                     }
                 }
-                if (profile is null ||
-                    !ArchiveDocumentClassifier.TryClassify(
-                        attachment.RawJson, profile.Unit, out var document) ||
+                if(attachment.AuthenticatedJson && attachment.RawJson is string policyRaw)
+                {
+                    using var policyDoc=System.Text.Json.JsonDocument.Parse(policyRaw);
+                    if(policyDoc.RootElement.TryGetProperty("format",out var pf) && pf.GetString()=="MAVKA_ACCESS_UPDATE_V1")
+                    {
+                        if(policyDoc.RootElement.GetProperty("recipientClientId").GetString()!=profile?.ClientId)throw new System.Security.Cryptography.CryptographicException("Інший користувач.");
+                        new MobileAccessStore(this).Accept(policyDoc.RootElement.GetProperty("access"));saved++;continue;
+                    }
+                }
+                if (profile is null || attachment.RawJson is null ||
+                    !new MobileAccessStore(this).TryDocument(attachment.RawJson, out var document) ||
                     document is null)
                 {
                     ready = false;
@@ -1853,6 +1872,7 @@ public class MainActivity : Activity
                     // Force a verified read-back even on duplicate delivery.
                     if (_archive.FindDocument(document.DocumentId) is null)
                         throw new InvalidOperationException("Archive read-back failed.");
+                    new MobileAccessStore(this).AutoPost(document.Json);
                     saved++;
                 }
                 catch (Exception ex)
@@ -2097,6 +2117,8 @@ public class MainActivity : Activity
             return;
         }
         var card = Card();
+        if(!new MobileAccessStore(this).Allows(profile.Unit)){Text(card,"Доступ до документів не надано.",15);return;}
+        Button(card,"Змінити підрозділ",()=>ChooseMobileUnit(ShowDocuments));
         Text(card, "Локальний архів · " + profile.Unit, 17, true);
         Text(card, "Документи доступні без Gmail. Збереження не означає проведення.", 13);
         Button(card, "Кошик документів (відновлення до 30 днів)", ShowArchiveTrash);
@@ -3075,16 +3097,30 @@ public class MainActivity : Activity
         _drawerOverlay.Visibility = ViewStates.Gone;
     }
 
+    private string? _selectedMobileUnit;
+    private void ChooseMobileUnit(Action refresh)
+    {
+        var policy=new MobileAccessStore(this).Load();
+        if(policy is null){Toast.MakeText(this,"Спочатку виконай нове QR-підключення.",ToastLength.Long)?.Show();return;}
+        new AlertDialog.Builder(this).SetTitle("Доступні підрозділи")
+            .SetItems(policy.units.Select(u=>u.unit).ToArray(),(_,args)=>{_selectedMobileUnit=policy.units[args.Which].unit;refresh();}).Show();
+    }
     private UserProfile? LoadUserProfile()
     {
-        try { return _profileStore.Load(); }
+        try
+        {
+            var profile=_profileStore.Load();var access=new MobileAccessStore(this).Load();
+            if(profile is null || access is null)return profile;
+            var unit=access.units.FirstOrDefault(u=>u.unit==_selectedMobileUnit)?.unit??access.units[0].unit;
+            return profile with{Unit=unit,IsMvo=access.isMvo};
+        }
         catch { return null; }
     }
 
     private void ShowProfile()
     {
         Begin("profile", "Профіль користувача");
-        var current = LoadUserProfile();
+        var current = _profileStore.Load();
         var card = Card();
         Text(card, "Ідентифікатор користувача: " +
             (current?.ClientId ?? "з’явиться після першого збереження профілю"), 13);
@@ -3100,9 +3136,8 @@ public class MainActivity : Activity
 
         var pairingCard = Card();
         Text(pairingCard, "Зв'язок із ГОЛОВНОЮ МАВКОЮ через QR", 18, true);
-        Text(pairingCard, "QR містить лише одноразове запрошення, дійсне 10 хвилин. " +
-            "Для підтвердження потрібне підписане одноразовим секретом повідомлення " +
-            "від налаштованої адреси ГОЛОВНОЇ МАВКИ. QR не передає ключі майна.", 13);
+        Text(pairingCard, "Спочатку передай ПК публічний Relay QR телефона. Після дозволу ПК скануй тут QR першого підключення. " +
+            "Його одноразовий ключ відкриває один пакет із поточним і майбутнім ключами, паролем документів та дозволами. Термін — 10 хвилин.", 13);
         var qrStatus = Text(pairingCard,
             _qrPairing.ConfirmedEmail is { } pairedEmail
                 ? "QR-зв'язок підтверджено: " + pairedEmail
@@ -3988,6 +4023,27 @@ public class MainActivity : Activity
                 }
                 else throw new InvalidOperationException(
                     "Камера не повернула QR-фото. Обери знімок із галереї.");
+                using(var qrJson=System.Text.Json.JsonDocument.Parse(raw))
+                {
+                    if(qrJson.RootElement.GetProperty("format").GetString()==BootstrapProtocol.Qr)
+                    {
+                        var bootstrapProfile=new UserProfileStore(this).Load()??throw new InvalidOperationException("Збережи профіль.");
+                        var bootstrapInvite=BootstrapProtocol.Invitation(raw,bootstrapProfile.ClientId,new RelayIdentity(this).DeviceId,DateTimeOffset.UtcNow);
+                        new AlertDialog.Builder(this).SetTitle("Перше підключення до Мавки")
+                            .SetMessage("ПК: "+bootstrapInvite.mainEmail+"\nОдноразовий ключ діє до "+DateTimeOffset.FromUnixTimeSeconds(bootstrapInvite.expiresAt).ToLocalTime().ToString("HH:mm:ss")+".\nПісля сканування на ПК надішли перший пакет.")
+                            .SetNegativeButton("Скасувати",(_,_)=>{})
+                            .SetPositiveButton("Підключити",async(_,_)=>
+                            {
+                                try
+                                {
+                                    new BootstrapStore(this).SaveQr(raw);
+                                    await new RelaySync(this).Activate();
+                                    Toast.MakeText(this,"QR збережено, Relay активовано. Надішли перший пакет із ПК, потім натисни синхронізацію Relay.",ToastLength.Long)?.Show();
+                                }
+                                catch(Exception ex){Toast.MakeText(this,"Підключення: "+ExplainOperationError(ex),ToastLength.Long)?.Show();}
+                            }).Show();return;
+                    }
+                }
                 var invitation = QrPairingProtocol.ParseInvitation(raw, DateTimeOffset.UtcNow);
                 var profile = LoadUserProfile() ??
                     throw new InvalidOperationException("Спочатку збережи профіль користувача.");

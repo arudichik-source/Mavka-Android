@@ -1,4 +1,5 @@
 using Android.Content;
+using Android.Runtime;
 using Android.OS;
 using Android.Security.Keystore;
 using Java.Security;
@@ -80,7 +81,7 @@ internal sealed class RelayIdentity
         lock (Gate)
         {
             var id = DeviceId; using var store = Open();
-            using var key = store.GetKey("mavka_relay_sign_" + id, null) as IPrivateKey ??
+            using var key = store.GetKey("mavka_relay_sign_" + id, null)?.JavaCast<IPrivateKey>() ??
                 throw new CryptographicException("Ключ підпису недоступний.");
             using var signature = Signature.GetInstance("SHA256withECDSA")!;
             signature.InitSign(key); signature.Update(input);

@@ -551,10 +551,21 @@ internal static class GmailConnectionService
                     {
                         if (exchangeKeys is null)
                             throw new KeyNotFoundException("Ключ обміну не налаштовано.");
+                        if(new BootstrapStore(exchangeKeys.BootstrapContext).TryInstall(contents,allowedSender))
+                        {
+                            installedKey=true;authenticatedJson=true;usableJson=null;
+                            display="Перші ключі, пароль документів і дозволи встановлено. Синхронізуй Relay для підтвердження ПК.";
+                            var bootstrap=new BootstrapStore(exchangeKeys.BootstrapContext);
+                            if(new RelayIdentity(exchangeKeys.BootstrapContext).Enabled)
+                                new RelaySync(exchangeKeys.BootstrapContext).Queue("bootstrap:"+RelayProtocol.Hash(contents),bootstrap.Confirmation!);
+                        }
+                        else
+                        {
                         usableJson = MavkaEncryptedEnvelope.Decrypt(contents, exchangeKeys);
                         authenticatedJson = true;
                         display = "🔐 Зашифрований файл успішно розшифровано.\n\n" +
                                   MavkaJsonPreview.Format(usableJson);
+                        }
                     }
                     catch (KeyNotFoundException)
                     {

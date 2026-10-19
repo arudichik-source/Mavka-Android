@@ -93,6 +93,8 @@ internal sealed class RelaySync
         {
             using var api = new RelayApiClient(_identity.DeviceId, _identity.Sign);
             using var db = Store();
+            if(new BootstrapStore(_context).Confirmation is string bootstrapAck)
+                Queue("bootstrap-installed:"+RelayProtocol.Hash(bootstrapAck),bootstrapAck);
             int received = 0, sent = 0, acked = 0, deferred = 0;
             string path = "/v1/messages?limit=10";
             for (int page = 0; page < 3; page++)
@@ -104,6 +106,12 @@ internal sealed class RelaySync
                     try
                     {
                         var verified = RelayProtocol.Verify(packet, _identity.DeviceId, DateTimeOffset.UtcNow);
+                        if(new BootstrapStore(_context).TryInstall(verified.Envelope,messageId:verified.Id))
+                        {
+                            var confirmation=new BootstrapStore(_context).Confirmation!;
+                            db.SaveIncoming(verified,confirmation);db.Imported(new[]{verified.Id});
+                            Queue("bootstrap:"+verified.Id,confirmation);received++;continue;
+                        }
                         var plain = MavkaEncryptedEnvelope.Decrypt(verified.Envelope, _keys);
                         _ = RelayProtocol.Part(plain, _profile.ClientId);
                         db.SaveIncoming(verified, plain); received++;
@@ -141,7 +149,7 @@ internal sealed class RelaySync
                 foreach (var id in ledger.ListPendingReceiptIds().Take(10))
                 {
                     var invoice = ledger.LoadConfirmedInvoice(id);
-                    if (invoice is null || !string.Equals(invoice.Recipient.Trim(), _profile.Unit.Trim(), StringComparison.OrdinalIgnoreCase) || !_keys.HasKeyPair) continue;
+                    if (invoice is null || !new MobileAccessStore(_context).Allows(invoice.Recipient) || new MobileAccessStore(_context).Load()?.canConfirmInvoices!=true || !_keys.HasKeyPair) continue;
                     Queue("receipt:" + id, Receipt(_profile, invoice));
                 }
                 sent = await Flush(api, db, cancellation);
@@ -209,13 +217,22 @@ internal sealed class RelaySync
             if (added) MavkaNoticeAlerts.ShowNew(_context, notice.NoticeId);
             return true;
         }
-        if (ArchiveDocumentClassifier.TryClassify(json, _profile.Unit, out var document) && document is not null)
+        using(var policyJson=JsonDocument.Parse(json))
+        {
+            if(policyJson.RootElement.TryGetProperty("format",out var kind) && kind.GetString()=="MAVKA_ACCESS_UPDATE_V1")
+            {
+                if(policyJson.RootElement.GetProperty("recipientClientId").GetString()!=_profile.ClientId)throw new CryptographicException("Інший користувач.");
+                new MobileAccessStore(_context).Accept(policyJson.RootElement.GetProperty("access"));return true;
+            }
+        }
+        if (new MobileAccessStore(_context).TryDocument(json, out var document) && document is not null)
         {
             using var archive = new DocumentArchiveStore(_context);
             archive.SaveDocument(document.DocumentId, document.Kind, document.Number, document.Unit,
                 document.DocumentDate, "relay.json", document.Json);
             if (archive.FindDocument(document.DocumentId) is null) throw new IOException("Документ не збережено.");
-            return true; // No automatic accounting/posting.
+            new MobileAccessStore(_context).AutoPost(json);
+            return true;
         }
         using var parsed = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 12 });
         var format = parsed.RootElement.TryGetProperty("format", out var f) ? f.GetString() : "";

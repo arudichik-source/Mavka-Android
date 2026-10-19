@@ -14,16 +14,17 @@ internal sealed class DocumentPasswordStore
     private const string Alias = "mavka_document_password_wrap_v1";
     private const string Preferences = "mavka_document_password_v1";
     private readonly ISharedPreferences _prefs;
+    private readonly Context _context;
 
-    public DocumentPasswordStore(Context context) =>
-        _prefs = context.GetSharedPreferences(Preferences, FileCreationMode.Private)!;
+    public DocumentPasswordStore(Context context)
+    { _context=context;_prefs = context.GetSharedPreferences(Preferences, FileCreationMode.Private)!; }
 
-    public bool IsConfigured => !string.IsNullOrEmpty(_prefs.GetString("sealed_password", null));
+    public bool IsConfigured => !string.IsNullOrEmpty(_prefs.GetString("sealed_password", null)) || new ExchangeKeyStore(_context).BootstrapDocumentPassword() is not null;
 
     public string? Load()
     {
         var sealedValue = _prefs.GetString("sealed_password", null);
-        if (string.IsNullOrEmpty(sealedValue)) return null;
+        if (string.IsNullOrEmpty(sealedValue)) return new ExchangeKeyStore(_context).BootstrapDocumentPassword();
         var parts = sealedValue.Split(':', 2);
         if (parts.Length != 2) throw new InvalidOperationException("Invalid stored password.");
 

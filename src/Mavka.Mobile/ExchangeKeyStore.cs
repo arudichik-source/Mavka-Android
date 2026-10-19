@@ -16,9 +16,11 @@ internal sealed class ExchangeKeyStore
     private const string Alias = "mavka_exchange_wrap_v1";
     private const string Preferences = "mavka_exchange_keys_v1";
     private readonly ISharedPreferences _prefs;
+    internal Context BootstrapContext {get;}
 
     public ExchangeKeyStore(Context context)
     {
+        BootstrapContext=context;
         _prefs = context.GetSharedPreferences(Preferences, FileCreationMode.Private)!;
     }
 
@@ -168,6 +170,32 @@ internal sealed class ExchangeKeyStore
             CryptographicOperations.ZeroMemory(pair.CurrentKey);
             CryptographicOperations.ZeroMemory(pair.FutureKey);
         }
+    }
+
+    internal void InstallBootstrap(BootstrapKeys data,string hash,string ack)
+    {
+        if(HasKeyPair || Generation!=0 || HasKey)throw new InvalidOperationException("На телефоні вже є ключі. Початковий пакет не може їх перезаписати.");
+        using var store=LoadStore();EnsureWrappingKey(store);
+        var current=Convert.FromBase64String(data.currentKey);var future=Convert.FromBase64String(data.futureKey);
+        var password=System.Text.Encoding.UTF8.GetBytes(data.documentPassword);
+        try
+        {
+            var currentSealed=WrapKey(store,current);var futureSealed=WrapKey(store,future);
+            var passwordSealed=Convert.ToBase64String(TransferKeystoreCipher.Seal(password));
+            using var editor=_prefs.Edit()!;
+            editor.PutInt("generation",1);editor.PutString("recipient_client_id",data.clientId);
+            editor.PutString("current_id",MavkaKeyPackage.Id(current));editor.PutString("future_id",MavkaKeyPackage.Id(future));
+            editor.PutString("current_sealed",currentSealed);editor.PutString("future_sealed",futureSealed);
+            editor.PutString("bootstrap_document_password",passwordSealed);editor.PutString("mobile_access",System.Text.Json.JsonSerializer.Serialize(data.access));
+            editor.PutString("bootstrap_hash",hash);editor.PutString("bootstrap_ack",ack);editor.Remove("bootstrap_pending");
+            if(!editor.Commit())throw new IOException("Початкові ключі не збережено.");
+        }
+        finally{CryptographicOperations.ZeroMemory(current);CryptographicOperations.ZeroMemory(future);CryptographicOperations.ZeroMemory(password);}
+    }
+    internal string? BootstrapDocumentPassword()
+    {
+        var raw=_prefs.GetString("bootstrap_document_password",null);if(raw is null)return null;
+        var bytes=TransferKeystoreCipher.Open(Convert.FromBase64String(raw));try{return System.Text.Encoding.UTF8.GetString(bytes);}finally{CryptographicOperations.ZeroMemory(bytes);}
     }
 
     public byte[]? GetCurrentKey()

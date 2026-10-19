@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - feature/mobile-relay-20261019
+      - feature/pc-mobile-bootstrap-access-20261019
     paths:
       - 'src/Mavka.Mobile/**'
       - 'tools/RelayChecks/**'
+      - 'tools/BootstrapChecks/**'
       - 'tools/relay-csharp-interop.mjs'
       - 'tools/smoke-relay-emulator.sh'
       - 'tools/relay-emulator-ui.py'
@@ -41,16 +43,17 @@ jobs:
           dotnet run --project tools/RelayChecks -- export /tmp/relay-csharp.json
           node tools/relay-csharp-interop.mjs /tmp/relay-csharp.json /tmp/relay-node.json
           dotnet run --project tools/RelayChecks -- verify-node /tmp/relay-node.json
+          dotnet run --project tools/BootstrapChecks -- tools/BootstrapChecks/synthetic-pc-fixture.json
       - name: Install Android workload
         run: dotnet workload install android
       - name: Build isolated Relay QA APK
         run: |
           dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj \
             -f net10.0-android -c Release \
-            -p:ApplicationId=ua.mavka.mobile.relayqa \
-            -p:ApplicationTitle="Mavka Relay QA" \
-            -p:ApplicationVersion=20261019 \
-            -p:ApplicationDisplayVersion=1.0.4-relay-qa
+            -p:ApplicationId=ua.mavka.mobile.bootstrapqa \
+            -p:ApplicationTitle="Mavka QR Test" \
+            -p:ApplicationVersion=20261020 \
+            -p:ApplicationDisplayVersion=1.1.0-bootstrap-qa
       - name: Inspect package identity, signature and network permission
         shell: bash
         run: |
@@ -58,7 +61,7 @@ jobs:
           aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           signer="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           for apk in src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk; do
-            "$aapt" dump badging "$apk" | grep -F "package: name='ua.mavka.mobile.relayqa'"
+            "$aapt" dump badging "$apk" | grep -F "package: name='ua.mavka.mobile.bootstrapqa'"
             "$aapt" dump permissions "$apk" | grep -F 'android.permission.ACCESS_NETWORK_STATE'
             "$signer" verify "$apk"
           done
@@ -73,6 +76,8 @@ jobs:
     needs: relay-apk
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      MAVKA_QA_PACKAGE: ua.mavka.mobile.bootstrapqa
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

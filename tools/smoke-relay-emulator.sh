@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-package="ua.mavka.mobile.relayqa"
+package="${MAVKA_QA_PACKAGE:-ua.mavka.mobile.relayqa}"
 apk="$(find relay-qa-apk -maxdepth 1 -name '*.apk' -type f | sort | head -n1)"
 if [[ -z "$apk" || ! -s "$apk" ]]; then
   echo "No release APK for emulator smoke test"
@@ -22,7 +22,7 @@ if [[ -z "$pid" ]]; then
   tail -n 100 emulator-smoke-artifacts/android-runtime-errors.log
   exit 1
 fi
-if grep -A 2 -E 'FATAL EXCEPTION' emulator-smoke-artifacts/android-runtime-errors.log | grep -F 'ua.mavka.mobile.relayqa'; then
+if grep -A 2 -E 'FATAL EXCEPTION' emulator-smoke-artifacts/android-runtime-errors.log | grep -F "$package"; then
   echo "Application fatal exception detected."
   exit 1
 fi

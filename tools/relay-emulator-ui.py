@@ -5,6 +5,7 @@ Does not activate, register, send messages, or contact the Relay server.
 import base64
 import io
 import json
+import os
 import re
 import subprocess
 import time
@@ -13,7 +14,7 @@ from pathlib import Path
 import zxingcpp
 from PIL import Image
 
-PACKAGE = "ua.mavka.mobile.relayqa"
+PACKAGE = os.environ.get("MAVKA_QA_PACKAGE", "ua.mavka.mobile.relayqa")
 OUT = Path("emulator-smoke-artifacts")
 def adb(*args):
     return subprocess.check_output(["adb", *args])
