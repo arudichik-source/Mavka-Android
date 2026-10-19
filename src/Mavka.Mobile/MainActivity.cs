@@ -266,6 +266,7 @@ public class MainActivity : Activity
         Text(overview, _store.HasCredentials
             ? "Gmail підключено" : "Пошта Gmail не налаштована", 15);
         Text(overview, "Листів у локальному перегляді: " + _messages.Count, 14);
+        Text(overview, new RelayIdentity(this).Enabled ? "Cloudflare Relay активовано" : "Cloudflare Relay не підключено", 14);
         var activeProfile = LoadUserProfile();
         if (activeProfile is not null)
         {
@@ -315,6 +316,10 @@ public class MainActivity : Activity
             "підтверджень із черги. Окрема кнопка не потрібна.", 12);
         Text(card, "Повідомлення, що вже надійно оброблені, " +
             "не потрібно завантажувати повторно.", 12);
+        var relayCard = Card();
+        Text(relayCard, "Додатковий канал Cloudflare", 18, true);
+        Text(relayCard, "Захищений обмін із ГОЛОВНОЮ МАВКОЮ. Наявний Gmail зберігається.", 13);
+        Button(relayCard, "Cloudflare Relay →", ShowRelay);
         var journal = Card();
         Text(journal, "Журнал синхронізації", 18, true);
         Text(journal, "Лише стани операцій і час; вміст документів, " +
@@ -1206,9 +1211,9 @@ public class MainActivity : Activity
                     status.Text = "Отримувач накладної не збігається з підрозділом у профілі.";
                     return;
                 }
-                if (!_store.HasCredentials)
+                if (!_store.HasCredentials && !MobileExchangeTransport.RelayEnabled(this))
                 {
-                    status.Text = "Спочатку підключи Gmail у Налаштуваннях.";
+                    status.Text = "Підключи Gmail або активуй Cloudflare Relay у Налаштуваннях.";
                     return;
                 }
                 string? existingStatus;
@@ -1253,9 +1258,8 @@ public class MainActivity : Activity
                                 ? "Майно зараховано локально. Надсилаємо підтвердження..."
                                 : "Накладну вже зараховано. Повторно надсилаємо підтвердження...";
 
-                            var password = _store.GetPassword() ??
-                                throw new InvalidOperationException("Пароль Gmail відсутній.");
-                            await RegistrationMailService.SendReceiptAsync(
+                            var password = _store.GetPassword() ?? "";
+                            await MobileExchangeTransport.SendReceiptAsync(this,
                                 _store.GetEmail(), password, _store.GetMainMavkaEmail(),
                                 profile, invoice, _exchangeKeys);
                             smtpAccepted = true;
@@ -1508,7 +1512,7 @@ public class MainActivity : Activity
                     deferred++;
                     continue;
                 }
-                await RegistrationMailService.SendReceiptAsync(
+                await MobileExchangeTransport.SendReceiptAsync(this,
                     _store.GetEmail(), password, sender, profile, invoice, _exchangeKeys);
                 _ledger.MarkMailSent(id);
                 if (_archive.FindDocument(id) is not null)
@@ -1542,7 +1546,7 @@ public class MainActivity : Activity
     private async Task SendPendingFilePartsAsync(int maximum = 125, Action<string>? progress = null)
     {
         var queue = OutgoingFiles();
-        string password = _store.GetPassword() ?? throw new InvalidOperationException("Gmail не підключено.");
+        string password = _store.GetPassword() ?? "";
         int sent = 0;
         foreach (var original in await Task.Run(() => queue.List()))
         {
@@ -1554,7 +1558,7 @@ public class MainActivity : Activity
                     throw new InvalidOperationException(
                         "Налаштуй пароль документів до відправлення захищених частин.");
                 encrypted = MavkaPasswordedEnvelope.Wrap(encrypted, docPassword);
-                await RegistrationMailService.SendFilePartAsync(_store.GetEmail(), password,
+                await MobileExchangeTransport.SendFilePartAsync(this, _store.GetEmail(), password,
                     _store.GetMainMavkaEmail(), batch.Metadata.FileName + "." + (batch.NextIndex + 1) + "-" + batch.Metadata.Count, encrypted);
                 batch = await Task.Run(() => queue.Advance(batch)); sent++;
                 progress?.Invoke($"Надіслано {batch.NextIndex} із {batch.Metadata.Count} частин · {batch.Metadata.FileName}");
@@ -2517,9 +2521,9 @@ public class MainActivity : Activity
                 Button(exportCard, "Надіслати захищений Word (DOCX)", async () =>
                 {
                     if (_busy) return;
-                    if (!_store.HasCredentials || !_exchangeKeys.HasKeyPair)
+                    if ((!_store.HasCredentials && !MobileExchangeTransport.RelayEnabled(this)) || !_exchangeKeys.HasKeyPair)
                     {
-                        exportStatus.Text = "Потрібні Gmail та чинна пара ключів.";
+                        exportStatus.Text = "Потрібні Gmail або Relay та чинна пара ключів.";
                         return;
                     }
                     _busy = true;
@@ -2540,12 +2544,11 @@ public class MainActivity : Activity
                         var documentPassword = _documentPasswords.Load() ??
                             throw new InvalidOperationException("Налаштуй пароль документів.");
                         ciphertext = MavkaPasswordedEnvelope.Wrap(ciphertext, documentPassword);
-                        await RegistrationMailService.SendProtectedFileAsync(
-                            _store.GetEmail(), _store.GetPassword() ??
-                                throw new InvalidOperationException("Пароль Gmail відсутній."),
+                        await MobileExchangeTransport.SendProtectedFileAsync(this,
+                            _store.GetEmail(), _store.GetPassword() ?? "",
                             _store.GetMainMavkaEmail(), fileName, ciphertext);
                         if (_screen == "message")
-                            exportStatus.Text = "Захищений Word відправлено через Gmail. " +
+                            exportStatus.Text = "Захищений Word передано каналу обміну. " +
                                 "Відкритої копії не створено.";
                     }
                     catch (Exception ex)
@@ -2791,11 +2794,10 @@ public class MainActivity : Activity
         _ = ReloadReceivedAsync();
         Button(header, "Надіслати PDF/Excel/Word із захистом ключами", () =>
         {
-            if (!_store.HasCredentials || !_exchangeKeys.HasKeyPair ||
-                string.IsNullOrWhiteSpace(_store.GetMainMavkaEmail()))
+            if ((!_store.HasCredentials && !MobileExchangeTransport.RelayEnabled(this)) || !_exchangeKeys.HasKeyPair)
             {
                 Toast.MakeText(this,
-                    "Спочатку підключи Gmail та встанови ключі обміну.",
+                    "Підключи Gmail або Relay та встанови ключі обміну.",
                     ToastLength.Long)?.Show();
                 return;
             }
@@ -3561,6 +3563,98 @@ public class MainActivity : Activity
                 }).Show());
     }
 
+
+    private void ShowRelay()
+    {
+        Begin("relay", "Cloudflare Relay");
+        var identity = new RelayIdentity(this);
+        var card = Card();
+        Text(card, "Захищений додатковий канал", 20, true);
+        Text(card, "Сервер: " + RelayProtocol.Origin, 12);
+        Text(card, "Gmail залишається основним каналом. Приватні ключі створюються на телефоні; QR містить тільки публічні дані.", 13);
+        var status = Text(card, identity.LastStatus, 14);
+        var profile = LoadUserProfile();
+        if (profile is null)
+        {
+            Text(card, "Спочатку заповни профіль користувача.", 14);
+            Button(card, "Відкрити профіль", ShowProfile); return;
+        }
+        Button(card, "Показати QR підключення для ПК", () =>
+        {
+            if (_busy) return;
+            try
+            {
+                var json = identity.Request(profile.ClientId);
+                var qr = new ZXing.BarcodeWriterPixelData
+                {
+                    Format = ZXing.BarcodeFormat.QR_CODE,
+                    Options = new ZXing.Common.EncodingOptions { Width = 600, Height = 600, Margin = 2 }
+                }.Write(json);
+                var bitmap = Bitmap.CreateBitmap(qr.Width, qr.Height, Bitmap.Config.Argb8888!)!;
+                using (var buffer = Java.Nio.ByteBuffer.Wrap(qr.Pixels)) bitmap.CopyPixelsFromBuffer(buffer);
+                var details = Card();
+                Text(details, "Запит підключення цього телефону", 17, true);
+                Text(details, "Relay ID: " + identity.DeviceId, 12);
+                var image = new ImageView(this); image.SetImageBitmap(bitmap);
+                image.SetScaleType(ImageView.ScaleType.FitCenter);
+                details.AddView(image, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, Dp(300)));
+                Text(details, "Проскануй QR у ГОЛОВНІЙ МАВЦІ на ПК й підтвердь реєстрацію пристрою. Потім натисни «Активувати».", 13);
+                Text(details, "Відбиток ключа: " + RelayProtocol.Hash(RelayProtocol.Serialize(identity.SigningKey)), 11);
+                Button(details, "Скопіювати публічний запит", () =>
+                {
+                    var clipboard = GetSystemService(ClipboardService) as Android.Content.ClipboardManager;
+                    if (clipboard is null) throw new InvalidOperationException("Буфер обміну недоступний.");
+                    clipboard.PrimaryClip = ClipData.NewPlainText("MaVka Relay enrollment", json);
+                    Toast.MakeText(this, "Публічний запит скопійовано.", ToastLength.Short)?.Show();
+                });
+                var text = Text(details, json, 10); text.SetTextIsSelectable(true);
+            }
+            catch (Exception ex) { status.Text = ExplainOperationError(ex); }
+        });
+        Button(card, "Активувати після дозволу на ПК", async () =>
+        {
+            if (_busy) return; _busy = true; status.Text = "Перевіряємо дозвіл пристрою...";
+            try { await new RelaySync(this).Activate(); status.Text = "Пристрій активний. Фонове отримання увімкнено."; }
+            catch (Exception ex) { status.Text = ex.Message; }
+            finally { _busy = false; }
+        });
+        Button(card, "Синхронізувати зараз", async () =>
+        {
+            if (_busy) return; _busy = true; status.Text = "Синхронізація Relay...";
+            try
+            {
+                status.Text = await new RelaySync(this).Synchronize();
+                try { await SendPendingFilePartsAsync(maximum: 1); }
+                catch (Exception) { status.Text += " Вихідні частини файлів збережені в черзі."; }
+            }
+            catch (Exception ex) { status.Text = ex.Message; }
+            finally { _busy = false; }
+        });
+        Button(card, "Надіслати тестовий пакет на ПК", async () =>
+        {
+            if (_busy) return; _busy = true;
+            try
+            {
+                var relay = new RelaySync(this);
+                var id = Guid.NewGuid().ToString("D");
+                relay.Queue("test:" + id, RelayProtocol.Serialize(new { format = "MAVKA_RELAY_TEST_V1",
+                    testId = id, text = "Тестовий пакет Android → ПК", createdAtUtc = DateTimeOffset.UtcNow }));
+                status.Text = await relay.Synchronize();
+            }
+            catch (Exception ex) { status.Text = ex.Message; }
+            finally { _busy = false; }
+        });
+        Button(card, "Призупинити Relay на телефоні", () =>
+        {
+            identity.SetEnabled(false); RelayBackground.SetEnabled(this, false);
+            status.Text = "Relay призупинено. Ключі та локальна черга збережені. Для відновлення натисни «Активувати».";
+        });
+        Text(card, "Фонова перевірка виконується приблизно раз на 15 хвилин; Android може відкладати її. Для негайного обміну натисни «Синхронізувати зараз».", 12);
+        Button(card, "Документи з локального архіву", ShowDocuments);
+        Button(card, "Сповіщення та нагадування", ShowNotices);
+        Button(card, "Збережені файли", ShowFiles);
+    }
+
     private void ShowSettings()
     {
         Begin("settings", "Налаштування");
@@ -3604,6 +3698,10 @@ public class MainActivity : Activity
                 LoadUserProfile()?.Unit ?? "",
                 () => _busy, message => ledgerStatus.Text = message));
 
+        var relayCard = Card();
+        Text(relayCard, "Сервер Cloudflare", 18, true);
+        Text(relayCard, "QR-реєстрація пристрою та додатковий захищений канал обміну.", 13);
+        Button(relayCard, "Налаштувати Cloudflare Relay", ShowRelay);
         var diagnostics = Card();
         Text(diagnostics, "Діагностика", 17, true);
         Button(diagnostics, "Галерея іконок (демо)", ShowIconGallery);
@@ -3980,8 +4078,7 @@ public class MainActivity : Activity
                     }
                 });
                 fileBytes = loaded.Buffer;
-                var password = _store.GetPassword() ??
-                    throw new InvalidOperationException("Gmail відключено.");
+                var password = _store.GetPassword() ?? "";
                 var key = _exchangeKeys.GetCurrentKey() ?? throw new KeyNotFoundException("Ключ недоступний.");
                 try
                 {
@@ -3997,7 +4094,7 @@ public class MainActivity : Activity
                 System.Security.Cryptography.CryptographicOperations.ZeroMemory(fileBytes);
                 await SendPendingFilePartsAsync();
                 Toast.MakeText(this,
-                    "Захищені частини файла надіслано через Gmail.",
+                    "Захищені частини файла передані каналу обміну.",
                     ToastLength.Long)?.Show();
             }
             catch (KeyNotFoundException)

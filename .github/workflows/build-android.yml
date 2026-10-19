@@ -107,6 +107,9 @@ jobs:
       - name: Verify Excel-compatible password encryption
         run: dotnet run --project tools/ProtectedXlsxChecks/ProtectedXlsxChecks.csproj
 
+      - name: Verify Relay protocol and content parts
+        run: dotnet run --project tools/RelayChecks/RelayChecks.csproj
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
