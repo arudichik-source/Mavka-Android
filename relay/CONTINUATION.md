@@ -15,19 +15,25 @@
   D1 Console. Результат sqlite_master підтвердив усі 3 службові таблиці
   (relay_nonces, relay_rate_windows, relay_message_ids) та 4 індекси idx_relay_*.
   Повторна міграція для цього кроку не потрібна; d1_migrations через Console не вели.
-- За скриншотом: Cloudflare Builds підключено до `arudichik-source/Mavka-Android`,
-  production branch `main`, `Disable builds` увімкнено.
+- Cloudflare Builds підключено до `arudichik-source/Mavka-Android`, branch `main`.
+- 19.10.2026 користувач окремо погодив злиття PR #34 та розгортання Worker.
+  PR #34 злито у main: `176f6519c4f2c6b838a41c1a271a42f9c32165f7`.
+  Повторного погодження цього випуску не потрібно.
 - Реальну ідентичність створено скриптом на Windows користувача 19.10.2026.
   Три публічні параметри перевірено через `configuration()` і Web Crypto importKey;
   приватний ключ не передавався. Повторна генерація ідентичності не потрібна.
-- На скриншоті Production 19.10.2026 правильні root `relay`, Build command
-  `npm run configure`, Deploy command `npx wrangler versions upload`; три рядки
-  Build variables присутні, повний довгий JWK у UI обрізаний. На цьому скриншоті
-  ще були Unsaved changes: остаточне збереження не підтверджено.
-  Під час підготовки: Production Disable builds ON, Preview branches OFF.
-  Виявлено, що Disable builds приховує поля конфігурації Production.
+- Користувач підтвердив збереження production-налаштувань 19.10.2026:
+  root `relay`, Build command `npm run configure`, Deploy command
+  `npx wrangler deploy`, Disable builds OFF, Preview branches OFF,
+  три публічні Build variables. Перехід від versions upload до deploy погоджений
+  дозволом на активацію Worker.
+- Невдала збірка `4a0f0b78-32ba-448e-bdb0-345c2903bbe8` була Preview для
+  feature-гілки: configure успішний, збій на етапі `wrangler preview`.
+  Її не слід плутати з погодженим production-випуском main.
+- Цей коміт оновлює стан випуску й має запустити production Build з main.
+  Успішне завершення deployment і bootstrap ще потребують перевірки.
 - Прямого авторизованого доступу до кабінету Cloudflare в агентському браузері немає.
-- Google OAuth відкладено. Перед розгортанням потрібні перевірка та погодження користувача.
+- Google OAuth відкладено. Розгортання цього Worker вже погоджене користувачем.
 
 ## Підготовлено
 
@@ -63,19 +69,17 @@
   повторне відкриття, прийняття підписаного bootstrap локальним workerd.
 - Тести й dry-run використовували синтетичні ключі та UUID; remote-команд не виконували.
 
-## Що залишилось до запуску
+## Що залишилось до завершення випуску
 
-1. Підтвердити збереження Cloudflare Build settings і трьох публічних змінних.
-   Під час підготовки Production Disable builds ON, Preview branches OFF.
-2. Переглянути та окремо погодити злиття PR #34 і запуск Worker.
-   Погодження користувача 19.10.2026 стосувалося додавання службових таблиць.
-   Міграцію вже застосовано й перевірено; код Worker ще не розгорнуто.
-3. Після погодження злити перевірений PR і розгорнути Worker.
-   Merge, upload, deploy і bootstrap станом на цю перевірку не виконані.
-   Сам `wrangler versions upload` не активує Worker і не встановлює Cron.
-4. На тому самому Windows-акаунті виконати bootstrap існуючою CNG-ідентичністю,
-   перевірити signed status, delivery/ACK та Cron з України на синтетичних даних.
-5. Підключити створену CNG-ідентичність до інтерфейсу ГОЛОВНОЇ МАВКИ;
+1. Дочекатися production Build цього main-коміту. Перевірити успішний deploy,
+   binding DB на існуючу mavka-messages, закріплений публічний ключ та Cron */5.
+   Не повторювати вже застосовану SQL-міграцію вручну.
+2. На тому самому Windows-акаунті виконати bootstrap існуючою CNG-ідентичністю
+   (скрипт Initialize-RelayAdmin.ps1 -Bootstrap), потім підписаний -Status.
+   Справжні приватні ключі залишаються лише на ПК користувача.
+3. Перевірити delivery/ACK та Cron з України на синтетичних даних.
+   GET /health перевіряє виконання Worker, але не підтверджує готовність D1.
+4. Підключити CNG-ідентичність до інтерфейсу ГОЛОВНОЇ МАВКИ;
    реалізувати Android Keystore, довірене спарювання та API transport.
    Наявний QR HMAC не є автоматично дозволом Relay. Готового APK з Relay поки немає.
 
