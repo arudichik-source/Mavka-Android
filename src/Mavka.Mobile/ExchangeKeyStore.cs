@@ -198,6 +198,10 @@ internal sealed class ExchangeKeyStore
         var raw=_prefs.GetString("bootstrap_document_password",null);if(raw is null)return null;
         var bytes=TransferKeystoreCipher.Open(Convert.FromBase64String(raw));try{return System.Text.Encoding.UTF8.GetString(bytes);}finally{CryptographicOperations.ZeroMemory(bytes);}
     }
+    internal void ClearBootstrapDocumentPassword()
+    {
+        using var editor=_prefs.Edit()!;if(!editor.Remove("bootstrap_document_password")!.Commit())throw new IOException("Не збережено зміну пароля документів.");
+    }
 
     public byte[]? GetCurrentKey()
     {
@@ -246,6 +250,7 @@ internal sealed class ExchangeKeyStore
     public void Clear()
     {
         using var editor = _prefs.Edit()!;
+        foreach(var field in new[]{"bootstrap_pending","bootstrap_hash","bootstrap_ack","bootstrap_sender","bootstrap_document_password","mobile_access"})editor.Remove(field);
         editor.Remove("key_id");
         editor.Remove("sealed_key");
         editor.Remove("generation");

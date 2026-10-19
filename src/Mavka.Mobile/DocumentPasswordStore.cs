@@ -23,6 +23,7 @@ internal sealed class DocumentPasswordStore
 
     public string? Load()
     {
+        if(new ExchangeKeyStore(_context).BootstrapDocumentPassword() is string initial)return initial;
         var sealedValue = _prefs.GetString("sealed_password", null);
         if (string.IsNullOrEmpty(sealedValue)) return new ExchangeKeyStore(_context).BootstrapDocumentPassword();
         var parts = sealedValue.Split(':', 2);
@@ -66,6 +67,7 @@ internal sealed class DocumentPasswordStore
             Convert.ToBase64String(iv) + ":" + Convert.ToBase64String(encrypted));
         if (!editor.Commit())
             throw new InvalidOperationException("Unable to save document password.");
+        new ExchangeKeyStore(_context).ClearBootstrapDocumentPassword();
     }
 
     private static KeyStore OpenStore()
