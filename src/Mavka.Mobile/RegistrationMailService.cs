@@ -85,38 +85,6 @@ internal static class RegistrationMailService
         if(!System.Net.Mail.MailAddress.TryCreate(recipient,out var to) || to.Address!=recipient)throw new ArgumentException("Вкажи адресу ГОЛОВНОЇ МАВКИ в налаштуваннях Gmail.");
     }
 
-    public static async Task SendQrPairRequestAsync(
-        string sender, string password, string mainEmail, UserProfile profile,
-        QrPairingProtocol.Invitation invitation)
-    {
-        if (!string.Equals(mainEmail, invitation.MainEmail,
-            StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("QR-відправник не збігається з налаштованою ГОЛОВНОЮ МАВКОЮ.");
-        var mail = new MimeMessage();
-        mail.From.Add(MailboxAddress.Parse(sender));
-        mail.To.Add(MailboxAddress.Parse(mainEmail));
-        mail.Subject = "MAVKA_QR_PAIR_REQUEST_V1";
-        // NEVER send the QR secret in the request. The desktop Mavka must
-        // read the already displayed QR and independently derive the HMAC.
-        mail.Body = new TextPart("plain")
-        {
-            Text = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                format = "MAVKA_QR_PAIR_REQUEST_V1",
-                sessionId = invitation.SessionId,
-                clientId = profile.ClientId,
-                unit = profile.Unit,
-                mobileEmail = sender
-            })
-        };
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
-        var opened = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
-        using var client = opened.Client;
-        await client.AuthenticateAsync(sender, password, timeout.Token);
-        await client.SendAsync(mail, timeout.Token);
-        await client.DisconnectAsync(true, timeout.Token);
-    }
-
     public static async Task SendReceiptAsync(
         string sender, string password, string recipient,
         UserProfile profile, IncomingInvoice invoice,

@@ -3938,48 +3938,7 @@ public partial class MainActivity : Activity
                             }).Show();return;
                     }
                 }
-                var invitation = QrPairingProtocol.ParseInvitation(raw, DateTimeOffset.UtcNow);
-                var profile = LoadUserProfile() ??
-                    throw new InvalidOperationException("Спочатку збережи профіль користувача.");
-                if (!string.Equals(invitation.MainEmail, _store.GetMainMavkaEmail(),
-                    StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException(
-                        "Адреса в QR не збігається з адресою ГОЛОВНОЇ МАВКИ. " +
-                        "Перевір її у налаштуваннях Gmail.");
-                new AlertDialog.Builder(this)
-                    .SetTitle("Підтвердити QR-зв'язок?")
-                    .SetMessage("ГОЛОВНА МАВКА: " + invitation.MainEmail +
-                        "\nТермін: " + invitation.ExpiresUtc.ToLocalTime().ToString("HH:mm:ss") +
-                        "\n\nЗапит не передає паролі, ключі чи базу. " +
-                        "Зв'язок не вважається встановленим до перевірки відповіді.")
-                    .SetNegativeButton("Скасувати", (_, _) => { })
-                    .SetPositiveButton("Надіслати запит", async (_, _) =>
-                    {
-                        if (_busy) return;
-                        _busy = true;
-                        try
-                        {
-                            if (!_store.HasCredentials)
-                                throw new InvalidOperationException("Спочатку підключи Gmail.");
-                            _qrPairing.SavePending(invitation);
-                            var password = _store.GetPassword() ??
-                                throw new InvalidOperationException("Немає пароля Gmail.");
-                            await RegistrationMailService.SendQrPairRequestAsync(
-                                _store.GetEmail(), password, invitation.MainEmail,
-                                profile, invitation);
-                            Toast.MakeText(this,
-                                "Запит на QR-підключення надіслано. Очікуємо підтвердження.",
-                                ToastLength.Long)?.Show();
-                        }
-                        catch (Exception)
-                        {
-                            _qrPairing.ClearPending();
-                            Toast.MakeText(this,
-                                "QR-запит не надіслано. Перевір Gmail.",
-                                ToastLength.Long)?.Show();
-                        }
-                        finally { _busy = false; }
-                    }).Show();
+                throw new ArgumentException("Це QR попередньої тестової версії. Створи новий QR реєстрації на ПК; телефон його тільки сканує.");
             }
             catch (Exception ex) { ShowSafeFailure("QR",ex); }
             return;
