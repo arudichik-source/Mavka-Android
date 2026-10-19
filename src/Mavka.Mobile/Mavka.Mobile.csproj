@@ -18,6 +18,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+<PropertyGroup Condition="'$(ApplicationId)' == 'ua.mavka.mobile.relayqa'">
+    <DefineConstants>$(DefineConstants);MAVKA_RELAY_QA</DefineConstants>
+  </PropertyGroup>
+
 <ItemGroup>
   <PackageReference Include="MailKit" Version="4.14.1" />
   <PackageReference Include="PDFsharp" Version="6.2.4" />

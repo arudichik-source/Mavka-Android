@@ -11,7 +11,13 @@ using Android.Widget;
 
 namespace Mavka.Mobile;
 
-[Activity(Label = "Мавка Mobile", MainLauncher = true, Exported = true,
+[Activity(
+#if MAVKA_RELAY_QA
+    Label = "Mavka Relay QA",
+#else
+    Label = "Мавка Mobile",
+#endif
+    MainLauncher = true, Exported = true,
     ConfigurationChanges = Android.Content.PM.ConfigChanges.Orientation |
                            Android.Content.PM.ConfigChanges.ScreenSize |
                            Android.Content.PM.ConfigChanges.KeyboardHidden)]

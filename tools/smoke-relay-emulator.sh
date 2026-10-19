@@ -10,6 +10,7 @@ mkdir -p emulator-smoke-artifacts
 adb wait-for-device
 adb install -r -t "$apk"
 adb shell pm list packages | grep -Fx "package:$package"
+adb shell pm grant "$package" android.permission.POST_NOTIFICATIONS
 # Launch via Android's actual MAIN/LAUNCHER entry, not a guessed .NET Activity.
 adb shell monkey -p "$package" -c android.intent.category.LAUNCHER 1
 sleep 12
@@ -27,3 +28,4 @@ if grep -A 2 -E 'FATAL EXCEPTION' emulator-smoke-artifacts/android-runtime-error
 fi
 # Protect existing or production data: emulator has no real accounts or keys.
 echo "CLEAN EMULATOR INSTALL AND HOME SCREEN LAUNCH: PASS"
+python3 tools/relay-emulator-ui.py
