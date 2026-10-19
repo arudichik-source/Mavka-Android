@@ -46,14 +46,34 @@ jobs:
           dotnet run --project tools/BootstrapChecks -- tools/BootstrapChecks/synthetic-pc-fixture.json
       - name: Install Android workload
         run: dotnet workload install android
+      - name: Retain the isolated QA signing identity
+        uses: actions/cache@v4
+        with:
+          path: ~/.mavka-qa-signing/registrationqa.jks
+          key: mavka-registrationqa-test-signing-v1
+      - name: Prepare QA-only signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.mavka-qa-signing"
+          if [[ ! -f "$HOME/.mavka-qa-signing/registrationqa.jks" ]]; then
+            keytool -genkeypair -keystore "$HOME/.mavka-qa-signing/registrationqa.jks" \
+              -storepass android -keypass android -alias mavka-test-only \
+              -keyalg RSA -keysize 3072 -validity 3650 \
+              -dname "CN=MaVka Registration QA Only, O=Not Production"
+          fi
       - name: Build isolated Relay QA APK
         run: |
           dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj \
             -f net10.0-android -c Release \
-            -p:ApplicationId=ua.mavka.mobile.bootstrapqa \
-            -p:ApplicationTitle="Mavka QR Test" \
-            -p:ApplicationVersion=20261020 \
-            -p:ApplicationDisplayVersion=1.1.0-bootstrap-qa
+            -p:ApplicationId=ua.mavka.mobile.registrationqa \
+            -p:ApplicationTitle="Mavka Registration Test" \
+            -p:ApplicationVersion=20261021 \
+            -p:ApplicationDisplayVersion=1.2.0-registration-v2-qa \
+            -p:AndroidKeyStore=true \
+            "-p:AndroidSigningKeyStore=$HOME/.mavka-qa-signing/registrationqa.jks" \
+            -p:AndroidSigningKeyAlias=mavka-test-only \
+            -p:AndroidSigningKeyPass=android -p:AndroidSigningStorePass=android
       - name: Inspect package identity, signature and network permission
         shell: bash
         run: |
@@ -61,9 +81,9 @@ jobs:
           aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           signer="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           for apk in src/Mavka.Mobile/bin/Release/net10.0-android/publish/*.apk; do
-            "$aapt" dump badging "$apk" | grep -F "package: name='ua.mavka.mobile.bootstrapqa'"
+            "$aapt" dump badging "$apk" | grep -F "package: name='ua.mavka.mobile.registrationqa'"
             "$aapt" dump permissions "$apk" | grep -F 'android.permission.ACCESS_NETWORK_STATE'
-            "$signer" verify "$apk"
+            "$signer" verify --print-certs "$apk"
           done
       - name: Upload isolated installer
         uses: actions/upload-artifact@v4
@@ -77,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      MAVKA_QA_PACKAGE: ua.mavka.mobile.bootstrapqa
+      MAVKA_QA_PACKAGE: ua.mavka.mobile.registrationqa
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

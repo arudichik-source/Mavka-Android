@@ -8,7 +8,7 @@ namespace Mavka.Mobile;
 internal sealed class QrCaptureProvider:ContentProvider
 {
 #if MAVKA_BOOTSTRAP_QA
-    public const string Authority="ua.mavka.mobile.bootstrapqa.qrcapture";
+    public const string Authority="ua.mavka.mobile.registrationqa.qrcapture";
 #elif MAVKA_RELAY_QA
     public const string Authority="ua.mavka.mobile.relayqa.qrcapture";
 #else

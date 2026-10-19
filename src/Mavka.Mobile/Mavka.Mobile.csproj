@@ -21,7 +21,7 @@
 <PropertyGroup Condition="'$(ApplicationId)' == 'ua.mavka.mobile.relayqa'">
     <DefineConstants>$(DefineConstants);MAVKA_RELAY_QA</DefineConstants>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(ApplicationId)' == 'ua.mavka.mobile.bootstrapqa'">
+  <PropertyGroup Condition="'$(ApplicationId)' == 'ua.mavka.mobile.registrationqa'">
     <DefineConstants>$(DefineConstants);MAVKA_BOOTSTRAP_QA</DefineConstants>
   </PropertyGroup>
 

@@ -37,21 +37,18 @@ internal sealed class RelaySync
         if (db.HasGroup(group)) return group;
         var packets = new List<(string Id, string Body)>();
         var expires = DateTimeOffset.UtcNow.AddDays(7).ToUnixTimeSeconds();
-        IReadOnlyList<string> contents;
-        if (json.Length <= 18000 && Encoding.UTF8.GetByteCount(json) <= 32768) contents = new[] { json };
-        else
+        var password=new DocumentPasswordStore(_context).Load()??throw new InvalidOperationException("Введи спільний пароль обміну вручну.");
+        var original=json;
+        using(var check=JsonDocument.Parse(json))
         {
-            using var check = JsonDocument.Parse(json);
-            var format = check.RootElement.TryGetProperty("format", out var f) ? f.GetString() : "";
-            var original = json;
-            if (format is not ("MAVKA_ENCRYPTED_V1" or "MAVKA_PASSWORD_WRAPPED_V1" or "MAVKA_ENCRYPTED_FILE_V1" or "MAVKA_FILE_PART_V1"))
-            {
-                var key = _keys.GetCurrentKey() ?? throw new KeyNotFoundException("Потрібен поточний ключ обміну.");
-                try { original = RelayContentCipher.Encrypt(json, key, _keys.CurrentKeyId!); }
-                finally { CryptographicOperations.ZeroMemory(key); }
-            }
-            contents = RelayProtocol.Split(original, _profile.ClientId);
+            var format=check.RootElement.GetProperty("format").GetString();
+            if(format is not ("MAVKA_ENCRYPTED_V1" or "MAVKA_PASSWORD_WRAPPED_V1" or "MAVKA_ENCRYPTED_FILE_V1" or "MAVKA_FILE_PART_V1"))
+                original=MavkaEncryptedEnvelope.Encrypt(json,_keys);
         }
+        if(!MavkaPasswordedEnvelope.IsWrapped(original))original=MavkaPasswordedEnvelope.Wrap(original,password);
+        // Even a small logical message uses password-protected content parts;
+        // each server packet remains a client-bound MAVKA_ENCRYPTED_V1 envelope.
+        var contents=RelayProtocol.Split(original,_profile.ClientId);
         foreach (var part in contents)
         {
             var envelope = MavkaEncryptedEnvelope.Encrypt(part, _keys);
@@ -142,24 +139,10 @@ internal sealed class RelaySync
                 catch (RelayApiException ex) when (ex.Status == 410) { db.Acked(row.Id); }
             }
             db.Cleanup();
-            // Persist receipts before network I/O; never post inventory twice.
-            using (var ledger = new PropertyLedgerStore(_context))
-            using (var archive = new DocumentArchiveStore(_context))
-            {
-                foreach (var id in ledger.ListPendingReceiptIds().Take(10))
-                {
-                    var invoice = ledger.LoadConfirmedInvoice(id);
-                    if (invoice is null || !new MobileAccessStore(_context).Allows(invoice.Recipient) || new MobileAccessStore(_context).Load()?.canConfirmInvoices!=true || !_keys.HasKeyPair) continue;
-                    Queue("receipt:" + id, Receipt(_profile, invoice));
-                }
-                sent = await Flush(api, db, cancellation);
-                foreach (var id in ledger.ListPendingReceiptIds().Take(10))
-                    if (db.Submitted(RelayProtocol.Hash("receipt:" + id)))
-                    {
-                        ledger.MarkMailSent(id);
-                        if (archive.FindDocument(id) is not null) archive.MarkDeliverySent(id);
-                    }
-            }
+            // MVO confirmation remains local; there is no business receipt to PC.
+            using(var ledger=new PropertyLedgerStore(_context))
+                foreach(var id in ledger.ListPendingReceiptIds().Take(100))ledger.MarkMailSent(id);
+            sent=await Flush(api,db,cancellation);
             MavkaHomeWidget.Refresh(_context);
             var counts = db.Counts();
             var report = $"Отримано: {received}; підтверджено збереження: {acked}; спроб надсилання: {sent}. " +
@@ -203,6 +186,7 @@ internal sealed class RelaySync
     {
         if (MavkaEncryptedEnvelope.IsEnvelope(json))
             json = RelayContentCipher.Decrypt(json, key => _keys.GetKey(key));
+        if(_keys.RequiresPassword && !MavkaPasswordedEnvelope.IsWrapped(json))throw new CryptographicException("Повідомлення не захищене спільним паролем.");
         if (MavkaPasswordedEnvelope.IsWrapped(json))
         {
             var password = new DocumentPasswordStore(_context).Load() ?? throw new KeyNotFoundException("Потрібен пароль документів.");

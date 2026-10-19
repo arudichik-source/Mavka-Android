@@ -48,9 +48,9 @@ internal sealed class UserProfileStore
         return JsonSerializer.Deserialize<UserProfile>(Encoding.UTF8.GetString(bytes));
     }
 
-    public UserProfile Save(string unit, string fullName, string rank, string position, bool isMvo, string? phoneNumber = null)
+    public UserProfile Save(string unit, string fullName, string rank, string position, bool isMvo, string? phoneNumber = null, string? registrationId = null)
     {
-        string id = Load()?.ClientId ?? Guid.NewGuid().ToString("N");
+        string id = registrationId ?? Load()?.ClientId ?? Guid.NewGuid().ToString("N");
         var profile = new UserProfile(id, unit, fullName, rank, position, isMvo,
             PhoneNumberNormalizer.Normalize(phoneNumber));
 

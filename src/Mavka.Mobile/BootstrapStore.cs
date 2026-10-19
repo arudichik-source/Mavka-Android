@@ -8,16 +8,38 @@ internal sealed class BootstrapStore(Context context)
 {
     private static readonly object Gate=new();
     private ISharedPreferences Preferences=>context.GetSharedPreferences("mavka_exchange_keys_v1",FileCreationMode.Private)!;
-    public void SaveQr(string raw)
+    public sealed record Pending(RegistrationInvitation Invitation,RegistrationRequest Request,string Wire);
+    public Pending SaveQr(string raw,string email,string password)
     {
         lock(Gate)
         {
             var profile=new UserProfileStore(context).Load()??throw new InvalidOperationException("Збережи профіль.");
-            _=BootstrapProtocol.Invitation(raw,profile.ClientId,new RelayIdentity(context).DeviceId,DateTimeOffset.UtcNow);
+            var q=RegistrationV2Protocol.Parse(raw,DateTimeOffset.UtcNow);RegistrationV2Protocol.Password(password);
             using var prefs=Preferences;
-            if(new ExchangeKeyStore(context).HasKeyPair)throw new InvalidOperationException("Перші ключі вже встановлено. Нове підключення потребує нового профілю.");
+            var existing=prefs.GetString("bootstrap_pending",null);
+            if(existing is not null)
+            {
+                var old=JsonSerializer.Deserialize<Pending>(Open(existing))!;
+                if(old.Invitation.sessionId==q.sessionId)
+                {
+                    if(old.Invitation!=q || old.Request.clientId!=profile.ClientId || old.Request.email!=email)throw new CryptographicException("Інші дані повторної заявки.");
+                    var check=RegistrationV2Protocol.Derive(q,"request");try{_=RegistrationV2Protocol.Open(old.Wire,check,password);}finally{CryptographicOperations.ZeroMemory(check);}
+                    return old;
+                }
+            }
+            new ExchangeKeyStore(context).PrepareNewRegistration();
+            profile=new UserProfileStore(context).Save(profile.Unit,profile.FullName,profile.Rank,profile.Position,profile.IsMvo,profile.PhoneNumber,Guid.NewGuid().ToString("N"));
+            RelayBackground.SetEnabled(context,false);
+            var identity=new RelayIdentity(context);identity.BeginNewEnrollment();
+            _=identity.Request(profile.ClientId); // Local private-key signing proof; no QR or network.
+            var request=new RegistrationRequest(RegistrationV2Protocol.Request,q.sessionId,Guid.NewGuid().ToString(),profile.ClientId,email,profile.FullName,profile.Rank,profile.Position,profile.Unit,profile.IsMvo,profile.PhoneNumber,identity.DeviceId,identity.SigningKey,identity.EncryptionKey);
+            RegistrationV2Protocol.Validate(request);
+            var key=RegistrationV2Protocol.Derive(q,"request");string wire;
+            try{wire=RegistrationV2Protocol.Seal(RelayProtocol.Serialize(request),key,password);}finally{CryptographicOperations.ZeroMemory(key);}
+            var pending=new Pending(q,request,wire);
             using var editor=prefs.Edit()!;
-            if(!editor.PutString("bootstrap_pending",Seal(raw))!.Commit())throw new IOException("QR не збережено.");
+            if(!editor.PutString("bootstrap_pending",Seal(JsonSerializer.Serialize(pending)))!.Commit())throw new IOException("QR та заявку не збережено.");
+            return pending;
         }
     }
     public bool TryInstall(string envelope,string? sender=null,string? messageId=null)
@@ -36,12 +58,16 @@ internal sealed class BootstrapStore(Context context)
             }
             var pending=prefs.GetString("bootstrap_pending",null);if(pending is null)return false;
             using var outer=JsonDocument.Parse(envelope);
-            var q=JsonSerializer.Deserialize<BootstrapInvitation>(Open(pending))!;
-            if(outer.RootElement.GetProperty("keyId").GetString()!=q.keyId)return false;
-            if(sender is not null && !sender.Equals(q.mainEmail,StringComparison.OrdinalIgnoreCase) || messageId is not null && messageId!=q.messageId)throw new CryptographicException("Інший відправник або пакет першого підключення.");
+            var saved=JsonSerializer.Deserialize<Pending>(Open(pending))!;var q=saved.Invitation;
+            var derived=RegistrationV2Protocol.Derive(q,"keys");string keyId;
+            try{keyId=RelayProtocol.Hash(derived)[..16];}finally{CryptographicOperations.ZeroMemory(derived);}
+            if(outer.RootElement.GetProperty("keyId").GetString()!=keyId)return false;
+            if(sender is not null && !sender.Equals(q.mainEmail,StringComparison.OrdinalIgnoreCase))throw new CryptographicException("Інший відправник першого підключення.");
             var profile=new UserProfileStore(context).Load()??throw new InvalidOperationException("Немає профілю.");
-            q=BootstrapProtocol.Invitation(Open(pending),profile.ClientId,new RelayIdentity(context).DeviceId,DateTimeOffset.UtcNow);
-            var data=BootstrapProtocol.Open(envelope,q,DateTimeOffset.UtcNow);
+            if(saved.Request.clientId!=profile.ClientId || saved.Request.deviceId!=new RelayIdentity(context).DeviceId)throw new CryptographicException("Інший профіль або телефон.");
+            var password=new DocumentPasswordStore(context).Load()??throw new InvalidOperationException("Введи спільний пароль обміну вручну.");
+            var data=BootstrapProtocol.Open(envelope,q,saved.Request,password,DateTimeOffset.UtcNow);
+            if(messageId is not null && messageId!=data.messageId)throw new CryptographicException("Інший пакет першого підключення.");
             new ExchangeKeyStore(context).InstallBootstrap(data,hash,BootstrapProtocol.Confirmation(data,DateTimeOffset.UtcNow),q.mainEmail);
             // Independent read-back precedes transport ACK. The pending one-time key
             // is removed by the same atomic preference commit as the key pair.

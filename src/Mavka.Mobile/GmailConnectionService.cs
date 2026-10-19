@@ -308,6 +308,7 @@ internal static class GmailConnectionService
                                     string envelope = new System.Text.UTF8Encoding(false, true)
                                         .GetString(ciphertextStream.ToArray())
                                         .TrimStart('\uFEFF');
+                                    if(exchangeKeys?.RequiresPassword==true && !MavkaPasswordedEnvelope.IsWrapped(envelope))throw new System.Security.Cryptography.CryptographicException("Немає захисту спільним паролем.");
                                     if (MavkaPasswordedEnvelope.IsWrapped(envelope))
                                     {
                                         var savedPassword = documentPasswords?.Load();
@@ -465,7 +466,8 @@ internal static class GmailConnectionService
                 // Never interpret attachment content as HTML or executable code.
                 var contents = System.Text.Encoding.UTF8.GetString(stream.ToArray()).TrimStart('\uFEFF');
                 var isJson = fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
-                if (MavkaPasswordedEnvelope.IsWrapped(contents))
+                var passwordProtected=MavkaPasswordedEnvelope.IsWrapped(contents);
+                if (passwordProtected)
                 {
                     try
                     {
@@ -554,13 +556,14 @@ internal static class GmailConnectionService
                         if(new BootstrapStore(exchangeKeys.BootstrapContext).TryInstall(contents,allowedSender))
                         {
                             installedKey=true;authenticatedJson=true;usableJson=null;
-                            display="Перші ключі, пароль документів і дозволи встановлено. Синхронізуй Relay для підтвердження ПК.";
+                            display="Поточний і майбутній ключі та дозволи встановлено. Введений вручну спільний пароль не передавався. Активуй Relay після дозволу ПК.";
                             var bootstrap=new BootstrapStore(exchangeKeys.BootstrapContext);
                             if(new RelayIdentity(exchangeKeys.BootstrapContext).Enabled)
                                 new RelaySync(exchangeKeys.BootstrapContext).Queue("bootstrap-installed:"+RelayProtocol.Hash(bootstrap.Confirmation!),bootstrap.Confirmation!);
                         }
                         else
                         {
+                        if(exchangeKeys.RequiresPassword && !passwordProtected)throw new System.Security.Cryptography.CryptographicException("Немає захисту спільним паролем.");
                         usableJson = MavkaEncryptedEnvelope.Decrypt(contents, exchangeKeys);
                         authenticatedJson = true;
                         display = "🔐 Зашифрований файл успішно розшифровано.\n\n" +

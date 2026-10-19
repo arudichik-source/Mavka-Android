@@ -54,6 +54,17 @@ internal sealed class RelayIdentity
             }
         }
     }
+    internal void BeginNewEnrollment()
+    {
+        lock(Gate)
+        {
+            // New explicit registration never reuses a server-revoked device ID.
+            // Prior private keys remain in Keystore for historical local data.
+            using var editor=_prefs.Edit()!;
+            editor.Remove("device_id");editor.Remove("ecdh_wrapped");editor.Remove("ecdh_public");editor.PutBoolean("enabled",false);editor.PutLong("retry_after",0);
+            if(!editor.Commit())throw new IOException("Новий сеанс не збережено.");
+        }
+    }
     private void EnsureExisting(string id)
     {
         using var store = Open();

@@ -46,47 +46,48 @@ def field(hint, value):
     adb("shell", "input", "text", value)
     adb("shell", "input", "keyevent", "4")
     time.sleep(.4)
-def open_qr():
+def prove_device():
     menu("Синхронізація Gmail")
     tap("Cloudflare Relay →")
-    tap("Показати QR підключення для ПК")
-    for _ in range(16):
-        screenshot = adb("exec-out", "screencap", "-p")
-        found = zxingcpp.read_barcodes(Image.open(io.BytesIO(screenshot)))
-        for qr in found:
-            try: data = json.loads(qr.text)
-            except (ValueError, TypeError): continue
-            if data.get("format") == "MAVKA_RELAY_DEVICE_REQUEST_V1":
-                return data, screenshot
-        swipe()
+    tap("Перевірити ключі пристрою")
     root = tree()
-    OUT.joinpath("relay-ui-failure.xml").write_bytes(ET.tostring(root))
-    raise AssertionError("Relay QR was not decodable on screen")
+    texts = [n.get("text", "") for n in root.iter("node")]
+    proof = next((t for t in texts if t.startswith("Локальні ключі пристрою справні. Відбиток: ")), None)
+    assert proof is not None, "Local signing proof failed: " + str(texts)
+    assert not any(t == "Показати QR підключення для ПК" for t in texts), "Phone registration QR is still exposed"
+    return proof
+
+def assert_screen(text):
+    root = tree()
+    assert any(text in n.get("text", "") for n in root.iter("node")), "Screen missing: " + text
+    assert not any(n.get("text", "").startswith("MOBILE-") for n in root.iter("node")), "Settings exception shown"
+    assert adb("shell", "pidof", PACKAGE).strip(), "Process exited on settings navigation"
 
 OUT.mkdir(exist_ok=True)
+menu("Ключ обміну")
+assert_screen("Немає автоматично встановленої пари ключів.")
+OUT.joinpath("exchange-keys-fresh.png").write_bytes(adb("exec-out", "screencap", "-p"))
+menu("Пароль документів")
+field("Пароль документів", "SYNTHETIC-QA-PASSWORD-ONLY")
+tap("Зберегти / змінити пароль")
+assert_screen("Пароль збережено.")
 menu("Профіль користувача")
 field("Назва підрозділу", "SYNTHETIC-QA-UNIT")
 field("Прізвище Ім’я По батькові", "SYNTHETIC-QA-USER")
 field("Звання", "SYNTHETIC-QA-RANK")
 field("Посада користувача", "SYNTHETIC-QA-POSITION")
 tap("Зберегти профіль")
-first, screenshot = open_qr()
-assert set(first) == {"format", "server", "mainDeviceId", "deviceId", "clientId", "publicSigningKey", "publicEncryptionKey"}
-assert first["server"] == "https://mavka-relay.arudichik.workers.dev"
-assert first["mainDeviceId"] == "5110f288-ed5f-4d7f-afb5-2c2501f50076"
-assert re.fullmatch(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}", first["deviceId"])
-assert first["deviceId"] != first["clientId"]
-for name in ("publicSigningKey", "publicEncryptionKey"):
-    key = first[name]
-    assert set(key) == {"kty", "crv", "x", "y"}
-    assert key["kty"] == "EC" and key["crv"] == "P-256"
-    assert all(len(base64.urlsafe_b64decode(key[c] + "=")) == 32 for c in ("x", "y"))
-assert first["publicSigningKey"] != first["publicEncryptionKey"]
-OUT.joinpath("relay-public-qr-synthetic.png").write_bytes(screenshot)
-OUT.joinpath("relay-public-request-synthetic.json").write_text(json.dumps(first, ensure_ascii=False, indent=2))
+first = prove_device()
+OUT.joinpath("relay-local-proof-synthetic.png").write_bytes(adb("exec-out", "screencap", "-p"))
+menu("Ключ обміну")
+assert_screen("Немає автоматично встановленої пари ключів.")
 adb("shell", "am", "force-stop", PACKAGE)
 adb("shell", "monkey", "-p", PACKAGE, "-c", "android.intent.category.LAUNCHER", "1")
 time.sleep(5)
-second, _ = open_qr()
-assert second == first, "Identity/profile changed after restarting the app"
-print("ANDROID KEYSTORE P-256 QR, PUBLIC-ONLY PAYLOAD, AND RESTART STABILITY: PASS. NO NETWORK ENROLLMENT.")
+second = prove_device()
+assert second == first, "Identity changed after restart"
+menu("Пароль документів")
+assert_screen("Пароль уже захищено збережений на телефоні.")
+menu("Ключ обміну")
+assert_screen("Немає автоматично встановленої пари ключів.")
+print("ANDROID15 EXCHANGE-KEY SCREEN, MANUAL PASSWORD KEYSTORE PERSISTENCE, LOCAL P256 SIGNATURE PROOF AND RESTART: PASS. NO NETWORK ENROLLMENT.")

@@ -9,10 +9,10 @@ public sealed record MobileAccessPolicy(string format,string clientId,long revis
     public void Validate(string client)
     {
         if(format!=Format || clientId!=client || revision<1 || units.Length is <1 or >100 || units.Any(u=>u.locationId<1 || string.IsNullOrWhiteSpace(u.unit) || u.unit.Length>200) || units.Select(u=>u.locationId).Distinct().Count()!=units.Length || units.Select(u=>u.unit.Trim().ToUpperInvariant()).Distinct().Count()!=units.Length)
-            throw new InvalidDataException("РџРµСЂРµРІС–СЂС‚Рµ РїС–РґСЂРѕР·РґС–Р»Рё Р№ РІРµСЂСЃС–СЋ РґРѕР·РІРѕР»С–РІ.");
+            throw new InvalidDataException("Перевірте підрозділи й версію дозволів.");
         if(isMvo && (units.Length!=1 || !canConfirmInvoices || autoPostInvoices) || !isMvo && (canConfirmInvoices || !autoPostInvoices))
-            throw new InvalidDataException("РњР’Рћ РїС–РґС‚РІРµСЂРґР¶СѓС” РЅР°РєР»Р°РґРЅС– СЃРІРѕРіРѕ РїС–РґСЂРѕР·РґС–Р»Сѓ; С–РЅС€С– РєРѕСЂРёСЃС‚СѓРІР°С‡С– РѕС‚СЂРёРјСѓСЋС‚СЊ С—С… Р°РІС‚РѕРјР°С‚РёС‡РЅРѕ.");
-        if((canConfirmInvoices || autoPostInvoices) && !canViewDocuments)throw new InvalidDataException("Р”Р»СЏ РЅР°РєР»Р°РґРЅРёС… РїРѕС‚СЂС–Р±РµРЅ РґРѕСЃС‚СѓРї РґРѕ РґРѕРєСѓРјРµРЅС‚С–РІ.");
+            throw new InvalidDataException("МВО підтверджує накладні свого підрозділу; інші користувачі отримують їх автоматично.");
+        if((canConfirmInvoices || autoPostInvoices) && !canViewDocuments)throw new InvalidDataException("Для накладних потрібен доступ до документів.");
     }
     public bool Allows(int location,bool assets=false)=>units.Any(u=>u.locationId==location) && (assets?canViewAssets:canViewDocuments);
 }

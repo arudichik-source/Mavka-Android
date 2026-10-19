@@ -24,6 +24,7 @@ internal sealed class ExchangeKeyStore
         _prefs = context.GetSharedPreferences(Preferences, FileCreationMode.Private)!;
     }
 
+    public bool RequiresPassword=>_prefs.GetInt("bootstrap_protocol",0)==2;
     public bool HasKey => !string.IsNullOrWhiteSpace(_prefs.GetString("sealed_key", null));
     public string? KeyId => _prefs.GetString("key_id", null);
 
@@ -89,7 +90,11 @@ internal sealed class ExchangeKeyStore
         }
 
         if (!string.Equals(keyId, KeyId, StringComparison.OrdinalIgnoreCase))
-            return null;
+        {
+            var old=System.Text.Json.JsonSerializer.Deserialize<Dictionary<string,string>>(_prefs.GetString("historical_keys","{}")!)!;
+            if(!old.TryGetValue(keyId,out var historical))return null;
+            using var oldStore=LoadStore();return UnwrapKey(oldStore,historical);
+        }
 
         var saved = _prefs.GetString("sealed_key", null);
         if (string.IsNullOrWhiteSpace(saved)) return null;
@@ -177,21 +182,19 @@ internal sealed class ExchangeKeyStore
         if(HasKeyPair || Generation!=0 || HasKey)throw new InvalidOperationException("На телефоні вже є ключі. Початковий пакет не може їх перезаписати.");
         using var store=LoadStore();EnsureWrappingKey(store);
         var current=Convert.FromBase64String(data.currentKey);var future=Convert.FromBase64String(data.futureKey);
-        var password=System.Text.Encoding.UTF8.GetBytes(data.documentPassword);
         try
         {
             var currentSealed=WrapKey(store,current);var futureSealed=WrapKey(store,future);
-            var passwordSealed=Convert.ToBase64String(TransferKeystoreCipher.Seal(password));
             using var editor=_prefs.Edit()!;
-            editor.PutInt("generation",1);editor.PutString("recipient_client_id",data.clientId);
+            editor.PutInt("generation",1);editor.PutInt("bootstrap_protocol",2);editor.PutString("recipient_client_id",data.clientId);
             editor.PutString("current_id",MavkaKeyPackage.Id(current));editor.PutString("future_id",MavkaKeyPackage.Id(future));
             editor.PutString("current_sealed",currentSealed);editor.PutString("future_sealed",futureSealed);
-            editor.PutString("bootstrap_document_password",passwordSealed);editor.PutString("mobile_access",System.Text.Json.JsonSerializer.Serialize(data.access));
+            editor.Remove("bootstrap_document_password");editor.PutString("mobile_access",System.Text.Json.JsonSerializer.Serialize(data.access));
             editor.PutString("bootstrap_hash",hash);editor.PutString("bootstrap_ack",ack);editor.Remove("bootstrap_pending");
             editor.PutString("bootstrap_sender",mainEmail);
             if(!editor.Commit())throw new IOException("Початкові ключі не збережено.");
         }
-        finally{CryptographicOperations.ZeroMemory(current);CryptographicOperations.ZeroMemory(future);CryptographicOperations.ZeroMemory(password);}
+        finally{CryptographicOperations.ZeroMemory(current);CryptographicOperations.ZeroMemory(future);}
     }
     internal string? BootstrapDocumentPassword()
     {
@@ -247,6 +250,20 @@ internal sealed class ExchangeKeyStore
         return rawKey;
     }
 
+    internal void PrepareNewRegistration()
+    {
+        // Archive wrapped AES keys instead of destroying access to old files.
+        var old=System.Text.Json.JsonSerializer.Deserialize<Dictionary<string,string>>(_prefs.GetString("historical_keys","{}")!)!;
+        foreach(var fields in new[]{("current_id","current_sealed"),("future_id","future_sealed"),("key_id","sealed_key")})
+        {
+            var id=_prefs.GetString(fields.Item1,null);var value=_prefs.GetString(fields.Item2,null);
+            if(id is not null && value is not null)old[id]=value;
+        }
+        if(old.Count>1000)throw new IOException("Забагато історичних ключів. Повторну реєстрацію зупинено без видалення даних.");
+        using var editor=_prefs.Edit()!;editor.PutString("historical_keys",System.Text.Json.JsonSerializer.Serialize(old));
+        foreach(var field in new[]{"current_id","future_id","current_sealed","future_sealed","key_id","sealed_key","recipient_client_id","mobile_access","bootstrap_pending","bootstrap_hash","bootstrap_ack","bootstrap_sender"})editor.Remove(field);
+        editor.PutInt("generation",0);editor.PutInt("bootstrap_protocol",0);if(!editor.Commit())throw new IOException("Попередні ключі не збережено.");
+    }
     public void Clear()
     {
         using var editor = _prefs.Edit()!;

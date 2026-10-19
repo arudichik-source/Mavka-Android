@@ -13,7 +13,7 @@ namespace Mavka.Mobile;
 
 [Activity(
 #if MAVKA_BOOTSTRAP_QA
-    Label = "Mavka QR Test",
+    Label = "Mavka Registration Test",
 #elif MAVKA_RELAY_QA
     Label = "Mavka Relay QA",
 #else
@@ -23,7 +23,7 @@ namespace Mavka.Mobile;
     ConfigurationChanges = Android.Content.PM.ConfigChanges.Orientation |
                            Android.Content.PM.ConfigChanges.ScreenSize |
                            Android.Content.PM.ConfigChanges.KeyboardHidden)]
-public class MainActivity : Activity
+public partial class MainActivity : Activity
 {
     private LinearLayout _body = null!;
     private MavkaThemePalette _theme = null!;
@@ -162,7 +162,7 @@ public class MainActivity : Activity
         Button(rightPanel, "Синхронізація Gmail", () => { CloseDrawer(); ShowSynchronization(); });
         Button(rightPanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
         Button(rightPanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
-        Button(rightPanel, "Ключ обміну", () => { CloseDrawer(); ShowExchangeKey(); });
+        Button(rightPanel, "Ключ обміну", () => { CloseDrawer(); try{ShowExchangeKey();}catch(Exception ex){ShowSafeFailure("Ключ обміну",ex);} });
         Button(rightPanel, "Пароль документів", () => { CloseDrawer(); ShowDocumentPassword(); });
         _rightDrawer = new ScrollView(this) { FillViewport = true };
         _rightDrawer.SetBackgroundColor(_theme.Surface);
@@ -1230,81 +1230,20 @@ public class MainActivity : Activity
                     status.Text = "Отримувач накладної не збігається з підрозділом у профілі.";
                     return;
                 }
-                if (!_store.HasCredentials && !MobileExchangeTransport.RelayEnabled(this))
-                {
-                    status.Text = "Підключи Gmail або активуй Cloudflare Relay у Налаштуваннях.";
-                    return;
-                }
-                string? existingStatus;
-                try { existingStatus = _ledger.GetMailStatus(invoice.DocumentId); }
-                catch (Exception ex)
-                {
-                    status.Text = "Помилка локальної бази: " + ExplainOperationError(ex);
-                    return;
-                }
-                if (existingStatus == "sent")
-                {
-                    status.Text = "Накладна вже зарахована до локальної бази й підтвердження надіслано.";
-                    return;
-                }
-                new AlertDialog.Builder(this)
-                    .SetTitle("Підтвердження отримання")
-                    .SetMessage("Документ № " + invoice.Number +
-                        "\nПідрозділ: " + profile.Unit +
-                        "\nМВО: " + profile.FullName +
-                        "\n\nПозицій: " + invoice.Positions.Count +
-                        "\nПісля натискання майно буде додано до локальної бази телефону, " +
-                        "а підтвердження надіслано ГОЛОВНІЙ МАВЦІ. " +
-                        "Це не означає автоматичне проведення документа в головній базі.")
-                    .SetNegativeButton("Скасувати", (_, _) => { })
-                    .SetPositiveButton("Підтвердити й надіслати", async (_, _) =>
+                if(_ledger.GetMailStatus(invoice.DocumentId)=="sent"){status.Text="Накладну вже зараховано локально.";return;}
+                new AlertDialog.Builder(this).SetTitle("Підтвердити отримання майна?")
+                    .SetMessage("Документ № "+invoice.Number+"\nПідрозділ: "+profile.Unit+"\nПозицій: "+invoice.Positions.Count+"\nМайно буде додано до локального обліку телефона. Окреме підтвердження головній Мавці не надсилається.")
+                    .SetNegativeButton("Скасувати",(_,_)=>{})
+                    .SetPositiveButton("Підтвердити локально",(_,_)=>
                     {
-                        if (_busy) return;
-                        _busy = true;
-                        status.Text = "Надсилаємо підтвердження...";
-                        bool smtpAccepted = false;
                         try
                         {
-                            // SQLite transaction commits receipt and its items atomically.
-                            // The document ID is unique; retrying must never double inventory.
-                            bool added = _ledger.AddConfirmedInvoice(invoice);
-                            if (_archive.FindDocument(invoice.DocumentId) is not null)
-                            {
-                                _archive.MarkPosted(invoice.DocumentId);
-                                _archive.MarkDeliveryQueued(invoice.DocumentId);
-                            }
-                            status.Text = added
-                                ? "Майно зараховано локально. Надсилаємо підтвердження..."
-                                : "Накладну вже зараховано. Повторно надсилаємо підтвердження...";
-
-                            var password = _store.GetPassword() ?? "";
-                            await MobileExchangeTransport.SendReceiptAsync(this,
-                                _store.GetEmail(), password, _store.GetMainMavkaEmail(),
-                                profile, invoice, _exchangeKeys);
-                            smtpAccepted = true;
-                            _ledger.MarkMailSent(invoice.DocumentId);
-                            if (_archive.FindDocument(invoice.DocumentId) is not null)
-                                _archive.MarkDeliverySent(invoice.DocumentId);
-                            if (_screen == "message")
-                                status.Text = "Майно зараховано в локальну базу. " +
-                                    "Лист-підтвердження надіслано. " +
-                                    "ГОЛОВНА МАВКА має обробити його окремо.";
+                            _ledger.AddConfirmedInvoice(invoice);_ledger.MarkMailSent(invoice.DocumentId);
+                            if(_archive.FindDocument(invoice.DocumentId) is not null){_archive.MarkPosted(invoice.DocumentId);_archive.MarkDeliverySent(invoice.DocumentId);}
+                            status.Text="Майно зараховано до локального обліку.";
                         }
-                        catch (Exception ex)
-                        {
-                            if (_screen == "message")
-                                status.Text = smtpAccepted
-                                    ? "Gmail прийняв підтвердження, але локальне оновлення " +
-                                      "статусу не завершилося (" + ExplainOperationError(ex) +
-                                      "). Не підтверджуй накладну повторно; перевір чергу."
-                                    : "Не вдалося завершити відправлення (" +
-                                      ExplainOperationError(ex) +
-                                      "). Проведення збережено, підтвердження очікує " +
-                                      "повторної спроби. Не проводь накладну вдруге.";
-                        }
-                        finally { _busy = false; }
-                    })
-                    .Show();
+                        catch(Exception ex){ShowSafeFailure("Облік МВО",ex);}
+                    }).Show();
             });
         }
 
@@ -1509,43 +1448,10 @@ public class MainActivity : Activity
         finally { _busy = false; }
     }
 
-    private async Task<string> SendPendingReceiptsAsync(string password, string sender)
+    private Task<string> SendPendingReceiptsAsync(string password,string sender)
     {
-        var profile = LoadUserProfile();
-        if (profile is null || !profile.IsMvo)
-            return "Для синхронізації підтверджень потрібен профіль МВО.";
-
-        int sent = 0, deferred = 0;
-        // A bounded batch avoids a long chain of sequential SMTP timeouts.
-        foreach (var id in _ledger.ListPendingReceiptIds(limit: 3))
-        {
-            try
-            {
-                // The ledger is the authoritative immutable record of confirmed
-                // positions. Pre-archive receipts are therefore still resendable.
-                var invoice = _ledger.LoadConfirmedInvoice(id);
-                if (invoice is null ||
-                    !string.Equals(invoice.Recipient, profile.Unit,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    deferred++;
-                    continue;
-                }
-                await MobileExchangeTransport.SendReceiptAsync(this,
-                    _store.GetEmail(), password, sender, profile, invoice, _exchangeKeys);
-                _ledger.MarkMailSent(id);
-                if (_archive.FindDocument(id) is not null)
-                    _archive.MarkDeliverySent(id);
-                sent++;
-            }
-            catch (Exception)
-            {
-                // Keep mail_status=pending, preserving the item across reboots.
-                // Server-side handling must remain idempotent by documentId.
-                deferred++;
-            }
-        }
-        return $"Надіслано підтверджень: {sent}; залишено в черзі: {deferred}.";
+        foreach(var id in _ledger.ListPendingReceiptIds(limit:100))_ledger.MarkMailSent(id);
+        return Task.FromResult("Підтвердження МВО зберігаються лише в локальному обліку.");
     }
 
     // Durable Gmail UIDs are mailbox-local. Bind processing status to BOTH
@@ -1759,6 +1665,7 @@ public class MainActivity : Activity
             }
             if (mail.PreviouslyArchived)
             {
+
                 // The durable ready marker was written only after every
                 // document passed read-back. Retry Trash without downloading
                 // or re-importing the complete message.
@@ -3138,8 +3045,8 @@ public class MainActivity : Activity
 
         var pairingCard = Card();
         Text(pairingCard, "Зв'язок із ГОЛОВНОЮ МАВКОЮ через QR", 18, true);
-        Text(pairingCard, "Спочатку передай ПК публічний Relay QR телефона. Після дозволу ПК скануй тут QR першого підключення. " +
-            "Його одноразовий ключ відкриває один пакет із поточним і майбутнім ключами, паролем документів та дозволами. Термін — 10 хвилин.", 13);
+        Text(pairingCard, "ПК створює QR; телефон тільки сканує його. Спочатку збережи профіль, підключи Gmail і введи спільний пароль обміну вручну. " +
+            "QR містить разовий ключ сеансу. Після захищеної заявки й дозволу ПК надійдуть поточний та майбутній ключі й дозволи. Пароль не передається. Термін — 10 хвилин.", 13);
         var qrStatus = Text(pairingCard,
             _qrPairing.ConfirmedEmail is { } pairedEmail
                 ? "QR-зв'язок підтверджено: " + pairedEmail
@@ -3248,7 +3155,7 @@ public class MainActivity : Activity
                 .Show();
         });
 
-        var sendButton = new Android.Widget.Button(this) { Text = "Надіслати реєстрацію ГОЛОВНІЙ МАВЦІ" };
+        var sendButton = new Android.Widget.Button(this) { Text = "Надіслати оновлення профілю" };
         StylePrimaryButton(sendButton);
         card.AddView(sendButton);
         sendButton.Click += (_, _) =>
@@ -3281,7 +3188,7 @@ public class MainActivity : Activity
                         if (string.IsNullOrEmpty(password))
                             throw new InvalidOperationException("Gmail credentials missing.");
                         await RegistrationMailService.SendAsync(
-                            sender, password, recipient, profile, _exchangeKeys);
+                            sender, password, recipient, profile, _exchangeKeys, stage => RunOnUiThread(() => { if(_screen=="profile")status.Text="Реєстрація: "+new RegistrationMailFailure(stage,new Exception()).StageName+"…"; }));
                         if (_screen == "profile")
                             status.Text = "Лист надіслано. Очікуємо підтвердження реєстрації від ГОЛОВНОЇ МАВКИ.";
                     }
@@ -3298,7 +3205,7 @@ public class MainActivity : Activity
                     catch (Exception ex)
                     {
                         if (_screen == "profile")
-                            status.Text = "Помилка надсилання: " + ExplainOperationError(ex);
+                            status.Text = ex is RegistrationMailFailure failure ? failure.UserMessage : new RegistrationMailFailure(RegistrationMailStage.Credentials,ex).UserMessage;
                     }
                     finally { _busy = false; sendButton.Enabled = true; }
                 })
@@ -3323,11 +3230,8 @@ public class MainActivity : Activity
     {
         Begin("exchange-key", "Ключі обміну");
         var card = Card();
-        Text(card, "Ключі отримуються автоматично через Gmail", 18, true);
-        Text(card, "ГОЛОВНА МАВКА надсилає захищений паролем файл MAVKA_KEY_PACKAGE_V1 " +
-            "із поточним і майбутнім ключами. Мобільна Мавка відкриває його з паролем, " +
-            "збереженим у налаштуваннях, та захищено зберігає обидва ключі.", 14);
-
+        Text(card, "Ключі після QR-реєстрації", 18, true);
+        Text(card, "Збережи профіль, підключи Gmail і введи спільний пароль обміну вручну. У профілі скануй QR з ПК. Після дозволу на ПК програма отримає захищений пакет поточного й майбутнього ключів. Пароль не надсилається.", 14);
         var status = Text(card, _exchangeKeys.HasKeyPair
             ? "Покоління: " + _exchangeKeys.Generation +
               "\nПоточний ключ: " + _exchangeKeys.CurrentKeyId +
@@ -3336,9 +3240,9 @@ public class MainActivity : Activity
 
         Text(card, "Нові ключі імпортуються під час звичайної синхронізації: " +
             "☰ → Синхронізація Gmail → Оновити повідомлення.", 13);
-        Text(card, "Шифрування вихідних листів активується автоматично після отримання ключів. " +
-            "Під час початкової реєстрації, до видачі ключів, лист ще не зашифрований.", 13);
-        Text(card, "Тестовий пароль 090699 слабкий. Лише для випробувань без реальних службових даних.", 13);
+        Text(card, "Усі нові повідомлення захищаються спільним паролем та ключем обміну. До отримання ключів дозволено лише захищену заявку після сканування QR з ПК.", 13);
+        Button(card, "Відкрити профіль і сканувати QR з ПК", ShowProfile);
+        Button(card, "Ввести спільний пароль обміну", ShowDocumentPassword);
 
         Button(card, "Видалити обидва ключі", () =>
             new AlertDialog.Builder(this)
@@ -3371,12 +3275,12 @@ public class MainActivity : Activity
             "Повторно вводити потрібно лише після зміни пароля.", 14);
         Text(card, _documentPasswords.IsConfigured
             ? "Пароль уже захищено збережений на телефоні."
-            : "Початковий тестовий пароль: 090699. Натисни «Зберегти», щоб увімкнути.", 14);
+            : "Введи той самий пароль, що збережений у головній Мавці на ПК.", 14);
 
         var input = new EditText(this)
         {
             Hint = "Пароль документів",
-            Text = _documentPasswords.IsConfigured ? "" : "090699",
+            Text = "",
             InputType = InputTypes.ClassText | InputTypes.TextVariationPassword
         };
         ConfigureKeyboard(input, password: true);
@@ -3618,7 +3522,7 @@ public class MainActivity : Activity
         var card = Card();
         Text(card, "Захищений додатковий канал", 20, true);
         Text(card, "Сервер: " + RelayProtocol.Origin, 12);
-        Text(card, "Gmail залишається основним каналом. Приватні ключі створюються на телефоні; QR містить тільки публічні дані.", 13);
+        Text(card, "Два канали: Gmail та Relay. Реєстрація починається скануванням QR з ПК; приватні ключі телефона не передаються.", 13);
         var status = Text(card, identity.LastStatus, 14);
         var profile = LoadUserProfile();
         if (profile is null)
@@ -3626,37 +3530,11 @@ public class MainActivity : Activity
             Text(card, "Спочатку заповни профіль користувача.", 14);
             Button(card, "Відкрити профіль", ShowProfile); return;
         }
-        Button(card, "Показати QR підключення для ПК", () =>
+        Button(card, "Реєстрація: сканувати QR з ПК", ShowProfile);
+        Button(card, "Перевірити ключі пристрою", () =>
         {
-            if (_busy) return;
-            try
-            {
-                var json = identity.Request(profile.ClientId);
-                var qr = new ZXing.BarcodeWriterPixelData
-                {
-                    Format = ZXing.BarcodeFormat.QR_CODE,
-                    Options = new ZXing.Common.EncodingOptions { Width = 600, Height = 600, Margin = 2 }
-                }.Write(json);
-                var bitmap = Bitmap.CreateBitmap(qr.Width, qr.Height, Bitmap.Config.Argb8888!)!;
-                using (var buffer = Java.Nio.ByteBuffer.Wrap(qr.Pixels)) bitmap.CopyPixelsFromBuffer(buffer);
-                var details = Card();
-                Text(details, "Запит підключення цього телефону", 17, true);
-                Text(details, "Relay ID: " + identity.DeviceId, 12);
-                var image = new ImageView(this); image.SetImageBitmap(bitmap);
-                image.SetScaleType(ImageView.ScaleType.FitCenter);
-                details.AddView(image, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, Dp(300)));
-                Text(details, "Проскануй QR у ГОЛОВНІЙ МАВЦІ на ПК й підтвердь реєстрацію пристрою. Потім натисни «Активувати».", 13);
-                Text(details, "Відбиток ключа: " + RelayProtocol.Hash(RelayProtocol.Serialize(identity.SigningKey)), 11);
-                Button(details, "Скопіювати публічний запит", () =>
-                {
-                    var clipboard = GetSystemService(ClipboardService) as Android.Content.ClipboardManager;
-                    if (clipboard is null) throw new InvalidOperationException("Буфер обміну недоступний.");
-                    clipboard.PrimaryClip = ClipData.NewPlainText("MaVka Relay enrollment", json);
-                    Toast.MakeText(this, "Публічний запит скопійовано.", ToastLength.Short)?.Show();
-                });
-                var text = Text(details, json, 10); text.SetTextIsSelectable(true);
-            }
-            catch (Exception ex) { status.Text = ExplainOperationError(ex); }
+            try{_=identity.Request(profile.ClientId);status.Text="Локальні ключі пристрою справні. Відбиток: "+RelayProtocol.Hash(RelayProtocol.Serialize(identity.SigningKey));}
+            catch(Exception ex){ShowSafeFailure("Ключі пристрою",ex);}
         });
         Button(card, "Активувати після дозволу на ПК", async () =>
         {
@@ -4038,20 +3916,25 @@ public class MainActivity : Activity
                 {
                     if(qrJson.RootElement.GetProperty("format").GetString()==BootstrapProtocol.Qr)
                     {
-                        var bootstrapProfile=new UserProfileStore(this).Load()??throw new InvalidOperationException("Збережи профіль.");
-                        var bootstrapInvite=BootstrapProtocol.Invitation(raw,bootstrapProfile.ClientId,new RelayIdentity(this).DeviceId,DateTimeOffset.UtcNow);
-                        new AlertDialog.Builder(this).SetTitle("Перше підключення до Мавки")
-                            .SetMessage("ПК: "+bootstrapInvite.mainEmail+"\nОдноразовий ключ діє до "+DateTimeOffset.FromUnixTimeSeconds(bootstrapInvite.expiresAt).ToLocalTime().ToString("HH:mm:ss")+".\nПісля сканування на ПК надішли перший пакет.")
+                        _=new UserProfileStore(this).Load()??throw new InvalidOperationException("Збережи профіль.");
+                        var bootstrapInvite=RegistrationV2Protocol.Parse(raw,DateTimeOffset.UtcNow);
+                        new AlertDialog.Builder(this).SetTitle("Реєстрація через QR з ПК")
+                            .SetMessage("ПК: "+bootstrapInvite.mainEmail+"\nЗапрошення діє до "+DateTimeOffset.FromUnixTimeSeconds(bootstrapInvite.expiresAt).ToLocalTime().ToString("HH:mm:ss")+".\nЗаявка буде зашифрована разовим ключем і спільним паролем, введеним вручну. Після її отримання ПК має підтвердити користувача та надіслати ключі. Це нова реєстрація: попередній доступ не поновлюється, локальні документи зберігаються.")
                             .SetNegativeButton("Скасувати",(_,_)=>{})
-                            .SetPositiveButton("Підключити",async(_,_)=>
+                            .SetPositiveButton("Надіслати захищену заявку",async(_,_)=>
                             {
+                                if(_busy)return;_busy=true;
                                 try
                                 {
-                                    new BootstrapStore(this).SaveQr(raw);
-                                    await new RelaySync(this).Activate();
-                                    Toast.MakeText(this,"QR збережено, Relay активовано. Надішли перший пакет із ПК, потім натисни синхронізацію Relay.",ToastLength.Long)?.Show();
+                                    if(!_store.HasCredentials)throw new InvalidOperationException("Спочатку підключи Gmail.");
+                                    var shared=_documentPasswords.Load()??throw new InvalidOperationException("Спочатку введи спільний пароль обміну вручну в меню «Пароль документів».");
+                                    var pending=await Task.Run(()=>new BootstrapStore(this).SaveQr(raw,_store.GetEmail(),shared));
+                                    _store.SaveMainMavkaEmail(bootstrapInvite.mainEmail);
+                                    await RegistrationMailService.SendEnrollmentAsync(_store.GetEmail(),_store.GetPassword()!,bootstrapInvite.mainEmail,pending.Wire,pending.Request.requestId);
+                                    Toast.MakeText(this,"Захищену заявку надіслано. На ПК натисни «Перевірити пошту», підтвердь користувача й надішли початкові ключі. Потім онови Gmail на телефоні.",ToastLength.Long)?.Show();
                                 }
-                                catch(Exception ex){Toast.MakeText(this,"Підключення: "+ExplainOperationError(ex),ToastLength.Long)?.Show();}
+                                catch(Exception ex){ShowSafeFailure("Реєстрація",ex);}
+                                finally{_busy=false;}
                             }).Show();return;
                     }
                 }
@@ -4098,11 +3981,7 @@ public class MainActivity : Activity
                         finally { _busy = false; }
                     }).Show();
             }
-            catch (Exception ex)
-            {
-                Toast.MakeText(this, "QR: " + ExplainOperationError(ex),
-                    ToastLength.Long)?.Show();
-            }
+            catch (Exception ex) { ShowSafeFailure("QR",ex); }
             return;
         }
         if (requestCode == PickEncryptAndSendRequest)

@@ -19,13 +19,12 @@ internal sealed class DocumentPasswordStore
     public DocumentPasswordStore(Context context)
     { _context=context;_prefs = context.GetSharedPreferences(Preferences, FileCreationMode.Private)!; }
 
-    public bool IsConfigured => !string.IsNullOrEmpty(_prefs.GetString("sealed_password", null)) || new ExchangeKeyStore(_context).BootstrapDocumentPassword() is not null;
+    public bool IsConfigured => !string.IsNullOrEmpty(_prefs.GetString("sealed_password", null));
 
     public string? Load()
     {
-        if(new ExchangeKeyStore(_context).BootstrapDocumentPassword() is string initial)return initial;
         var sealedValue = _prefs.GetString("sealed_password", null);
-        if (string.IsNullOrEmpty(sealedValue)) return new ExchangeKeyStore(_context).BootstrapDocumentPassword();
+        if (string.IsNullOrEmpty(sealedValue)) return null;
         var parts = sealedValue.Split(':', 2);
         if (parts.Length != 2) throw new InvalidOperationException("Invalid stored password.");
 
