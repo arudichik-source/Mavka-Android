@@ -12,7 +12,9 @@ using Android.Widget;
 namespace Mavka.Mobile;
 
 [Activity(
-#if MAVKA_RELAY_QA
+#if MAVKA_BOOTSTRAP_QA
+    Label = "Mavka QR Test",
+#elif MAVKA_RELAY_QA
     Label = "Mavka Relay QA",
 #else
     Label = "Мавка Mobile",
@@ -3147,6 +3149,10 @@ public class MainActivity : Activity
             try
             {
                 var intent = new Intent(Android.Provider.MediaStore.ActionImageCapture);
+                var capturePath=QrCaptureProvider.PathFor(this);if(System.IO.File.Exists(capturePath))System.IO.File.Delete(capturePath);
+                intent.PutExtra(Android.Provider.MediaStore.ExtraOutput,QrCaptureProvider.ShareUri);
+                intent.AddFlags(ActivityFlags.GrantWriteUriPermission|ActivityFlags.GrantReadUriPermission);
+                intent.ClipData=ClipData.NewRawUri("QR photo",QrCaptureProvider.ShareUri);
                 StartActivityForResult(intent, QrCameraCaptureRequest);
             }
             catch (Exception)
@@ -4015,6 +4021,11 @@ public class MainActivity : Activity
                     raw = await Task.Run(() => QrPhotoDecoder.ReadQrFromUri(
                         ContentResolver ?? throw new InvalidOperationException("Немає доступу до фото."),
                         data.Data));
+                }
+                else if(requestCode==QrCameraCaptureRequest && System.IO.File.Exists(QrCaptureProvider.PathFor(this)))
+                {
+                    try{raw=await Task.Run(()=>QrPhotoDecoder.ReadQrFromUri(ContentResolver!,QrCaptureProvider.ShareUri));}
+                    finally{System.IO.File.Delete(QrCaptureProvider.PathFor(this));}
                 }
                 else if (data?.Extras?.Get("data") is Bitmap captured)
                 {

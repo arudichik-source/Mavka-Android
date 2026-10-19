@@ -110,7 +110,7 @@ internal sealed class RelaySync
                         {
                             var confirmation=new BootstrapStore(_context).Confirmation!;
                             db.SaveIncoming(verified,confirmation);db.Imported(new[]{verified.Id});
-                            Queue("bootstrap:"+verified.Id,confirmation);received++;continue;
+                            Queue("bootstrap-installed:"+RelayProtocol.Hash(confirmation),confirmation);received++;continue;
                         }
                         var plain = MavkaEncryptedEnvelope.Decrypt(verified.Envelope, _keys);
                         _ = RelayProtocol.Part(plain, _profile.ClientId);
@@ -231,7 +231,7 @@ internal sealed class RelaySync
             archive.SaveDocument(document.DocumentId, document.Kind, document.Number, document.Unit,
                 document.DocumentDate, "relay.json", document.Json);
             if (archive.FindDocument(document.DocumentId) is null) throw new IOException("Документ не збережено.");
-            new MobileAccessStore(_context).AutoPost(json);
+            new MobileAccessStore(_context).AutoPost(document.Json);
             return true;
         }
         using var parsed = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 12 });

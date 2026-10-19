@@ -21,6 +21,9 @@
 <PropertyGroup Condition="'$(ApplicationId)' == 'ua.mavka.mobile.relayqa'">
     <DefineConstants>$(DefineConstants);MAVKA_RELAY_QA</DefineConstants>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(ApplicationId)' == 'ua.mavka.mobile.bootstrapqa'">
+    <DefineConstants>$(DefineConstants);MAVKA_BOOTSTRAP_QA</DefineConstants>
+  </PropertyGroup>
 
 <ItemGroup>
   <PackageReference Include="MailKit" Version="4.14.1" />

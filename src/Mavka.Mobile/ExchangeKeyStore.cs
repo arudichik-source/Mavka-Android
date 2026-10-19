@@ -172,7 +172,7 @@ internal sealed class ExchangeKeyStore
         }
     }
 
-    internal void InstallBootstrap(BootstrapKeys data,string hash,string ack)
+    internal void InstallBootstrap(BootstrapKeys data,string hash,string ack,string mainEmail)
     {
         if(HasKeyPair || Generation!=0 || HasKey)throw new InvalidOperationException("На телефоні вже є ключі. Початковий пакет не може їх перезаписати.");
         using var store=LoadStore();EnsureWrappingKey(store);
@@ -188,6 +188,7 @@ internal sealed class ExchangeKeyStore
             editor.PutString("current_sealed",currentSealed);editor.PutString("future_sealed",futureSealed);
             editor.PutString("bootstrap_document_password",passwordSealed);editor.PutString("mobile_access",System.Text.Json.JsonSerializer.Serialize(data.access));
             editor.PutString("bootstrap_hash",hash);editor.PutString("bootstrap_ack",ack);editor.Remove("bootstrap_pending");
+            editor.PutString("bootstrap_sender",mainEmail);
             if(!editor.Commit())throw new IOException("Початкові ключі не збережено.");
         }
         finally{CryptographicOperations.ZeroMemory(current);CryptographicOperations.ZeroMemory(future);CryptographicOperations.ZeroMemory(password);}

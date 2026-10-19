@@ -25,8 +25,15 @@ internal sealed class BootstrapStore(Context context)
         lock(Gate)
         {
             using var prefs=Preferences;
-            var hash=RelayProtocol.Hash(envelope);
-            if(prefs.GetString("bootstrap_hash",null)==hash)return true;
+            using var hashDoc=JsonDocument.Parse(envelope);
+            var h=hashDoc.RootElement;
+            var hash=RelayProtocol.Hash(RelayProtocol.Serialize(new{format=h.GetProperty("format").GetString(),algorithm=h.GetProperty("algorithm").GetString(),keyId=h.GetProperty("keyId").GetString(),nonce=h.GetProperty("nonce").GetString(),ciphertext=h.GetProperty("ciphertext").GetString(),tag=h.GetProperty("tag").GetString()}));
+            if(prefs.GetString("bootstrap_hash",null)==hash)
+            {
+                using var receipt=JsonDocument.Parse(prefs.GetString("bootstrap_ack",null)!);
+                if(messageId is not null && messageId!=receipt.RootElement.GetProperty("messageId").GetString() || sender is not null && !sender.Equals(prefs.GetString("bootstrap_sender",null),StringComparison.OrdinalIgnoreCase))throw new CryptographicException("Повторний пакет має інший маршрут.");
+                return true;
+            }
             var pending=prefs.GetString("bootstrap_pending",null);if(pending is null)return false;
             using var outer=JsonDocument.Parse(envelope);
             var q=JsonSerializer.Deserialize<BootstrapInvitation>(Open(pending))!;
@@ -35,7 +42,7 @@ internal sealed class BootstrapStore(Context context)
             var profile=new UserProfileStore(context).Load()??throw new InvalidOperationException("Немає профілю.");
             q=BootstrapProtocol.Invitation(Open(pending),profile.ClientId,new RelayIdentity(context).DeviceId,DateTimeOffset.UtcNow);
             var data=BootstrapProtocol.Open(envelope,q,DateTimeOffset.UtcNow);
-            new ExchangeKeyStore(context).InstallBootstrap(data,hash,BootstrapProtocol.Confirmation(data,DateTimeOffset.UtcNow));
+            new ExchangeKeyStore(context).InstallBootstrap(data,hash,BootstrapProtocol.Confirmation(data,DateTimeOffset.UtcNow),q.mainEmail);
             // Independent read-back precedes transport ACK. The pending one-time key
             // is removed by the same atomic preference commit as the key pair.
             if(!new ExchangeKeyStore(context).HasKeyPair || new DocumentPasswordStore(context).Load() is null || new MobileAccessStore(context).Load() is null || prefs.GetString("bootstrap_hash",null)!=hash)throw new IOException("Не вдалося перевірити збережені ключі.");
@@ -60,7 +67,8 @@ internal sealed class MobileAccessStore(Context context)
         var client=new UserProfileStore(context).Load()?.ClientId??throw new InvalidOperationException("Немає профілю.");
         var policy=access.Deserialize<MobileAccessPolicy>()??throw new CryptographicException("Немає дозволів.");policy.Validate(client);
         var old=Load();
-        if(old is not null && (policy.revision<old.revision || policy.revision==old.revision && JsonSerializer.Serialize(policy)!=JsonSerializer.Serialize(old)))throw new CryptographicException("Застарілі або суперечливі дозволи.");
+        if(old is not null && policy.revision<old.revision)return old;
+        if(old is not null && policy.revision==old.revision && JsonSerializer.Serialize(policy)!=JsonSerializer.Serialize(old))throw new CryptographicException("Суперечливі дозволи.");
         using var prefs=context.GetSharedPreferences("mavka_exchange_keys_v1",FileCreationMode.Private)!;using var editor=prefs.Edit()!;
         if(!editor.PutString("mobile_access",JsonSerializer.Serialize(policy))!.Commit())throw new IOException("Дозволи не збережено.");return policy;
     }
@@ -74,7 +82,11 @@ internal sealed class MobileAccessStore(Context context)
         var access=root.TryGetProperty("access",out var policy)?Accept(policy):Load();
         if(access is null)return false;
         foreach(var grant in access.units)
-            if(ArchiveDocumentClassifier.TryClassify(json,grant.unit,out document) && document is not null && Allows(document.Unit,document.Kind=="Знімок залишків"))return true;
+            if(ArchiveDocumentClassifier.TryClassify(json,grant.unit,out document) && document is not null && Allows(document.Unit,document.Kind=="Знімок залишків"))
+            {
+                var clean=System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();clean.Remove("access");
+                document=document with{Json=clean.ToJsonString()};return true;
+            }
         return false;
     }
     public void AutoPost(string json)
@@ -84,5 +96,6 @@ internal sealed class MobileAccessStore(Context context)
         if(access.isMvo || !access.autoPostInvoices || !MavkaExchangeParser.TryInvoice(json,out var invoice) || invoice is null)return;
         using var ledger=new PropertyLedgerStore(context);ledger.AddConfirmedInvoice(invoice);
         ledger.MarkMailSent(invoice.DocumentId); // Automatic import is not an MVO approval.
+        using var archive=new DocumentArchiveStore(context);archive.MarkPosted(invoice.DocumentId);
     }
 }

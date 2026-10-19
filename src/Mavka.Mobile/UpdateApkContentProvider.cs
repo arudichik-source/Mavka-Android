@@ -14,7 +14,9 @@ namespace Mavka.Mobile;
 [ContentProvider(new[] { Authority }, Exported = false, GrantUriPermissions = true)]
 internal sealed class UpdateApkContentProvider : ContentProvider
 {
-    #if MAVKA_RELAY_QA
+    #if MAVKA_BOOTSTRAP_QA
+    public const string Authority = "ua.mavka.mobile.bootstrapqa.updateprovider";
+#elif MAVKA_RELAY_QA
     public const string Authority = "ua.mavka.mobile.relayqa.updateprovider";
 #else
     public const string Authority = "ua.mavka.mobile.updateprovider";

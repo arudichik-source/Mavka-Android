@@ -91,6 +91,11 @@ internal sealed class RelayIdentity
     public string Request(string clientId)
     {
         var id = DeviceId;
+        // Prove that the preserved Keystore identity is usable before showing
+        // its public pairing QR; this never contacts the server or exports a key.
+        var proof=System.Text.Encoding.UTF8.GetBytes("MAVKA_RELAY_LOCAL_KEY_CHECK_V1:"+id+":"+clientId);
+        using(var key=RelayProtocol.Public(SigningKey))
+            if(!key.VerifyData(proof,Sign(proof),HashAlgorithmName.SHA256,DSASignatureFormat.IeeeP1363FixedFieldConcatenation))throw new CryptographicException("Локальна перевірка ключа підпису не пройшла.");
         return RelayProtocol.Serialize(new { format = "MAVKA_RELAY_DEVICE_REQUEST_V1",
             server = RelayProtocol.Origin, mainDeviceId = RelayProtocol.MainId, deviceId = id,
             clientId, publicSigningKey = SigningKey, publicEncryptionKey = EncryptionKey });

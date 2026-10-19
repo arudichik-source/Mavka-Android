@@ -557,7 +557,7 @@ internal static class GmailConnectionService
                             display="Перші ключі, пароль документів і дозволи встановлено. Синхронізуй Relay для підтвердження ПК.";
                             var bootstrap=new BootstrapStore(exchangeKeys.BootstrapContext);
                             if(new RelayIdentity(exchangeKeys.BootstrapContext).Enabled)
-                                new RelaySync(exchangeKeys.BootstrapContext).Queue("bootstrap:"+RelayProtocol.Hash(contents),bootstrap.Confirmation!);
+                                new RelaySync(exchangeKeys.BootstrapContext).Queue("bootstrap-installed:"+RelayProtocol.Hash(bootstrap.Confirmation!),bootstrap.Confirmation!);
                         }
                         else
                         {

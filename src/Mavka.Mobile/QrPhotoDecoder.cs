@@ -9,9 +9,13 @@ internal static class QrPhotoDecoder
 {
     public static string ReadQrFromUri(ContentResolver resolver, Android.Net.Uri uri)
     {
+        using var bounds=new BitmapFactory.Options{InJustDecodeBounds=true};
+        using(var input=resolver.OpenInputStream(uri)??throw new IOException("Фото QR-коду недоступне."))BitmapFactory.DecodeStream(input,null,bounds);
+        if(bounds.OutWidth<=0 || bounds.OutHeight<=0 || bounds.OutWidth>12000 || bounds.OutHeight>12000)throw new ArgumentException("Некоректний розмір фото.");
+        using var options=new BitmapFactory.Options{InSampleSize=Math.Max(1,(int)Math.Ceiling(Math.Max(bounds.OutWidth,bounds.OutHeight)/1600.0))};
         using var source = resolver.OpenInputStream(uri) ??
             throw new IOException("Фото QR-коду недоступне.");
-        using var original = BitmapFactory.DecodeStream(source) ??
+        using var original = BitmapFactory.DecodeStream(source,null,options) ??
             throw new InvalidOperationException("Не вдалося прочитати зображення.");
         return ReadQr(original);
     }
