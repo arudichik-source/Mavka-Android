@@ -1,0 +1,50 @@
+name: Check MaVka Relay
+
+on:
+  pull_request:
+    paths:
+      - 'relay/**'
+      - '.github/workflows/check-relay.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'relay/**'
+      - '.github/workflows/check-relay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: relay
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm run check-bundle
+
+  windows-identity:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node --test test/windows.test.mjs
