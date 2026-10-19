@@ -1,4 +1,4 @@
-# Relay: стан на 18.10.2026
+# Relay: стан на 19.10.2026
 
 ## Підтверджений стан
 
@@ -8,9 +8,20 @@
 - Колонки, типи, NULL/default і первинні ключі `devices` та `messages` звірено
   зі скриншотами `PRAGMA table_info` 18.10.2026. `public_encryption_key` допускає
   NULL, `status` має DEFAULT 'pending'; локальні тести відтворюють цю схему.
-  CHECK/FK та індекси самим `table_info` не перевіряються.
+  19.10.2026 додатково звірено `sqlite_master`: CHECK для типів/статусів,
+  CHECK `expires_at > created_at`, обидва FK на `devices`, індекси recipient/expiry
+  сумісні з міграцією. Користувач підтвердив: devices = 0, main = 0, messages = 0.
 - За скриншотом: Cloudflare Builds підключено до `arudichik-source/Mavka-Android`,
   production branch `main`, `Disable builds` увімкнено.
+- Реальну ідентичність створено скриптом на Windows користувача 19.10.2026.
+  Три публічні параметри перевірено через `configuration()` і Web Crypto importKey;
+  приватний ключ не передавався. Повторна генерація ідентичності не потрібна.
+- На скриншоті Production 19.10.2026 правильні root `relay`, Build command
+  `npm run configure`, Deploy command `npx wrangler versions upload`; три рядки
+  Build variables присутні, повний довгий JWK у UI обрізаний. На цьому скриншоті
+  ще були Unsaved changes: остаточне збереження не підтверджено.
+  Під час підготовки: Production Disable builds ON, Preview branches OFF.
+  Виявлено, що Disable builds приховує поля конфігурації Production.
 - Прямого авторизованого доступу до кабінету Cloudflare в агентському браузері немає.
 - Google OAuth відкладено. Перед розгортанням потрібні перевірка та погодження користувача.
 
@@ -30,7 +41,7 @@
   Режими `-Bootstrap`/`-Status` призначені для явного запуску після deployment;
   під час підготовки до production Relay запитів не виконували.
 
-## Перевірено локально
+## Перевірено локально та в CI
 
 - `npm run check`: 10 сценаріїв успішно на workerd + локальній D1 (Miniflare).
 - Справжнє AES-GCM шифрування/розшифрування синтетичного пакета та перевірка
@@ -42,24 +53,27 @@
   відкликані пристрої, plaintext, некоректні ключі, SQL-ін'єкція та oversize відхиляються.
 - Nonce зберігається після перезапуску Worker, включно з майбутнім допустимим часом підпису.
 - `npm run check-bundle`: Wrangler 4.151.1 dry-run, приблизно 22.6 KiB / gzip 6.3 KiB.
+- GitHub CI на `c799288a6e9cbb1b672cb168db16f16e89263b08` успішний:
+  https://github.com/arudichik-source/Mavka-Android/actions/runs/39152597714 .
+  Linux: протокол/D1 та dry-run; Windows: PowerShell 5.1/CNG, заборона експорту,
+  повторне відкриття, прийняття підписаного bootstrap локальним workerd.
 - Тести й dry-run використовували синтетичні ключі та UUID; remote-команд не виконували.
 
 ## Що залишилось до запуску
 
-1. Переглянути та погодити код; PR сам по собі не вмикає сервер.
-2. Внести отриманий UUID **існуючої** бази у Build variables; звірка колонок
-   уже завершена. Для фінального preflight перед міграцією потрібні CHECK/FK
-   та стан наявних записів (без вивантаження вмісту документів).
-3. Ініціалізувати реальну CNG-ідентичність на ПК користувача й підключити її до
-   інтерфейсу ГОЛОВНОЇ МАВКИ; реалізувати Android Keystore,
-   доповнити довірене спарювання, підключити клієнти до API. Наявний QR HMAC
-   не є автоматично дозволом Relay. Готовий APK з Relay цією зміною не створювався.
-4. У Cloudflare Builds: root `relay`, Build command **`npm run configure`**
-   (оновлює попередню тимчасову інструкцію залишити поле порожнім),
-   Deploy command `npx wrangler versions upload`, Preview builds off.
-   Публічні змінні: `MAVKA_D1_DATABASE_ID`, `MAVKA_ADMIN_DEVICE_ID`, `MAVKA_ADMIN_SIGNING_JWK`.
-5. Одержати погодження користувача на конкретний перевірений випуск, застосувати
-   міграцію й розгорнути Worker; перевірити bootstrap, delivery/ACK та Cron з України.
+1. Підтвердити збереження Cloudflare Build settings і трьох публічних змінних.
+   Під час підготовки Production Disable builds ON, Preview branches OFF.
+2. Переглянути та погодити PR #34 і конкретну міграцію
+   `migrations/0001_relay.sql`. Перевірку основної схеми й кількості записів завершено.
+   Міграція додає три службові таблиці та індекси; не замінює базу й не видаляє дані.
+3. Після погодження застосувати міграцію та розгорнути перевірений Worker.
+   Merge, upload, зміни через remote SQL, deploy і bootstrap станом на цю перевірку не виконані.
+   Сам `wrangler versions upload` не активує Worker і не встановлює Cron.
+4. На тому самому Windows-акаунті виконати bootstrap існуючою CNG-ідентичністю,
+   перевірити signed status, delivery/ACK та Cron з України на синтетичних даних.
+5. Підключити створену CNG-ідентичність до інтерфейсу ГОЛОВНОЇ МАВКИ;
+   реалізувати Android Keystore, довірене спарювання та API transport.
+   Наявний QR HMAC не є автоматично дозволом Relay. Готового APK з Relay поки немає.
 
 Після ACK пакет відсутній в активній базі. D1 Time Travel може зберігати історичний
 шифротекст протягом строку провайдера; негайне фізичне стирання всіх резервних копій
