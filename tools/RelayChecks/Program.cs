@@ -78,5 +78,38 @@ if (args.Length == 2 && args[0] == "verify-node")
     Check(RelayProtocol.VerifyFrom(root.GetProperty("delivery"), root.GetProperty("recipient").GetString()!,
         DateTimeOffset.UtcNow, root.GetProperty("sender").GetString()!, nodeKey).Id == "synthetic-message-0001", "Node signed delivery accepted by C#");
 }
+var bigPayload = JsonSerializer.SerializeToElement(new { format = "MAVKA_ENCRYPTED_V1", algorithm = "AES-256-GCM",
+    keyId, nonce = Convert.ToBase64String(new byte[12]), ciphertext = Convert.ToBase64String(new byte[32768]), tag = Convert.ToBase64String(new byte[16]) });
+var bigBody = RelayProtocol.Serialize(new { messageId = "synthetic-message-0001", recipientDeviceId = recipient, expiresAt = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds(), payload = bigPayload });
+var maxPage = RelayProtocol.Serialize(new { messages = Enumerable.Range(0, 10).Select(i => new { packet = new { requestBody = bigBody }, messageId = "synthetic-message-" + i.ToString("D4") }).ToArray(), next = (object?)null });
+Check(Encoding.UTF8.GetByteCount(maxPage) > 393216, "regression fixture exceeds previous response cap");
+using (var api = new RelayApiClient(sender, data => signing.SignData(data, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation),
+    new FixtureHandler(maxPage, request => {
+        Check(request.RequestUri!.AbsoluteUri == RelayProtocol.Origin + "/v1/messages?limit=10", "pinned API URL and query");
+        var requestTime = request.Headers.GetValues("X-Mavka-Time").Single();
+        var requestNonce = request.Headers.GetValues("X-Mavka-Nonce").Single();
+        Check(request.Headers.GetValues("X-Mavka-Device").Single() == sender &&
+            signing.VerifyData(RelayProtocol.Canonical("GET", "/v1/messages?limit=10", sender, requestTime, requestNonce, ""),
+                RelayProtocol.UnB64(request.Headers.GetValues("X-Mavka-Signature").Single(), 64), HashAlgorithmName.SHA256,
+                DSASignatureFormat.IeeeP1363FixedFieldConcatenation), "actual HTTP request signature");
+    })))
+{
+    var page = await api.Call("GET", "/v1/messages?limit=10", "", CancellationToken.None);
+    Check(page.GetProperty("messages").GetArrayLength() == 10, "maximum ten-envelope page remains readable");
+}
+using (var api = new RelayApiClient(sender, _ => new byte[64], new FixtureHandler("{\"data\":\"" + new string('a', 1100000) + "\"}", _ => { })))
+{
+    bool rejected = false; try { await api.Call("GET", "/v1/messages", "", CancellationToken.None); } catch (IOException) { rejected = true; }
+    Check(rejected, "oversize HTTP response rejected");
+}
 CryptographicOperations.ZeroMemory(key);
 Console.WriteLine("Relay protocol, AES, content parts: " + passed + " checks passed (synthetic only).");
+
+internal sealed class FixtureHandler(string text, Action<HttpRequestMessage> inspect) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        inspect(request);
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(text, Encoding.UTF8, "application/json") });
+    }
+}

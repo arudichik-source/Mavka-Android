@@ -19,9 +19,9 @@ internal sealed class RelayApiException(int status, string code) : IOException
         _ => "Relay тимчасово недоступний (HTTP " + Status + "). Дані залишені локально."
     };
 }
-internal sealed class RelayApiClient(string deviceId, Func<byte[], byte[]> sign) : IDisposable
+internal sealed class RelayApiClient(string deviceId, Func<byte[], byte[]> sign, HttpMessageHandler? handler = null) : IDisposable
 {
-    private readonly HttpClient _http = new(new HttpClientHandler { AllowAutoRedirect = false })
+    private readonly HttpClient _http = new(handler ?? new HttpClientHandler { AllowAutoRedirect = false })
         { Timeout = TimeSpan.FromSeconds(35) };
     public async Task<JsonElement> Call(string method, string path, string body, CancellationToken cancellation)
     {
@@ -37,13 +37,13 @@ internal sealed class RelayApiClient(string deviceId, Func<byte[], byte[]> sign)
         request.Headers.Add("X-Mavka-Signature", RelayProtocol.B64(signature));
         if (method == "POST") request.Content = new StringContent(body, Encoding.UTF8, "application/json");
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
-        if (response.Content.Headers.ContentLength > 393216) throw new IOException("Відповідь Relay завелика.");
+        if (response.Content.Headers.ContentLength > 1100000) throw new IOException("Відповідь Relay завелика.");
         await using var stream = await response.Content.ReadAsStreamAsync(cancellation);
         using var memory = new MemoryStream(); var buffer = new byte[8192];
         int read;
         while ((read = await stream.ReadAsync(buffer, cancellation)) != 0)
         {
-            if (memory.Length + read > 393216) throw new IOException("Відповідь Relay завелика.");
+            if (memory.Length + read > 1100000) throw new IOException("Відповідь Relay завелика.");
             memory.Write(buffer, 0, read);
         }
         using var doc = JsonDocument.Parse(memory.ToArray(), new JsonDocumentOptions { MaxDepth = 14 });
