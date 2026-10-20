@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Mavka.Mobile;
 public sealed record MobileChangeOperation(string kind,string key,int locationId,bool remove,JsonElement payload);
-public sealed record MobileChangePart(string format,string recipientClientId,string sourceId,string batchId,long sequence,long baseSequence,bool initial,string asOf,MobileAccessPolicy access,int index,int count,string manifestHash,MobileChangeOperation[] operations)
+public sealed record MobileChangePart(string format,string recipientClientId,string sourceId,string batchId,long sequence,long baseSequence,bool initial,string asOf,MobileAccessPolicy access,int index,int count,string manifestHash,MobileChangeOperation[] operations,bool full=false)
 {
     public const string Format="MAVKA_CHANGESET_V1";
     public static string Hash(IEnumerable<MobileChangeOperation> values)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(values.ToArray())))).ToLowerInvariant();

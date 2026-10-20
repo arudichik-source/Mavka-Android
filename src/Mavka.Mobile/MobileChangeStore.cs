@@ -82,7 +82,7 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
                 while(rows.MoveToNext())candidates.Add(JsonSerializer.Deserialize<MobileChangePart>(Open(rows.GetString(0)))!);
             long revision;using(var headRow=db.RawQuery("SELECT revision FROM heads WHERE client=? AND source=?",new[]{client,source}))revision=headRow.MoveToFirst()?headRow.GetLong(0):0;
             var latestPolicy=new MobileAccessStore(context).Load()?.revision??0;
-            var first=candidates.Where(p=>p.access.revision>=latestPolicy && (p.baseSequence==current || p.access.revision>revision)).OrderByDescending(p=>p.access.revision).ThenBy(p=>p.sequence).FirstOrDefault();
+            var first=candidates.Where(p=>p.access.revision>=latestPolicy && (p.baseSequence==current || p.full && p.access.revision>revision)).OrderByDescending(p=>p.access.revision).ThenBy(p=>p.sequence).FirstOrDefault();
             if(first is null)return;
             var parts=new List<MobileChangePart>();
             using(var rows=db.RawQuery("SELECT part,sealed FROM parts WHERE client=? AND source=? AND batch=? ORDER BY part",new[]{client,source,first.batchId}))
@@ -103,7 +103,7 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
             using(var policy=JsonDocument.Parse(JsonSerializer.Serialize(first.access)))new MobileAccessStore(context).Accept(policy.RootElement);
             db.BeginTransaction();try
             {
-                var reset=first.access.revision>revision;
+                var reset=(first.full || first.initial) && first.access.revision>revision;
                 if(!reset && Head(db,client,source)!=first.baseSequence)throw new IOException("Послідовність змін оновилась.");
                 if(reset)db.Delete("records","client=? AND source=?",new[]{client,source});
                 foreach(var op in operations)

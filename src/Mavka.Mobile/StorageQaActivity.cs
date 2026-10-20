@@ -44,10 +44,11 @@ public sealed class StorageQaActivity:Activity
                 using(var doc=JsonDocument.Parse(JsonSerializer.Serialize(access)))new MobileAccessStore(this).Accept(doc.RootElement);
                 MobileChangeOperation Asset(int loc,int qty)=>new("asset",$"asset:{loc}:1:1",loc,false,JsonSerializer.SerializeToElement(new{locationId=loc,location=loc==1?"QA One":"QA Two",itemId=1,name="Synthetic",unit="од.",quantity=qty,price=1.123456789m,category=1}));
                 MobileChangeOperation Invoice(int id,decimal qty=3m)=>new("document",$"document:1:{id}",1,false,JsonSerializer.SerializeToElement(new{locationId=1,location="QA One",id,number="SYNTHETIC-"+id,date="2026-10-20",type="Накладна",status="Проведено",movements=new[]{new{itemId=1,name="Synthetic",unit="од.",quantity=qty,price=1.123456789m,category=1,batch="QA",code="QA",serials=""}}}));
-                string Wire(long seq,MobileChangeOperation[] ops,MobileAccessPolicy? policy=null)=>JsonSerializer.Serialize(new MobileChangePart(MobileChangePart.Format,client,source,Guid.NewGuid().ToString("N"),seq,seq-1,seq==1,"2026-10-20",policy??access,0,1,MobileChangePart.Hash(ops),ops));
+                string Wire(long seq,MobileChangeOperation[] ops,MobileAccessPolicy? policy=null,bool full=false)=>JsonSerializer.Serialize(new MobileChangePart(MobileChangePart.Format,client,source,Guid.NewGuid().ToString("N"),seq,seq-1,seq==1,"2026-10-20",policy??access,0,1,MobileChangePart.Hash(ops),ops,full));
                 var initial=new[]{Asset(1,7),Asset(2,9),Invoice(10)};var batch=Guid.NewGuid().ToString("N");
                 var first=new MobileChangePart(MobileChangePart.Format,client,source,batch,1,0,true,"2026-10-20",access,0,2,MobileChangePart.Hash(initial),[initial[0]]);
                 var second=first with{index=1,operations=[initial[1],initial[2]]};
+                using(var early=new MobileChangeStore(this,"qa_early_"+suffix+".db")){early.TryAccept(Wire(2,[Asset(1,8)]));Check(early.List("asset").Count==0,"a delta received before initial full mirror cannot skip the baseline");}
                 using(var mirror=new MobileChangeStore(this,mirrorDb)){mirror.TryAccept(JsonSerializer.Serialize(second));Check(mirror.List("asset").Count==0,"partial batch not visible");}
                 using(var mirror=new MobileChangeStore(this,mirrorDb))
                 {
@@ -61,12 +62,12 @@ public sealed class StorageQaActivity:Activity
                     mirror.TryAccept(Wire(4,[new("asset","asset:2:1:1",2,true,JsonSerializer.SerializeToElement(new{}))]));Check(mirror.List("asset").Count==1,"explicit deletion applied");
                     mirror.TryAccept(JsonSerializer.Serialize(first));Check(mirror.List("asset").Count==1,"old duplicate cannot rollback");
                     access=access with{revision=2,units=[new(1,"QA One")],allUnits=false};using(var doc=JsonDocument.Parse(JsonSerializer.Serialize(access)))new MobileAccessStore(this).Accept(doc.RootElement);
-                    mirror.TryAccept(Wire(6,[Asset(1,10)]));Check(mirror.List("asset").Single().LocationId==1,"new grant revision rebases complete authorized state");
+                    mirror.TryAccept(Wire(6,[Asset(1,10)],full:true));Check(mirror.List("asset").Single().LocationId==1,"new grant revision rebases complete authorized state");
                     Reject(()=>mirror.TryAccept(Wire(7,[Asset(2,10)])),"forbidden unit accepted");
                     mirror.TryAccept(Wire(7,[Invoice(11)]));
                     using(var archive=new DocumentArchiveStore(this))Check(archive.ListSummaries("QA One").Any(d=>d.DocumentId.StartsWith("root:"+source+":1:11:",StringComparison.Ordinal) && d.PostingStatus=="posted"),"observer new receipt auto-posted");
                     access=access with{revision=3,isMvo=true,canConfirmInvoices=true,autoPostInvoices=false};
-                    mirror.TryAccept(Wire(8,[Asset(1,10)]));mirror.TryAccept(Wire(9,[Invoice(12)]));
+                    mirror.TryAccept(Wire(8,[Asset(1,10)],full:true));mirror.TryAccept(Wire(9,[Invoice(12)]));
                     using(var archive=new DocumentArchiveStore(this))Check(archive.ListSummaries("QA One").Any(d=>d.DocumentId.StartsWith("root:"+source+":1:12:",StringComparison.Ordinal) && d.PostingStatus!="posted"),"MVO new receipt awaits manual confirmation");
                     var header=System.Text.Json.Nodes.JsonNode.Parse(Invoice(20).payload.GetRawText())!.AsObject();header["chunkCount"]=2;header["chunkIndex"]=0;
                     var tail=header.DeepClone().AsObject();tail["chunkIndex"]=1;
@@ -86,7 +87,7 @@ public sealed class StorageQaActivity:Activity
                         mirror.TryAccept(Wire(12,[new("document","document:1:12",1,true,JsonSerializer.SerializeToElement(new{}))]));Check(!mirror.IsCurrentInvoice(currentInvoice),"deleted document cannot be newly posted");
                     }
                     access=access with{revision=4,isMvo=false,canConfirmInvoices=false,autoPostInvoices=true,allUnits=true,units=[new(1,"QA One"),new(2,"QA Two")]};
-                    mirror.TryAccept(Wire(13,[Asset(1,10),Asset(2,5),new("document","document:1:20",1,false,JsonSerializer.SerializeToElement(header)),new("document","document:1:20:chunk:1",1,false,JsonSerializer.SerializeToElement(tail))]));
+                    mirror.TryAccept(Wire(13,[Asset(1,10),Asset(2,5),new("document","document:1:20",1,false,JsonSerializer.SerializeToElement(header)),new("document","document:1:20:chunk:1",1,false,JsonSerializer.SerializeToElement(tail))],full:true));
                 }
                 using(var ledger=new PropertyLedgerStore(this))
                 {

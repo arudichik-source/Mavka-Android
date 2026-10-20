@@ -24,7 +24,7 @@ current balances remain available as an authoritative updated view on the phone.
 `MAVKA_CHANGESET_V1`: recipientClientId, sourceId, batchId, sequence, baseSequence,
 initial, asOf, access, index/count, operations. Operations contain kind, key,
 locationId, remove, JSON payload. Canonical manifest hash binds the complete ordered
-operation list. Each bounded logical part is password-wrapped AES like all other
+operation list. Optional full=true explicitly marks a complete permission rebase; a delta arriving before the initial/rebased full batch must wait, even if it has a newer grant revision. Each bounded logical part is password-wrapped AES like all other
 service content; Relay retains agreed content-part transport. Persist immutable
 IDs/ciphertext before submission; retries change HTTP nonces, never logical IDs.
 Recheck current permissions, profile/key generation and source before approval.
