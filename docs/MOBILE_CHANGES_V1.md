@@ -1,3 +1,9 @@
+## Android 1.2.3 verified — 20 October 2026
+
+Compiled source0d49db04a7aa4320d6fb7cddbb9aec6e86cd4a23; workflow39438171370 APK and Android15 emulator SUCCESS. Portable35 checks and retained native storage/lifecycle/scanner/inventory/document tests PASS. New item-name parser accepts complete valid names up to1024 characters, without changing identity fields or total bounds. The current desktop bulk stock export is compatible with every granted scope in the read-only cross-check.
+
+Package ua.mavka.mobile.registrationqa, code20261024, display1.2.3-registration-v2-qa. Existing certificate SHA2562410279934353190b0a4eb60e80c9df5d79502856a2838b85c0b7c1b72b266bd retained. APK artifact12272937907 (workflow39438171370); ZIP SHA256110c83fd036ace1b12aebb05634451514c50b0d8d17aca86ff35d2635be5dfea; APK SHA256CB05E3EF5C2D66FD279C291A08507E16D90745C3493ADA063307AF567D92E53C. Install over the existing application, preserving Gmail, password, keys and local data; QR re-enrollment is not needed. Actual new phone-to-PC transport test remains operator-driven; no server/schema changes or live-message send/delete by development tools.
+
 ## 2026-10-20 — Full catalogue names / manual stock export follow-up
 
 Manual desktop stock sending exposed the old outgoing18k text cap and too many MIME attachments. PC now emits bounded128k UTF-8 logical content, batches at twenty attachments, and projects granted units together. The unchanged Android password/AES codec accepts a near-limit desktop fixture. Keep max262144-byte inner envelope /196608-byte plaintext reader limits and existing Gmail transport caps.
