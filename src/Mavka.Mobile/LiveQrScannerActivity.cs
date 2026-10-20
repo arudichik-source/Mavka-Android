@@ -94,7 +94,7 @@ public sealed class LiveQrScannerActivity:Activity,TextureView.ISurfaceTextureLi
             _session=session;using var request=_camera.CreateCaptureRequest(CameraTemplate.Preview);request.AddTarget(_surface);
             using var capture=request.Build();session.SetRepeatingRequest(capture,null,_main);
             _poll?.Cancel();_poll=new();var token=_poll.Token;
-            _=Task.Run(async()=>{try{while(!token.IsCancellationRequested){await Task.Delay(350,token);RunOnUiThread(DecodeFrame);}}catch(OperationCanceledException){}},token);
+            _=Task.Run(async()=>{try{while(!token.IsCancellationRequested){await Task.Delay(350,token);RunOnUiThread(DecodeFrame);}}catch(System.OperationCanceledException){}},token);
         }
         catch(Exception){_status.Text="Камера не почала сканування. Поверніться й виберіть фото QR.";CloseCamera();}
     }
