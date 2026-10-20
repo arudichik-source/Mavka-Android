@@ -28,4 +28,10 @@ if grep -A 2 -E 'FATAL EXCEPTION' emulator-smoke-artifacts/android-runtime-error
 fi
 # Protect existing or production data: emulator has no real accounts or keys.
 echo "CLEAN EMULATOR INSTALL AND HOME SCREEN LAUNCH: PASS"
-python3 tools/relay-emulator-ui.py
+result=0
+python3 tools/relay-emulator-ui.py || result=$?
+adb logcat -d -s AndroidRuntime:E > emulator-smoke-artifacts/android-runtime-errors.log || true
+adb exec-out screencap -p > emulator-smoke-artifacts/final-screen.png || true
+adb shell uiautomator dump /sdcard/final-ui.xml >/dev/null 2>&1 || true
+adb shell cat /sdcard/final-ui.xml > emulator-smoke-artifacts/final-ui.xml || true
+exit "$result"

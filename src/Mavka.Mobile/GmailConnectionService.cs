@@ -558,8 +558,18 @@ internal static class GmailConnectionService
                             installedKey=true;authenticatedJson=true;usableJson=null;
                             display="Поточний і майбутній ключі та дозволи встановлено. Введений вручну спільний пароль не передавався. Активуй Relay після дозволу ПК.";
                             var bootstrap=new BootstrapStore(exchangeKeys.BootstrapContext);
-                            if(new RelayIdentity(exchangeKeys.BootstrapContext).Enabled)
-                                new RelaySync(exchangeKeys.BootstrapContext).Queue("bootstrap-installed:"+RelayProtocol.Hash(bootstrap.Confirmation!),bootstrap.Confirmation!);
+                            try
+                            {
+                                var relay=new RelaySync(exchangeKeys.BootstrapContext);
+                                if(!new RelayIdentity(exchangeKeys.BootstrapContext).Enabled)await relay.Activate(timeout.Token);
+                                relay.Queue("bootstrap-installed:"+RelayProtocol.Hash(bootstrap.Confirmation!),bootstrap.Confirmation!);
+                                await relay.Synchronize(timeout.Token);
+                                display="Ключі та дозволи збережено. Gmail і Relay підключено. Спільний пароль не передавався.";
+                            }
+                            catch(Exception activationError)when(activationError is not OperationCanceledException)
+                            {
+                                display="Ключі та дозволи збережено. Relay очікує реєстрації або з'єднання: натисни «Активувати після дозволу ПК» у Cloudflare. Код: "+activationError.GetType().Name;
+                            }
                         }
                         else
                         {

@@ -58,10 +58,19 @@ def prove_device():
     return proof
 
 def assert_screen(text):
-    root = tree()
-    assert any(text in n.get("text", "") for n in root.iter("node")), "Screen missing: " + text
-    assert not any(n.get("text", "").startswith("MOBILE-") for n in root.iter("node")), "Settings exception shown"
-    assert adb("shell", "pidof", PACKAGE).strip(), "Process exited on settings navigation"
+    for _ in range(10):
+        root = tree()
+        assert adb("shell", "pidof", PACKAGE).strip(), "Process exited on settings navigation"
+        texts = [n.get("text", "") for n in root.iter("node")]
+        if any("MOBILE-" in t for t in texts):
+            OUT.joinpath("settings-failure.xml").write_bytes(ET.tostring(root))
+            OUT.joinpath("settings-failure.png").write_bytes(adb("exec-out", "screencap", "-p"))
+            raise AssertionError("Settings exception shown: " + str(texts))
+        if any(text in t for t in texts): return
+        swipe()
+    OUT.joinpath("settings-failure.xml").write_bytes(ET.tostring(root))
+    OUT.joinpath("settings-failure.png").write_bytes(adb("exec-out", "screencap", "-p"))
+    raise AssertionError("Screen missing: " + text + " / " + str(texts))
 
 OUT.mkdir(exist_ok=True)
 menu("Ключ обміну")
