@@ -20,13 +20,23 @@ public partial class MainActivity
         {
             list.RemoveAllViews();var query=(search.Text??"").Trim();
             var rows=records.Select(r=>(Record:r,Payload:JsonDocument.Parse(r.Json))).Where(r=>r.Payload.RootElement.GetProperty("name").GetString()!.Contains(query,StringComparison.OrdinalIgnoreCase) && r.Payload.RootElement.GetProperty("quantity").GetDecimal()!=0).OrderBy(r=>r.Payload.RootElement.GetProperty("name").GetString(),StringComparer.CurrentCulture).ThenBy(r=>r.Record.LocationId).ToArray();
-            page=Math.Min(page,Math.Max(0,(rows.Length-1)/50));Text(list,$"Позицій: {rows.Length} · сторінка {page+1}",13);
-            foreach(var row in rows.Skip(page*50).Take(50))
+            var groups=rows.GroupBy(r=>location is null?
+                r.Payload.RootElement.GetProperty("itemId")+"|"+r.Payload.RootElement.GetProperty("unit")+"|"+r.Payload.RootElement.GetProperty("price")+"|"+r.Payload.RootElement.GetProperty("category"):
+                r.Record.Key).ToArray();
+            page=Math.Min(page,Math.Max(0,(groups.Length-1)/50));Text(list,$"Позицій: {groups.Length} · сторінка {page+1}",13);
+            foreach(var group in groups.Skip(page*50).Take(50))
             {
-                var payload=row.Payload.RootElement;var selected=row.Record;
-                AddAssetRow(list,payload.GetProperty("name").GetString()!,payload.GetProperty("location").GetString()+" · кат. "+payload.GetProperty("category")+" · ціна "+payload.GetProperty("price"),payload.GetProperty("quantity")+" "+payload.GetProperty("unit"),()=>ShowRootAsset(selected));
+                var entries=group.ToArray();var payload=entries[0].Payload.RootElement;var selected=entries.Select(e=>e.Record).ToArray();
+                var quantity=entries.Sum(e=>e.Payload.RootElement.GetProperty("quantity").GetDecimal());
+                var detail=(location is null?"Разом у підрозділах: "+entries.Select(e=>e.Record.LocationId).Distinct().Count():payload.GetProperty("location").GetString())+" · кат. "+payload.GetProperty("category")+" · ціна "+payload.GetProperty("price");
+                AddAssetRow(list,payload.GetProperty("name").GetString()!,detail,quantity.ToString("0.###")+" "+payload.GetProperty("unit"),()=>
+                {
+                    if(selected.Length==1){ShowRootAsset(selected[0]);return;}
+                    var labels=selected.Select(e=>{using var json=JsonDocument.Parse(e.Json);return json.RootElement.GetProperty("location")+" · "+json.RootElement.GetProperty("quantity");}).ToArray();
+                    new AlertDialog.Builder(this).SetTitle("Розподіл між підрозділами").SetItems(labels,(_,args)=>ShowRootAsset(selected[args.Which])).Show();
+                });
             }
-            if(page>0)Button(list,"← Попередні 50",()=>{page--;Draw();});if((page+1)*50<rows.Length)Button(list,"Наступні 50 →",()=>{page++;Draw();});
+            if(page>0)Button(list,"← Попередні 50",()=>{page--;Draw();});if((page+1)*50<groups.Length)Button(list,"Наступні 50 →",()=>{page++;Draw();});
             foreach(var row in rows)row.Payload.Dispose();
         }
         search.TextChanged+=(_,_)=>{page=0;Draw();};Draw();return true;

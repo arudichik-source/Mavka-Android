@@ -122,12 +122,16 @@ internal sealed class MobileAccessStore(Context context)
             }
         return false;
     }
-    public void AutoPost(string json)
+    public void AutoPost(string json,Func<IncomingInvoice,bool>? currentInvoice=null)
     {
         if(!TryDocument(json,out var document) || document is null)return;
         var access=Load()!;
         if(access.isMvo || !access.autoPostInvoices || !MavkaExchangeParser.TryInvoice(json,out var invoice) || invoice is null)return;
-        using var ledger=new PropertyLedgerStore(context);ledger.AddConfirmedInvoice(invoice);
+        using var mirror=new MobileChangeStore(context);
+        if(!(currentInvoice?.Invoke(invoice)??mirror.IsCurrentInvoice(invoice)))throw new InvalidDataException("Накладна змінена або скасована головною Мавкою.");
+        using var ledger=new PropertyLedgerStore(context);
+        if(MobileChangeStore.ReceiptFamily(invoice.DocumentId) is {} family && ledger.HasReceiptFamily(family))return;
+        ledger.AddConfirmedInvoice(invoice);
         ledger.MarkMailSent(invoice.DocumentId); // Automatic import is not an MVO approval.
         using var archive=new DocumentArchiveStore(context);archive.MarkPosted(invoice.DocumentId);
     }

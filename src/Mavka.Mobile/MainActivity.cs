@@ -1257,6 +1257,9 @@ public partial class MainActivity : Activity
                     {
                         try
                         {
+                            using var mirror=new MobileChangeStore(this);
+                            if(!mirror.IsCurrentInvoice(invoice))throw new InvalidOperationException("Цю версію накладної змінено або скасовано. Відкрийте оновлену накладну після синхронізації.");
+                            if(MobileChangeStore.ReceiptFamily(invoice.DocumentId) is {} family && _ledger.HasReceiptFamily(family))throw new InvalidOperationException("Майно за цією накладною вже зараховано. Інша версія не зараховується повторно.");
                             _ledger.AddConfirmedInvoice(invoice);_ledger.MarkMailSent(invoice.DocumentId);
                             if(_archive.FindDocument(invoice.DocumentId) is not null){_archive.MarkPosted(invoice.DocumentId);_archive.MarkDeliverySent(invoice.DocumentId);}
                             status.Text="Майно зараховано до локального обліку.";

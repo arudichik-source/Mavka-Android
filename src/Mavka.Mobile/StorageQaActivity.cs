@@ -19,7 +19,7 @@ public sealed class StorageQaActivity:Activity
         try
         {
             var profile=new UserProfileStore(this).Load();
-            if(profile?.FullName!="SYNTHETIC-QA-USER" || new GmailCredentialsStore(this).HasCredentials)throw new InvalidOperationException("QA requires isolated synthetic emulator profile and no connected Gmail.");
+            if(profile?.FullName!="SYNTHETIC-QA-USER" || new GmailCredentialsStore(this).HasCredentials || new RelayIdentity(this).Enabled || new ExchangeKeyStore(this).HasKeyPair)throw new InvalidOperationException("QA requires isolated synthetic emulator profile and no connected Gmail.");
             var checks=0;void Check(bool condition,string label){if(!condition)throw new Exception(label);checks++;}
             void Reject(Action action,string label){try{action();}catch(Exception){checks++;return;}throw new Exception(label);}
             var suffix=Guid.NewGuid().ToString("N");var noticeDb="qa_notices_"+suffix+".db";var mirrorDb="qa_mirror_"+suffix+".db";
@@ -43,7 +43,7 @@ public sealed class StorageQaActivity:Activity
                 var client=profile.ClientId;var source=new string('a',64);var access=new MobileAccessPolicy(MobileAccessPolicy.Format,client,1,false,[new(1,"QA One"),new(2,"QA Two")],true,true,false,true,true);
                 using(var doc=JsonDocument.Parse(JsonSerializer.Serialize(access)))new MobileAccessStore(this).Accept(doc.RootElement);
                 MobileChangeOperation Asset(int loc,int qty)=>new("asset",$"asset:{loc}:1:1",loc,false,JsonSerializer.SerializeToElement(new{locationId=loc,location=loc==1?"QA One":"QA Two",itemId=1,name="Synthetic",unit="од.",quantity=qty,price=1.123456789m,category=1}));
-                MobileChangeOperation Invoice(int id)=>new("document",$"document:1:{id}",1,false,JsonSerializer.SerializeToElement(new{locationId=1,location="QA One",id,number="SYNTHETIC-"+id,date="2026-10-20",type="Накладна",status="Проведено",movements=new[]{new{itemId=1,name="Synthetic",unit="од.",quantity=3m,price=1.123456789m,category=1,batch="QA",code="QA",serials=""}}}));
+                MobileChangeOperation Invoice(int id,decimal qty=3m)=>new("document",$"document:1:{id}",1,false,JsonSerializer.SerializeToElement(new{locationId=1,location="QA One",id,number="SYNTHETIC-"+id,date="2026-10-20",type="Накладна",status="Проведено",movements=new[]{new{itemId=1,name="Synthetic",unit="од.",quantity=qty,price=1.123456789m,category=1,batch="QA",code="QA",serials=""}}}));
                 string Wire(long seq,MobileChangeOperation[] ops,MobileAccessPolicy? policy=null)=>JsonSerializer.Serialize(new MobileChangePart(MobileChangePart.Format,client,source,Guid.NewGuid().ToString("N"),seq,seq-1,seq==1,"2026-10-20",policy??access,0,1,MobileChangePart.Hash(ops),ops));
                 var initial=new[]{Asset(1,7),Asset(2,9),Invoice(10)};var batch=Guid.NewGuid().ToString("N");
                 var first=new MobileChangePart(MobileChangePart.Format,client,source,batch,1,0,true,"2026-10-20",access,0,2,MobileChangePart.Hash(initial),[initial[0]]);
@@ -64,11 +64,22 @@ public sealed class StorageQaActivity:Activity
                     mirror.TryAccept(Wire(6,[Asset(1,10)]));Check(mirror.List("asset").Single().LocationId==1,"new grant revision rebases complete authorized state");
                     Reject(()=>mirror.TryAccept(Wire(7,[Asset(2,10)])),"forbidden unit accepted");
                     mirror.TryAccept(Wire(7,[Invoice(11)]));
-                    using(var archive=new DocumentArchiveStore(this))Check(archive.FindDocument("root:"+source+":1:11")?.PostingStatus=="posted","observer new receipt auto-posted");
+                    using(var archive=new DocumentArchiveStore(this))Check(archive.ListSummaries("QA One").Any(d=>d.DocumentId.StartsWith("root:"+source+":1:11:",StringComparison.Ordinal) && d.PostingStatus=="posted"),"observer new receipt auto-posted");
                     access=access with{revision=3,isMvo=true,canConfirmInvoices=true,autoPostInvoices=false};
                     mirror.TryAccept(Wire(8,[Asset(1,10)]));mirror.TryAccept(Wire(9,[Invoice(12)]));
-                    using(var archive=new DocumentArchiveStore(this))Check(archive.FindDocument("root:"+source+":1:12") is {} saved && saved.PostingStatus!="posted","MVO new receipt awaits manual confirmation");
-                    using(var ledger=new PropertyLedgerStore(this))Check(ledger.GetMailStatus("root:"+source+":1:12") is null,"MVO ledger not changed by download");
+                    using(var archive=new DocumentArchiveStore(this))Check(archive.ListSummaries("QA One").Any(d=>d.DocumentId.StartsWith("root:"+source+":1:12:",StringComparison.Ordinal) && d.PostingStatus!="posted"),"MVO new receipt awaits manual confirmation");
+                    using(var ledger=new PropertyLedgerStore(this))Check(!ledger.HasReceiptFamily("root:"+source+":1:12"),"MVO ledger not changed by download");
+                    mirror.TryAccept(Wire(10,[Invoice(12,5)]));
+                    using(var archive=new DocumentArchiveStore(this))
+                    {
+                        var versions=archive.ListSummaries("QA One").Where(d=>d.DocumentId.StartsWith("root:"+source+":1:12:",StringComparison.Ordinal)).ToArray();
+                        Check(versions.Length==2 && versions.Count(d=>d.PostingStatus=="superseded")==1,"pending correction retains old version and supersedes it");
+                        var old=archive.FindDocument(versions.Single(d=>d.PostingStatus=="superseded").DocumentId)!;MavkaExchangeParser.TryInvoice(old.Json,out var obsoleteInvoice);Check(!mirror.IsCurrentInvoice(obsoleteInvoice!),"old pending version cannot be posted");
+                        var latest=archive.FindDocument(versions.Single(d=>d.PostingStatus!="superseded").DocumentId)!;MavkaExchangeParser.TryInvoice(latest.Json,out var currentInvoice);Check(mirror.IsCurrentInvoice(currentInvoice!),"corrected pending version matches current root");
+                        using var ledger=new PropertyLedgerStore(this);ledger.AddConfirmedInvoice(currentInvoice!);ledger.MarkMailSent(currentInvoice!.DocumentId);
+                        Check(ledger.HasReceiptFamily("root:"+source+":1:12"),"receipt family prevents another version being credited twice");
+                        mirror.TryAccept(Wire(11,[new("document","document:1:12",1,true,JsonSerializer.SerializeToElement(new{}))]));Check(!mirror.IsCurrentInvoice(currentInvoice),"deleted document cannot be newly posted");
+                    }
                 }
                 using(var ledger=new PropertyLedgerStore(this))
                 {

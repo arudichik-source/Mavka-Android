@@ -326,6 +326,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         return results;
     }
 
+    public void MarkSuperseded(string documentId) => UpdateStatus(documentId,"posting_status","superseded");
     public void MarkPosted(string documentId) => UpdateStatus(documentId, "posting_status", "posted");
     public void MarkDeliveryQueued(string documentId) => UpdateStatus(documentId, "delivery_status", "pending");
     public void MarkDeliverySent(string documentId) => UpdateStatus(documentId, "delivery_status", "sent");

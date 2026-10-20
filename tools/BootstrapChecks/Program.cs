@@ -25,4 +25,8 @@ Reject(()=>(part with{operations=[op,op]}).Validate(client),"Duplicate record ke
 Reject(()=>(part with{sequence=3}).Validate(client),"Invalid sequence accepted");
 Reject(()=>(part with{count=0}).Validate(client),"Invalid part count accepted");
 Reject(()=>part.Validate("other-client"),"Wrong recipient accepted");
+var pcChanges=JsonSerializer.Deserialize<MobileChangePart[]>(File.ReadAllText(Path.Combine(Path.GetDirectoryName(args[0])!,"synthetic-pc-changes-fixture.json")))!;
+foreach(var pcPart in pcChanges)pcPart.Validate(pcPart.recipientClientId);
+Check(pcChanges.Length>0 && MobileChangePart.Hash(pcChanges.OrderBy(p=>p.index).SelectMany(p=>p.operations))==pcChanges[0].manifestHash,"Actual PC delta fixture manifest and scope validated on Android codec");
+
 Console.WriteLine($"PASS {checks} PC → Android V2 bootstrap, shared password, expiry, tamper and role checks (synthetic)");
