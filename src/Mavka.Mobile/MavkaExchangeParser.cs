@@ -33,7 +33,7 @@ internal static class MavkaExchangeParser
             var values = new List<UnitAsset>();
             foreach (var item in items.EnumerateArray())
             {
-                var name = String(item, "name");
+                var name = String(item, "name", 1024);
                 var measure = String(item, "unit") ?? "";
                 if (string.IsNullOrWhiteSpace(name) ||
                     !item.TryGetProperty("quantity", out var qty) ||
@@ -89,7 +89,7 @@ internal static class MavkaExchangeParser
             var line = 0;
             foreach (var item in positions.EnumerateArray())
             {
-                var name = String(item, "name");
+                var name = String(item, "name", 1024);
                 var unit = String(item, "unit");
                 if (string.IsNullOrWhiteSpace(name) ||
                     string.IsNullOrWhiteSpace(unit) ||
@@ -130,12 +130,12 @@ internal static class MavkaExchangeParser
             MaxDepth = 16
         });
 
-    private static string? String(JsonElement root, string key)
+    private static string? String(JsonElement root, string key, int maxLength = 200)
     {
         if (root.ValueKind != JsonValueKind.Object ||
             !root.TryGetProperty(key, out var value) ||
             value.ValueKind != JsonValueKind.String) return null;
         var text = value.GetString()?.Trim();
-        return text is { Length: > 0 and <= 200 } ? text : null;
+        return text is { Length: > 0 } && text.Length <= maxLength ? text : null;
     }
 }

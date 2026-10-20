@@ -1,3 +1,9 @@
+## 2026-10-20 — Full catalogue names / manual stock export follow-up
+
+Manual desktop stock sending exposed the old outgoing18k text cap and too many MIME attachments. PC now emits bounded128k UTF-8 logical content, batches at twenty attachments, and projects granted units together. The unchanged Android password/AES codec accepts a near-limit desktop fixture. Keep max262144-byte inner envelope /196608-byte plaintext reader limits and existing Gmail transport caps.
+
+One further semantic incompatibility: names longer than200 characters caused rejection of an entire valid stock snapshot. Accept catalogue item names up to1024 in stocks and invoices, preserving exact full names and exact numeric values. Unit names, routing/recipient identifiers and other text fields keep their previous200 limit; total JSON and item-count bounds stay intact. Portable35 checks PASS, including long exact names, upper bound and invoice counterpart. Android candidate1.2.3-registration-v2-qa/code20261024 retains the existing package/signing identity; final APK/emulator gate pending. No re-registration, account/key reset or server/schema change.
+
 ## Verified Android update — 20 October 2026
 
 Compiled source c509c8670002015645d5441f33cadc5935aacaec: workflow39427263137 APK + Android15 emulator SUCCESS. Portable32 and native SQLite/storage31 checks PASS. Verified persisted password/P256 identity after restart, embedded scanner navigation, background default-off, notice deletion/replay, initial delta ordering, MVO/manual versus observer/automatic posting, opening receipt persistence, individual/all-granted assets and complete chunked document viewing. Synthetic tests do not claim new physical-device two-channel delivery acceptance.

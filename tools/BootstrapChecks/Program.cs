@@ -41,4 +41,10 @@ corrupt=System.Text.Json.Nodes.JsonNode.Parse(packed)!.AsObject();corrupt["size"
 var pcCompressed=File.ReadAllText(Path.Combine(Path.GetDirectoryName(args[0])!,"synthetic-pc-changes-compressed-fixture.json"));
 using var compressedMetadata=JsonDocument.Parse(pcCompressed);var pcClient=compressedMetadata.RootElement.GetProperty("recipientClientId").GetString()!;
 var pcLogical=JsonSerializer.Deserialize<MobileChangePart>(MobileChangeCompression.Open(pcCompressed,pcClient))!;pcLogical.Validate(pcClient);Check(pcLogical.operations.Length>0 && MobileChangePart.Hash(pcLogical.operations)==pcLogical.manifestHash,"Actual PC Brotli fixture accepted by Android codec");
+var longName="Synthetic "+new string('я',400);
+string Snapshot(string name)=>JsonSerializer.Serialize(new{format="MAVKA_UNIT_ASSETS_V1",unit="One",asOf="2026-10-20",items=new[]{new{name,unit="од.",quantity=3m,price=1.123456789m}}});
+Check(MavkaExchangeParser.TryAssets(Snapshot(longName),out var exactSnapshot) && exactSnapshot!.Items.Single().Name==longName && exactSnapshot.Items.Single().UnitPrice==1.123456789m,"Full long catalogue name survives stock parsing without shortening or price changes");
+Check(!MavkaExchangeParser.TryAssets(Snapshot(new string('a',1025)),out _),"Catalogue name bound remains enforced");
+var longInvoice=JsonSerializer.Serialize(new{format="MAVKA_DOCUMENT_V1",type="invoice",documentId="synthetic-long-name",documentNumber="1",documentDate="2026-10-20",recipient="One",positions=new[]{new{name=longName,unit="од.",quantity=3m,price=1.123456789m}}});
+Check(MavkaExchangeParser.TryInvoice(longInvoice,out var exactInvoice) && exactInvoice!.Positions.Single().Name==longName,"Full long catalogue name survives invoice parsing");
 Console.WriteLine($"PASS {checks} PC → Android V2 bootstrap, shared password, expiry, tamper and role checks (synthetic)");
