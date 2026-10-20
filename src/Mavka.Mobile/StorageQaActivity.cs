@@ -74,7 +74,7 @@ public sealed class StorageQaActivity:Activity
                     {
                         var versions=archive.ListSummaries("QA One").Where(d=>d.DocumentId.StartsWith("root:"+source+":1:12:",StringComparison.Ordinal)).ToArray();
                         Check(versions.Length==2 && versions.Count(d=>d.PostingStatus=="superseded")==1,"pending correction retains old version and supersedes it");
-                        var old=archive.FindDocument(versions.Single(d=>d.PostingStatus=="superseded").DocumentId)!;MavkaExchangeParser.TryInvoice(old.Json,out var obsoleteInvoice);Check(!mirror.IsCurrentInvoice(obsoleteInvoice!),"old pending version cannot be posted");
+                        var oldVersionDoc=archive.FindDocument(versions.Single(d=>d.PostingStatus=="superseded").DocumentId)!;MavkaExchangeParser.TryInvoice(oldVersionDoc.Json,out var obsoleteInvoice);Check(!mirror.IsCurrentInvoice(obsoleteInvoice!),"old pending version cannot be posted");
                         var latest=archive.FindDocument(versions.Single(d=>d.PostingStatus!="superseded").DocumentId)!;MavkaExchangeParser.TryInvoice(latest.Json,out var currentInvoice);Check(mirror.IsCurrentInvoice(currentInvoice!),"corrected pending version matches current root");
                         using var ledger=new PropertyLedgerStore(this);ledger.AddConfirmedInvoice(currentInvoice!);ledger.MarkMailSent(currentInvoice!.DocumentId);
                         Check(ledger.HasReceiptFamily("root:"+source+":1:12"),"receipt family prevents another version being credited twice");
