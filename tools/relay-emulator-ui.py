@@ -58,10 +58,28 @@ def menu(label):
     tap("Відкрити праве меню команд", False)
     tap(label)
 def field(hint, value):
-    tap(hint)
-    adb("shell", "input", "text", value)
-    adb("shell", "input", "keyevent", "4")
+    # Match the editable control, never a screen title with the same text.
+    # Otherwise BACK navigates home because the keyboard never opened.
+    found = False
+    for _ in range(14):
+        root = tree()
+        for n in root.iter("node"):
+            if n.get("class") == "android.widget.EditText" and hint in (n.get("text"), n.get("hint"), n.get("content-desc")):
+                x1,y1,x2,y2 = bounds(n)
+                if x2 > x1 and y2 > y1:
+                    adb("shell","input","tap",str((x1+x2)//2),str((y1+y2)//2))
+                    found = True
+                    break
+        if found: break
+        swipe()
+    assert found, "Editable field missing: " + hint
     time.sleep(.4)
+    adb("shell", "input", "text", value)
+    ime = adb("shell", "dumpsys", "input_method").decode("utf-8",errors="replace")
+    if any(flag in ime for flag in ("mInputShown=true", "mIsInputViewShown=true", "isInputViewShown=true")):
+        adb("shell", "input", "keyevent", "4")
+    time.sleep(.4)
+
 def prove_device():
     menu("Синхронізація Gmail")
     tap("Cloudflare Relay →")
