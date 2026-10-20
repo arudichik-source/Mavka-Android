@@ -187,7 +187,7 @@ internal sealed class RelaySync
     {
         if (MavkaEncryptedEnvelope.IsEnvelope(json))
             json = RelayContentCipher.Decrypt(json, key => _keys.GetKey(key));
-        if(_keys.RequiresPassword && !MavkaPasswordedEnvelope.IsWrapped(json))throw new CryptographicException("Повідомлення не захищене спільним паролем.");
+        if(!MavkaPasswordedEnvelope.IsWrapped(json))throw new CryptographicException("Повідомлення не захищене спільним паролем.");
         if (MavkaPasswordedEnvelope.IsWrapped(json))
         {
             var password = new DocumentPasswordStore(_context).Load() ?? throw new KeyNotFoundException("Потрібен пароль документів.");
@@ -243,8 +243,8 @@ internal sealed class RelaySync
         {
             foreach (var packet in await command.DownloadAsync(cancellation))
             {
-                var part = MavkaPasswordedEnvelope.IsWrapped(packet)
-                    ? MavkaPasswordedEnvelope.Unwrap(packet, new DocumentPasswordStore(_context).Load() ?? throw new KeyNotFoundException("Потрібен пароль.")) : packet;
+                if(!MavkaPasswordedEnvelope.IsWrapped(packet))throw new CryptographicException("Частина Drive не захищена спільним паролем.");
+                var part=MavkaPasswordedEnvelope.Unwrap(packet,new DocumentPasswordStore(_context).Load()??throw new KeyNotFoundException("Потрібен пароль."));
                 var progress = transfers.Accept(part, key => _keys.GetKey(key), null, command.TransferId);
                 using var complete = transfers.Assemble(progress.Id);
                 if (complete is not null) { var saved = files.Save(complete); transfers.MarkSaved(progress.Id, saved.Id); }

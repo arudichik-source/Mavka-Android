@@ -308,7 +308,7 @@ internal static class GmailConnectionService
                                     string envelope = new System.Text.UTF8Encoding(false, true)
                                         .GetString(ciphertextStream.ToArray())
                                         .TrimStart('\uFEFF');
-                                    if(exchangeKeys?.RequiresPassword==true && !MavkaPasswordedEnvelope.IsWrapped(envelope))throw new System.Security.Cryptography.CryptographicException("Немає захисту спільним паролем.");
+                                    if(!MavkaPasswordedEnvelope.IsWrapped(envelope))throw new System.Security.Cryptography.CryptographicException("Немає захисту спільним паролем.");
                                     if (MavkaPasswordedEnvelope.IsWrapped(envelope))
                                     {
                                         var savedPassword = documentPasswords?.Load();
@@ -359,7 +359,7 @@ internal static class GmailConnectionService
                                 chunk.Content.DecodeTo(chunkStream);
                                 var encrypted = new System.Text.UTF8Encoding(false, true)
                                     .GetString(chunkStream.ToArray());
-                                if(exchangeKeys?.RequiresPassword==true && !MavkaPasswordedEnvelope.IsWrapped(encrypted))throw new System.Security.Cryptography.CryptographicException("Немає захисту спільним паролем.");
+                                if(!MavkaPasswordedEnvelope.IsWrapped(encrypted))throw new System.Security.Cryptography.CryptographicException("Немає захисту спільним паролем.");
                                 if (MavkaPasswordedEnvelope.IsWrapped(encrypted))
                                 {
                                     var savedPassword = documentPasswords?.Load();
@@ -574,7 +574,7 @@ internal static class GmailConnectionService
                         }
                         else
                         {
-                        if(exchangeKeys.RequiresPassword && !passwordProtected)throw new System.Security.Cryptography.CryptographicException("Немає захисту спільним паролем.");
+                        if(!passwordProtected)throw new System.Security.Cryptography.CryptographicException("Немає захисту спільним паролем.");
                         usableJson = MavkaEncryptedEnvelope.Decrypt(contents, exchangeKeys);
                         authenticatedJson = true;
                         display = "🔐 Зашифрований файл успішно розшифровано.\n\n" +
