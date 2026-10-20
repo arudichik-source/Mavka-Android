@@ -22,8 +22,8 @@ public sealed class StorageQaActivity:Activity
             if(profile?.FullName!="SYNTHETIC-QA-USER" || new GmailCredentialsStore(this).HasCredentials || new RelayIdentity(this).Enabled || new ExchangeKeyStore(this).HasKeyPair)throw new InvalidOperationException("QA requires isolated synthetic emulator profile and no connected Gmail.");
             var checks=0;void Check(bool condition,string label){if(!condition)throw new Exception(label);checks++;}
             void Reject(Action action,string label){try{action();}catch(Exception){checks++;return;}throw new Exception(label);}
-            var suffix=Guid.NewGuid().ToString("N");var noticeDb="qa_notices_"+suffix+".db";var mirrorDb="qa_mirror_"+suffix+".db";
-            var prefs=GetSharedPreferences("mavka_exchange_keys_v1",FileCreationMode.Private)!;var old=prefs.GetString("mobile_access",null);
+            var suffix=Guid.NewGuid().ToString("N");var noticeDb="qa_notices_"+suffix+".db";var mirrorDb="mavka_root_mirror_v1.db";
+            var prefs=GetSharedPreferences("mavka_exchange_keys_v1",FileCreationMode.Private)!;var old=prefs.GetString("mobile_access",null);var keepPreview=false;
             try
             {
                 using(var legacy=new LegacyNotices(this,noticeDb))using(var db=legacy.WritableDatabase)db.ExecSQL("INSERT INTO notices VALUES('old','QA','hash','sealed','2026-10-20',0,NULL,0)");
@@ -51,7 +51,7 @@ public sealed class StorageQaActivity:Activity
                 using(var mirror=new MobileChangeStore(this,mirrorDb)){mirror.TryAccept(JsonSerializer.Serialize(second));Check(mirror.List("asset").Count==0,"partial batch not visible");}
                 using(var mirror=new MobileChangeStore(this,mirrorDb))
                 {
-                    mirror.TryAccept(JsonSerializer.Serialize(first));Check(mirror.List("asset").Count==2,"out of order parts survive restart and apply atomically");
+                    mirror.TryAccept(MobileChangeCompression.Pack(JsonSerializer.Serialize(first)));Check(mirror.List("asset").Count==2,"out of order parts survive restart and apply atomically");
                     using(var archive=new DocumentArchiveStore(this))Check(archive.FindDocument("root:"+source+":1:10") is null,"initial historical invoice not replayed");
                     mirror.TryAccept(JsonSerializer.Serialize(first));Check(mirror.List("asset").Count==2,"duplicate no replay");
                     Reject(()=>mirror.TryAccept(JsonSerializer.Serialize(first with{operations=[Asset(1,99)]})),"conflicting part accepted");
@@ -85,6 +85,8 @@ public sealed class StorageQaActivity:Activity
                         Check(ledger.HasReceiptFamily("root:"+source+":1:12"),"receipt family prevents another version being credited twice");
                         mirror.TryAccept(Wire(12,[new("document","document:1:12",1,true,JsonSerializer.SerializeToElement(new{}))]));Check(!mirror.IsCurrentInvoice(currentInvoice),"deleted document cannot be newly posted");
                     }
+                    access=access with{revision=4,isMvo=false,canConfirmInvoices=false,autoPostInvoices=true,allUnits=true,units=[new(1,"QA One"),new(2,"QA Two")]};
+                    mirror.TryAccept(Wire(13,[Asset(1,10),Asset(2,5),new("document","document:1:20",1,false,JsonSerializer.SerializeToElement(header)),new("document","document:1:20:chunk:1",1,false,JsonSerializer.SerializeToElement(tail))]));
                 }
                 using(var ledger=new PropertyLedgerStore(this))
                 {
@@ -92,11 +94,12 @@ public sealed class StorageQaActivity:Activity
                     Check(!ledger.HasOpeningBalances(unit) && ledger.AddOpeningBalances(opening) && ledger.HasOpeningBalances(unit),"opening status from actual durable receipt");
                     Check(!ledger.AddOpeningBalances(opening) && ledger.ListHoldingsAsOf(unit,new(2026,10,20)).Single().Quantity==7,"opening retry never doubles stock");
                 }
+                keepPreview=true;
                 text.Text="NATIVE STORAGE QA PASS "+checks+" · SQLite migration, deleted reminder replay, staged batch restart/order, grants, MVO/observer, opening status. NO NETWORK.";
             }
             finally
             {
-                using var editor=prefs.Edit()!;if(old is null)editor.Remove("mobile_access");else editor.PutString("mobile_access",old);if(!editor.Commit())throw new IOException("QA policy restore failed.");
+                if(!keepPreview){using var editor=prefs.Edit()!;if(old is null)editor.Remove("mobile_access");else editor.PutString("mobile_access",old);if(!editor.Commit())throw new IOException("QA policy restore failed.");}
             }
         }
         catch(Exception ex){text.Text="NATIVE STORAGE QA FAILED: "+ex;}

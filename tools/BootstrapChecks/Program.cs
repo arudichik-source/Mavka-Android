@@ -29,4 +29,13 @@ var pcChanges=JsonSerializer.Deserialize<MobileChangePart[]>(File.ReadAllText(Pa
 foreach(var pcPart in pcChanges)pcPart.Validate(pcPart.recipientClientId);
 Check(pcChanges.Length>0 && MobileChangePart.Hash(pcChanges.OrderBy(p=>p.index).SelectMany(p=>p.operations))==pcChanges[0].manifestHash,"Actual PC delta fixture manifest and scope validated on Android codec");
 
+
+var changeJson=JsonSerializer.Serialize(part);var packed=MobileChangeCompression.Pack(changeJson);
+Check(MobileChangeCompression.Open(packed,client)==changeJson,"Brotli restores exact logical bytes");
+Reject(()=>MobileChangeCompression.Open(packed,"other-client"),"Compressed wrong recipient accepted");
+var corrupt=System.Text.Json.Nodes.JsonNode.Parse(packed)!.AsObject();corrupt["sha256"]=new string('0',64);Reject(()=>MobileChangeCompression.Open(corrupt.ToJsonString(),client),"Compressed tamper accepted");
+corrupt=System.Text.Json.Nodes.JsonNode.Parse(packed)!.AsObject();corrupt["size"]=1;Reject(()=>MobileChangeCompression.Open(corrupt.ToJsonString(),client),"Compressed size overflow accepted");
+var pcCompressed=File.ReadAllText(Path.Combine(Path.GetDirectoryName(args[0])!,"synthetic-pc-changes-compressed-fixture.json"));
+using var compressedMetadata=JsonDocument.Parse(pcCompressed);var pcClient=compressedMetadata.RootElement.GetProperty("recipientClientId").GetString()!;
+var pcLogical=JsonSerializer.Deserialize<MobileChangePart>(MobileChangeCompression.Open(pcCompressed,pcClient))!;pcLogical.Validate(pcClient);Check(pcLogical.operations.Length>0 && MobileChangePart.Hash(pcLogical.operations)==pcLogical.manifestHash,"Actual PC Brotli fixture accepted by Android codec");
 Console.WriteLine($"PASS {checks} PC → Android V2 bootstrap, shared password, expiry, tamper and role checks (synthetic)");

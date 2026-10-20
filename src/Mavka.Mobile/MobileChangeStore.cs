@@ -32,6 +32,7 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
     }
     public bool TryAccept(string authenticatedJson)
     {
+        authenticatedJson=MobileChangeCompression.Open(authenticatedJson,Client);
         using var json=JsonDocument.Parse(authenticatedJson);
         if(!json.RootElement.TryGetProperty("format",out var format) || format.GetString()!=MobileChangePart.Format)return false;
         if(Encoding.UTF8.GetByteCount(authenticatedJson)>150000)throw new InvalidDataException("Завеликий пакет змін.");

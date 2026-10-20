@@ -178,7 +178,7 @@ internal static class GmailConnectionService
             ? Array.Empty<UniqueId>()
             : (await client.Inbox.SearchAsync(
                 SearchQuery.FromContains(allowedSender.Trim())
-                    .And(SearchQuery.SubjectContains(MavkaKeyPackage.MailSubject)),
+                    .And(SearchQuery.SubjectContains(MavkaKeyPackage.MailSubject).Or(SearchQuery.SubjectContains("MAVKA_BOOTSTRAP_KEYS_V2"))),
                 timeout.Token)).ToArray();
         var keyUids = keyMatches.Reverse().Take(10).Select(uid => uid.Id).ToHashSet();
 
@@ -189,6 +189,8 @@ internal static class GmailConnectionService
                     .And(SearchQuery.SubjectContains(MavkaFileParts.Format)),
                 timeout.Token)).ToArray();
         var fileUids = fileMatches.Reverse().Take(150).Select(u => u.Id).ToHashSet();
+        var changeMatches=noticesOnly?Array.Empty<UniqueId>():(await client.Inbox.SearchAsync(SearchQuery.FromContains(allowedSender.Trim()).And(SearchQuery.SubjectContains(MobileChangePart.Format)),timeout.Token)).ToArray();
+        var changeUids=changeMatches.Reverse().Take(100).Select(u=>u.Id).ToHashSet();
         // A completed archive item is never fetched again merely to retry
         // Gmail Trash. The remote operation still revalidates the exact From
         // field and UIDVALIDITY before moving the UID.
@@ -201,10 +203,11 @@ internal static class GmailConnectionService
         const MessageSummaryItems summaryItems =
             MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope |
             MessageSummaryItems.BodyStructure;
-        bool ExactSender(IMessageSummary summary) =>
-            summary.Envelope?.From?.Mailboxes.Any(m =>
-                string.Equals(m.Address, allowedSender.Trim(),
-                    StringComparison.OrdinalIgnoreCase)) == true;
+        bool ExactSender(IMessageSummary summary)
+        {
+            var from=summary.Envelope?.From?.Mailboxes.ToArray()??[];
+            return from.Length==1 && from[0].Address.Equals(allowedSender.Trim(),StringComparison.OrdinalIgnoreCase);
+        }
 
         var fetched = new Dictionary<uint, IMessageSummary>();
         var ordinaryUids = GmailProcessingSelectionPolicy.PendingPayloads(
@@ -224,7 +227,7 @@ internal static class GmailConnectionService
         // provisioning messages, even when they are older than the 15 ordinary
         // display mails. Never skip multipart messages for speed.
         var special = keyMatches.Reverse().Take(10)
-            .Concat(fileMatches.Reverse().Take(150))
+            .Concat(fileMatches.Reverse().Take(150)).Concat(changeMatches.Reverse().Take(100))
             .Distinct()
             .Where(uid => !IsTrashed(uid.Id) && !IsReady(uid.Id) &&
                 !fetched.ContainsKey(uid.Id))
@@ -244,6 +247,7 @@ internal static class GmailConnectionService
             .OrderByDescending(s => s.UniqueId.Id).Take(15)
             .Concat(verified.Where(s => fileUids.Contains(s.UniqueId.Id))
                 .OrderByDescending(s => s.UniqueId.Id).Take(150))
+            .Concat(verified.Where(s=>changeUids.Contains(s.UniqueId.Id)).OrderBy(s=>s.UniqueId.Id).Take(100))
             .Concat(verified.Where(s => keyUids.Contains(s.UniqueId.Id))
                 .OrderByDescending(s => s.UniqueId.Id).Take(10))
             .GroupBy(s => s.UniqueId.Id).Select(group => group.First())

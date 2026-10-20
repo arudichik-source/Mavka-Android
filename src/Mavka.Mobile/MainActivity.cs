@@ -301,8 +301,9 @@ public partial class MainActivity : Activity
             {
                 Text(card, "Документів у захищеному архіві: " +
                     _archive.CountDocuments(profile.Unit), 14);
-                Text(card, "Підтверджень у черзі: " +
-                    _ledger.ListPendingReceiptIds().Count, 14);
+                if(new MobileAccessStore(this).Load()?.isMvo==true)
+                    Text(card,"Накладні очікують підтвердження: "+_archive.ListSummaries(profile.Unit).Count(d=>d.Kind=="Накладна" && d.PostingStatus=="not_posted"),14);
+                else Text(card,"Надходження зараховуються автоматично в межах наданого доступу.",13);
             }
             catch (Exception ex)
             {
@@ -436,7 +437,7 @@ public partial class MainActivity : Activity
 
     private void ShowAssets()
     {
-        Begin("assets", "Майно підрозділу");
+        Begin("assets", "Майно");
         var selected=LoadUserProfile();
         if(selected is null || !new MobileAccessStore(this).Allows(selected.Unit,true)){Text(_body,"Немає дозволу на перегляд залишків. Налаштування надає головна Мавка.",15);return;}
         if(_allMobileUnits && new MobileAccessStore(this).Load() is {isMvo:false,units.Length:>1}){ShowGrantedAssets();return;}
@@ -731,6 +732,7 @@ public partial class MainActivity : Activity
     private void ShowAssetHistory(string unit, string name,
         string measure, string? nsn)
     {
+        if(!new MobileAccessStore(this).Allows(unit,true)){Toast.MakeText(this,"Доступ до підрозділу відкликано.",ToastLength.Long)?.Show();return;}
         try
         {
             var local = _ledger.ListMovements(unit, name, measure, nsn);
@@ -1198,7 +1200,7 @@ public partial class MainActivity : Activity
             var info = Card();
             Text(info, "Накладна № " + invoice.Number, 17, true);
             Text(info, "Отримувач: " + invoice.Recipient, 14);
-            Text(info, "Дата: " + invoice.Date + "  ·  ID: " + invoice.DocumentId, 13);
+            Text(info, "Дата: " + invoice.Date, 13);
             Text(info, "Позицій: " + invoice.Positions.Count, 14, true);
             // Render large invoices incrementally: creating hundreds of Android
             // views in one UI event causes visible stalls on modest phones.
@@ -1230,6 +1232,9 @@ public partial class MainActivity : Activity
             }
             more.Click += (_, _) => AppendNextPage();
             AppendNextPage();
+            if(!attachment.AuthenticatedJson && !_viewingArchivedDocument){Text(info,"Документ не пройшов захищене отримання. Зарахування недоступне.",13);continue;}
+            if(new MobileAccessStore(this).Load() is not {isMvo:true,canConfirmInvoices:true}){Text(info,"Для цього профілю надходження зараховуються автоматично.",13);continue;}
+            if(_ledger.GetMailStatus(invoice.DocumentId)=="sent"){Text(info,"Накладну вже зараховано локально.",13);continue;}
             Text(info, "Перевір усі позиції перед підтвердженням отримання.", 12);
             Button(info, "Підтвердити отримання майна", () =>
             {
@@ -1264,7 +1269,7 @@ public partial class MainActivity : Activity
                             if(MobileChangeStore.ReceiptFamily(invoice.DocumentId) is {} family && _ledger.HasReceiptFamily(family))throw new InvalidOperationException("Майно за цією накладною вже зараховано. Інша версія не зараховується повторно.");
                             _ledger.AddConfirmedInvoice(invoice);_ledger.MarkMailSent(invoice.DocumentId);
                             if(_archive.FindDocument(invoice.DocumentId) is not null){_archive.MarkPosted(invoice.DocumentId);_archive.MarkDeliverySent(invoice.DocumentId);}
-                            status.Text="Майно зараховано до локального обліку.";
+                            if(_viewingArchivedDocument)ShowArchivedDocument(invoice.DocumentId);else ShowMessage(mail);
                         }
                         catch(Exception ex){ShowSafeFailure("Облік МВО",ex);}
                     }).Show();
@@ -1783,7 +1788,7 @@ public partial class MainActivity : Activity
                         new MobileAccessStore(this).Accept(policyDoc.RootElement.GetProperty("access"));saved++;continue;
                     }
                 }
-                if (profile is null || attachment.RawJson is null ||
+                if (!attachment.AuthenticatedJson || profile is null || attachment.RawJson is null ||
                     !new MobileAccessStore(this).TryDocument(attachment.RawJson, out var document) ||
                     document is null)
                 {
@@ -2296,6 +2301,7 @@ public partial class MainActivity : Activity
             }
             var doc = _archive.FindDocument(documentId) ??
                 throw new InvalidOperationException("Document not found.");
+            if(!new MobileAccessStore(this).Allows(doc.Unit,doc.Kind=="Знімок залишків"))throw new InvalidOperationException("Доступ до підрозділу відкликано.");
             var attachment = new MavkaTextAttachment(doc.FileName,
                 MavkaJsonPreview.Format(doc.Json), doc.Json);
             // Reuse the existing invoice preview and confirmation flow, but with

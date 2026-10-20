@@ -24,15 +24,15 @@ public partial class MainActivity
         IReadOnlyList<MobileMirrorRecord> records=[];
         var generation=++_mirrorReadGeneration;
         var header=Card();Text(header,"Актуальний облік головної Мавки",18,true);
-        Text(header,location is null?"Усі доступні підрозділи":"Обраний підрозділ",13);
+        Text(header,location is null?(new MobileAccessStore(this).Load()?.allUnits==true?"Майно військової частини":"Майно доступних підрозділів"):"Обраний підрозділ",15,true);
         Text(header,"Останні збережені зміни. Оновлення — на головному екрані.",12);
         Button(header,"Обрати підрозділ",()=>ChooseMobileUnit(ShowAssets));
-        Button(header,"Локально зараховане майно",()=>{_showRootMirror=false;ShowAssets();});
+        Button(header,"Журнал зарахувань на телефоні",()=>{_showRootMirror=false;ShowAssets();});
         var search=ProfileInput(header,"Пошук майна","");var list=new Android.Widget.LinearLayout(this){Orientation=Orientation.Vertical};header.AddView(list);var page=0;
         void Draw()
         {
             list.RemoveAllViews();var query=(search.Text??"").Trim();
-            var parsedRows=records.Select(r=>(Record:r,Payload:JsonDocument.Parse(r.Json))).ToArray();var rows=parsedRows.Where(r=>r.Payload.RootElement.GetProperty("name").GetString()!.Contains(query,StringComparison.OrdinalIgnoreCase) && r.Payload.RootElement.GetProperty("quantity").GetDecimal()!=0).OrderBy(r=>r.Payload.RootElement.GetProperty("name").GetString(),StringComparer.CurrentCulture).ThenBy(r=>r.Record.LocationId).ToArray();
+            var parsedRows=records.Select(r=>(Record:r,Payload:JsonDocument.Parse(r.Json))).ToArray();var currentPolicy=new MobileAccessStore(this).Load();var rows=parsedRows.Where(r=>currentPolicy?.Allows(r.Record.LocationId,true)==true).Where(r=>r.Payload.RootElement.GetProperty("name").GetString()!.Contains(query,StringComparison.OrdinalIgnoreCase) && r.Payload.RootElement.GetProperty("quantity").GetDecimal()!=0).OrderBy(r=>r.Payload.RootElement.GetProperty("name").GetString(),StringComparer.CurrentCulture).ThenBy(r=>r.Record.LocationId).ToArray();
             var groups=rows.GroupBy(r=>location is null?
                 r.Payload.RootElement.GetProperty("itemId")+"|"+r.Payload.RootElement.GetProperty("unit")+"|"+r.Payload.RootElement.GetProperty("price")+"|"+r.Payload.RootElement.GetProperty("category"):
                 r.Record.Key).ToArray();
@@ -42,7 +42,7 @@ public partial class MainActivity
                 var entries=group.ToArray();var payload=entries[0].Payload.RootElement;var selected=entries.Select(e=>e.Record).ToArray();
                 var quantity=entries.Sum(e=>e.Payload.RootElement.GetProperty("quantity").GetDecimal());
                 var detail=(location is null?"Разом у підрозділах: "+entries.Select(e=>e.Record.LocationId).Distinct().Count():payload.GetProperty("location").GetString())+" · кат. "+payload.GetProperty("category")+" · ціна "+payload.GetProperty("price");
-                AddAssetRow(list,payload.GetProperty("name").GetString()!,detail,quantity.ToString("0.###")+" "+payload.GetProperty("unit"),()=>
+                AddAssetRow(list,payload.GetProperty("name").GetString()!,detail,quantity.ToString("0.############################")+" "+payload.GetProperty("unit"),()=>
                 {
                     if(selected.Length==1){ShowRootAsset(selected[0]);return;}
                     var labels=selected.Select(e=>{using var json=JsonDocument.Parse(e.Json);return json.RootElement.GetProperty("location")+" · "+json.RootElement.GetProperty("quantity");}).ToArray();
@@ -74,6 +74,7 @@ public partial class MainActivity
         try{history=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("document",record.LocationId);});}
         catch(Exception ex){loading.Text=ExplainOperationError(ex);return;}
         if(generation!=_mirrorReadGeneration || _screen!="root-asset")return;loading.Text="";
+        if(new MobileAccessStore(this).Load()?.Allows(record.LocationId,true)!=true){loading.Text="Доступ відкликано.";return;}
         var docs=history.Select(r=>(Record:r,Doc:JsonDocument.Parse(r.Json))).ToArray();
         foreach(var doc in docs.OrderByDescending(d=>d.Doc.RootElement.GetProperty("date").GetString(),StringComparer.Ordinal))
         {
@@ -93,7 +94,7 @@ public partial class MainActivity
         void Draw()
         {
             rows.RemoveAllViews();var query=(search.Text??"").Trim();
-            var parsedDocs=records.Select(r=>(Record:r,Doc:JsonDocument.Parse(r.Json))).ToArray();var docs=parsedDocs.Where(r=>(r.Doc.RootElement.GetProperty("number")+" "+r.Doc.RootElement.GetProperty("location")+" "+r.Doc.RootElement.GetProperty("type")).Contains(query,StringComparison.OrdinalIgnoreCase)).OrderByDescending(r=>r.Doc.RootElement.GetProperty("date").GetString(),StringComparer.Ordinal).ToArray();
+            var parsedDocs=records.Select(r=>(Record:r,Doc:JsonDocument.Parse(r.Json))).ToArray();var currentPolicy=new MobileAccessStore(this).Load();var docs=parsedDocs.Where(r=>currentPolicy?.Allows(r.Record.LocationId)==true).Where(r=>(r.Doc.RootElement.GetProperty("number")+" "+r.Doc.RootElement.GetProperty("location")+" "+r.Doc.RootElement.GetProperty("type")).Contains(query,StringComparison.OrdinalIgnoreCase)).OrderByDescending(r=>r.Doc.RootElement.GetProperty("date").GetString(),StringComparer.Ordinal).ToArray();
             page=Math.Min(page,Math.Max(0,(docs.Length-1)/50));Text(rows,$"Документів: {docs.Length} · сторінка {page+1}",13);
             foreach(var row in docs.Skip(page*50).Take(50))
             {

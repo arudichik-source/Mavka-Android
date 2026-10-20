@@ -55,7 +55,8 @@ def tap(label, scroll=True):
         if scroll: swipe()
     raise AssertionError("UI element missing: " + label)
 def menu(label):
-    tap("Відкрити праве меню команд", False)
+    navigation=label in {"Головна","Майно підрозділу","Історія документів","Вхідні","Сповіщення та нагадування","Бібліотека документів"}
+    tap("Відкрити ліве меню навігації" if navigation else "Відкрити праве меню команд", False)
     tap(label)
 def field(hint, value):
     # Match the editable control, never a screen title with the same text.
@@ -153,3 +154,21 @@ adb("shell","am","start","-n",PACKAGE+"/ua.mavka.mobile.StorageQaActivity")
 assert_screen("NATIVE STORAGE QA PASS")
 OUT.joinpath("native-storage-qa.png").write_bytes(adb("exec-out","screencap","-p"))
 print("NATIVE ANDROID SQLITE MIGRATION, NOTICE DELETION/TOMBSTONE, CHANGE BATCH RESTART/ORDER/SCOPE, MVO/OBSERVER AND OPENING STATUS: PASS; NO NETWORK")
+
+adb("shell","am","force-stop",PACKAGE)
+adb("shell","monkey","-p",PACKAGE,"-c","android.intent.category.LAUNCHER","1")
+time.sleep(5)
+menu("Майно підрозділу")
+assert_screen("Актуальний облік головної Мавки")
+assert_screen("10 од.")
+OUT.joinpath("root-unit-assets.png").write_bytes(adb("exec-out","screencap","-p"))
+tap("Обрати підрозділ")
+tap("Усі доступні підрозділи")
+assert_screen("15 од.")
+OUT.joinpath("root-combined-assets.png").write_bytes(adb("exec-out","screencap","-p"))
+menu("Історія документів")
+assert_screen("Документи головної Мавки")
+tap("Переглянути зміни")
+assert_screen("Рядків руху: 2")
+OUT.joinpath("root-document.png").write_bytes(adb("exec-out","screencap","-p"))
+print("ROOT MIRROR UNIT/COMBINED INVENTORY AND COMPLETE DOCUMENT UI: PASS; NO NETWORK")

@@ -4,6 +4,7 @@
     <Compile Include="../../src/Mavka.Mobile/BootstrapProtocol.cs" Link="BootstrapProtocol.cs"/>
     <Compile Include="../../src/Mavka.Mobile/RegistrationV2Protocol.cs" Link="RegistrationV2Protocol.cs"/>
     <Compile Include="../../src/Mavka.Mobile/MavkaPasswordedEnvelope.cs" Link="MavkaPasswordedEnvelope.cs"/>
+    <Compile Include="../../src/Mavka.Mobile/MobileChangeCompression.cs" Link="MobileChangeCompression.cs"/>
     <Compile Include="../../src/Mavka.Mobile/MobileChangeProtocol.cs" Link="MobileChangeProtocol.cs"/>
     <Compile Include="../../src/Mavka.Mobile/MobileAccess.cs" Link="MobileAccess.cs"/>
     <Compile Include="../../src/Mavka.Mobile/RelayProtocol.cs" Link="RelayProtocol.cs"/>
