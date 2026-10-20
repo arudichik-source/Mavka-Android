@@ -5,6 +5,7 @@ public partial class MainActivity
     private void ShowSafeFailure(string action,Exception error)
     {
         var code="MOBILE-"+error.GetType().Name;
+        Android.Util.Log.Error("MaVkaSafeFailure",action+": "+code+"\n"+error.StackTrace);
         try
         {
             var path=System.IO.Path.Combine(FilesDir!.AbsolutePath,"last-ui-failure.txt");

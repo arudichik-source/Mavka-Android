@@ -15,13 +15,14 @@ internal sealed class ExchangeKeyStore
 {
     private const string Alias = "mavka_exchange_wrap_v1";
     private const string Preferences = "mavka_exchange_keys_v1";
-    private readonly ISharedPreferences _prefs;
+    // Android shares this preferences instance. Reacquire its managed peer;
+    // another short-lived reader must never invalidate a cached JNI reference.
+    private ISharedPreferences _prefs=>BootstrapContext.GetSharedPreferences(Preferences,FileCreationMode.Private)!;
     internal Context BootstrapContext {get;}
 
     public ExchangeKeyStore(Context context)
     {
         BootstrapContext=context;
-        _prefs = context.GetSharedPreferences(Preferences, FileCreationMode.Private)!;
     }
 
     public bool RequiresPassword=>_prefs.GetInt("bootstrap_protocol",0)==2;

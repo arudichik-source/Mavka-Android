@@ -15,7 +15,7 @@ internal sealed class BootstrapStore(Context context)
         {
             var profile=new UserProfileStore(context).Load()??throw new InvalidOperationException("Збережи профіль.");
             var q=RegistrationV2Protocol.Parse(raw,DateTimeOffset.UtcNow);RegistrationV2Protocol.Password(password);
-            using var prefs=Preferences;
+            var prefs=Preferences;
             var existing=prefs.GetString("bootstrap_pending",null);
             if(existing is not null)
             {
@@ -46,7 +46,7 @@ internal sealed class BootstrapStore(Context context)
     {
         lock(Gate)
         {
-            using var prefs=Preferences;
+            var prefs=Preferences;
             using var hashDoc=JsonDocument.Parse(envelope);
             var h=hashDoc.RootElement;
             var hash=RelayProtocol.Hash(RelayProtocol.Serialize(new{format=h.GetProperty("format").GetString(),algorithm=h.GetProperty("algorithm").GetString(),keyId=h.GetProperty("keyId").GetString(),nonce=h.GetProperty("nonce").GetString(),ciphertext=h.GetProperty("ciphertext").GetString(),tag=h.GetProperty("tag").GetString()}));
@@ -84,7 +84,7 @@ internal sealed class MobileAccessStore(Context context)
     public MobileAccessPolicy? Load()
     {
         var id=new UserProfileStore(context).Load()?.ClientId;
-        using var prefs=context.GetSharedPreferences("mavka_exchange_keys_v1",FileCreationMode.Private)!;
+        var prefs=context.GetSharedPreferences("mavka_exchange_keys_v1",FileCreationMode.Private)!;
         var raw=prefs.GetString("mobile_access",null);if(raw is null || id is null)return null;
         var access=JsonSerializer.Deserialize<MobileAccessPolicy>(raw)!;access.Validate(id);return access;
     }
@@ -95,7 +95,7 @@ internal sealed class MobileAccessStore(Context context)
         var old=Load();
         if(old is not null && policy.revision<old.revision)return old;
         if(old is not null && policy.revision==old.revision && JsonSerializer.Serialize(policy)!=JsonSerializer.Serialize(old))throw new CryptographicException("Суперечливі дозволи.");
-        using var prefs=context.GetSharedPreferences("mavka_exchange_keys_v1",FileCreationMode.Private)!;using var editor=prefs.Edit()!;
+        var prefs=context.GetSharedPreferences("mavka_exchange_keys_v1",FileCreationMode.Private)!;using var editor=prefs.Edit()!;
         if(!editor.PutString("mobile_access",JsonSerializer.Serialize(policy))!.Commit())throw new IOException("Дозволи не збережено.");return policy;
     }
     public bool Allows(string unit,bool assets=false)=>Load() is {} access && access.units.Any(u=>u.unit.Equals(unit.Trim(),StringComparison.OrdinalIgnoreCase)) && (assets?access.canViewAssets:access.canViewDocuments);
