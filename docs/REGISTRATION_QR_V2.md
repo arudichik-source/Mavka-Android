@@ -44,7 +44,7 @@ New logical messages in either direction use exchange-key AES + the password
 wrapper. Relay carries password-wrapped bytes as the agreed 12000-byte content
 parts, each in its own signed/checked AES transport packet. Fresh nonce on HTTP
 retry, same message IDs/ciphertext; durable local queues and cross-channel dedup.
-New V2 profiles reject service content without the password layer.
+All inbound service content requires the password layer, including older registered profiles; bare AES network content is rejected. Historical local archive readers remain available.
 
 Deletion revokes the old device ID and removes active Office access. Explicitly
 scanning/confirming a NEW invitation starts a fresh client/device registration;
@@ -64,4 +64,4 @@ QA package: `ua.mavka.mobile.registrationqa`, Mavka Registration Test, distinct
 from the obsolete bootstrap QA. CI caches a QA-only signing identity; production
 signing workflow/secrets are untouched. Portable fixture checks and Android 15
 settings/Keystore/restart smoke are gates. Real PC ↔ phone acceptance is still
-required; the screenshot-only key-screen failure has no proven root cause yet.
+required. Shared Android preferences peer disposal was fixed; CI39379685366 verifies the key screen before/after profile and restart, password persistence and local signature proof. This is not physical-phone end-to-end enrollment acceptance.
