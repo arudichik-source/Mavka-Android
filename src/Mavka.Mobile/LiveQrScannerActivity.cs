@@ -27,6 +27,7 @@ public sealed class LiveQrScannerActivity:Activity,TextureView.ISurfaceTextureLi
     private Handler? _main;
     private CancellationTokenSource? _poll;
     private bool _resumed,_opening,_decoding,_done;
+    private int _generation;
     private DeviceState? _deviceState;
     private SessionState? _sessionState;
 
@@ -76,14 +77,14 @@ public sealed class LiveQrScannerActivity:Activity,TextureView.ISurfaceTextureLi
             if(w/(double)h>ratio)transform.SetScale((float)(h*ratio/w),1,w/2f,h/2f);
             else transform.SetScale(1,(float)(w/ratio/h),w/2f,h/2f);
             _preview.SetTransform(transform);
-            _opening=true;_deviceState=new DeviceState(this);manager.OpenCamera(id,_deviceState,_main);
+            _opening=true;_deviceState=new DeviceState(this,_generation);manager.OpenCamera(id,_deviceState,_main);
         }
         catch(Exception){_opening=false;_status.Text="Не вдалося відкрити камеру. Закрийте іншу програму камери або виберіть фото QR у профілі.";}
     }
     private void BeginPreview(CameraDevice camera)
     {
         _opening=false;if(!_resumed || _done){camera.Close();return;}_camera=camera;
-        try{_surface=new Surface(_preview.SurfaceTexture!);_sessionState=new SessionState(this);camera.CreateCaptureSession(new List<Surface>{_surface},_sessionState,_main);}
+        try{_surface=new Surface(_preview.SurfaceTexture!);_sessionState=new SessionState(this,_generation);camera.CreateCaptureSession(new List<Surface>{_surface},_sessionState,_main);}
         catch(Exception){_status.Text="Не вдалося запустити сканер. Поверніться й виберіть фото QR.";CloseCamera();}
     }
     private void PreviewReady(CameraCaptureSession session)
@@ -117,6 +118,7 @@ public sealed class LiveQrScannerActivity:Activity,TextureView.ISurfaceTextureLi
     }
     private void CloseCamera()
     {
+        _generation++;
         _poll?.Cancel();_poll?.Dispose();_poll=null;
         try{_session?.Close();}catch{} _session=null;
         try{_camera?.Close();}catch{} _camera=null;
@@ -127,15 +129,15 @@ public sealed class LiveQrScannerActivity:Activity,TextureView.ISurfaceTextureLi
     public void OnSurfaceTextureSizeChanged(SurfaceTexture surface,int width,int height){}
     public bool OnSurfaceTextureDestroyed(SurfaceTexture surface){CloseCamera();return true;}
     public void OnSurfaceTextureUpdated(SurfaceTexture surface){}
-    private sealed class DeviceState(LiveQrScannerActivity owner):CameraDevice.StateCallback
+    private sealed class DeviceState(LiveQrScannerActivity owner,int generation):CameraDevice.StateCallback
     {
-        public override void OnOpened(CameraDevice camera)=>owner.BeginPreview(camera);
-        public override void OnDisconnected(CameraDevice camera){camera.Close();owner.CloseCamera();}
-        public override void OnError(CameraDevice camera,CameraError error){camera.Close();owner.CloseCamera();owner._status.Text="Камера недоступна. Поверніться й виберіть фото QR.";}
+        public override void OnOpened(CameraDevice camera){if(owner._generation==generation)owner.BeginPreview(camera);else camera.Close();}
+        public override void OnDisconnected(CameraDevice camera){camera.Close();if(owner._generation==generation)owner.CloseCamera();}
+        public override void OnError(CameraDevice camera,CameraError error){camera.Close();if(owner._generation!=generation)return;owner.CloseCamera();owner._status.Text="Камера недоступна. Поверніться й виберіть фото QR.";}
     }
-    private sealed class SessionState(LiveQrScannerActivity owner):CameraCaptureSession.StateCallback
+    private sealed class SessionState(LiveQrScannerActivity owner,int generation):CameraCaptureSession.StateCallback
     {
-        public override void OnConfigured(CameraCaptureSession session)=>owner.PreviewReady(session);
-        public override void OnConfigureFailed(CameraCaptureSession session){session.Close();owner.CloseCamera();owner._status.Text="Камера не підтримала попередній перегляд. Виберіть фото QR.";}
+        public override void OnConfigured(CameraCaptureSession session){if(owner._generation==generation)owner.PreviewReady(session);else session.Close();}
+        public override void OnConfigureFailed(CameraCaptureSession session){session.Close();if(owner._generation!=generation)return;owner.CloseCamera();owner._status.Text="Камера не підтримала попередній перегляд. Виберіть фото QR.";}
     }
 }

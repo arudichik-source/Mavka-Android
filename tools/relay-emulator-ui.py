@@ -142,5 +142,5 @@ assert_screen("Сканер QR Мавки")
 assert b"ua.mavka.mobile.LiveQrScannerActivity" in adb("shell","dumpsys","activity","activities"), "Scanner must stay in MaVka instead of launching a photo app"
 OUT.joinpath("in-app-qr-scanner.png").write_bytes(adb("exec-out","screencap","-p"))
 tap("Скасувати сканування")
-assert_screen("Профіль користувача")
+assert_screen("Сканувати QR камерою")
 print("ANDROID15 EXCHANGE-KEY SCREEN, MANUAL PASSWORD KEYSTORE PERSISTENCE, LOCAL P256 SIGNATURE PROOF, BACKGROUND OFF, IN-APP SCANNER NAVIGATION AND RESTART: PASS. NO NETWORK ENROLLMENT OR PHYSICAL CAMERA DECODE.")
