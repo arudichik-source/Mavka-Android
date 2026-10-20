@@ -109,10 +109,10 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
                 {
                     bool existed;using(var row=db.RawQuery("SELECT 1 FROM records WHERE client=? AND source=? AND key=?",new[]{client,source,op.key}))existed=row.MoveToFirst();
                     if(op.remove){db.Delete("records","client=? AND source=? AND key=?",new[]{client,source,op.key});continue;}
-                    var values=new ContentValues();values.Put("client",client);values.Put("source",source);values.Put("key",op.key);values.Put("kind",op.kind);values.Put("location",op.locationId);values.Put("sealed",Seal(op.payload.GetRawText()));db.InsertWithOnConflict("records",null,values,ConflictAlgorithm.Replace);
+                    var values=new ContentValues();values.Put("client",client);values.Put("source",source);values.Put("key",op.key);values.Put("kind",op.kind);values.Put("location",op.locationId);values.Put("sealed",Seal(op.payload.GetRawText()));db.InsertWithOnConflict("records",null,values,Conflict.Replace);
                     if(!first.initial && !reset && !existed && op.kind=="document")QueueReceipt(db,first,op);
                 }
-                var head=new ContentValues();head.Put("client",client);head.Put("source",source);head.Put("sequence",first.sequence);head.Put("revision",first.access.revision);head.Put("asof",first.asOf);db.InsertWithOnConflict("heads",null,head,ConflictAlgorithm.Replace);
+                var head=new ContentValues();head.Put("client",client);head.Put("source",source);head.Put("sequence",first.sequence);head.Put("revision",first.access.revision);head.Put("asof",first.asOf);db.InsertWithOnConflict("heads",null,head,Conflict.Replace);
                 var clear=new ContentValues();clear.Put("sealed","");db.Update("parts",clear,"client=? AND source=? AND batch=?",new[]{client,source,first.batchId});
                 db.SetTransactionSuccessful();
             }
@@ -125,10 +125,16 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
         if(!p.GetProperty("type").GetString()!.Contains("накладна",StringComparison.OrdinalIgnoreCase) || p.GetProperty("status").GetString()=="Скасовано")return;
         var lines=p.GetProperty("movements").EnumerateArray().Where(r=>r.GetProperty("quantity").GetDecimal()>0).ToArray();
         if(lines.Length is <1 or >200 || lines.Any(r=>r.GetProperty("quantity").GetDecimal()>1000000000m || r.GetProperty("price").ValueKind!=JsonValueKind.Number))return;
+        var legacyId=p.GetProperty("id").GetInt32().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        using(var archive=new DocumentArchiveStore(context))
+        {
+            var previous=archive.FindDocument(legacyId);
+            if(previous is not null && previous.Unit==p.GetProperty("location").GetString())return;
+        }
         var id="root:"+batch.sourceId+":"+op.locationId+":"+p.GetProperty("id").GetInt32();
         var json=JsonSerializer.Serialize(new{format="MAVKA_DOCUMENT_V1",type="invoice",documentId=id,documentNumber=p.GetProperty("number").GetString(),documentDate=p.GetProperty("date").GetString(),recipient=p.GetProperty("location").GetString(),recipientClientId=Client,positions=lines.Select(r=>new{name=r.GetProperty("name").GetString(),unit=r.GetProperty("unit").GetString(),quantity=r.GetProperty("quantity").GetDecimal(),price=r.GetProperty("price").GetDecimal()})});
         if(!MavkaExchangeParser.TryInvoice(json,out _))return;
-        var values=new ContentValues();values.Put("client",Client);values.Put("id",id);values.Put("sealed",Seal(json));db.InsertWithOnConflict("receipts",null,values,ConflictAlgorithm.Ignore);
+        var values=new ContentValues();values.Put("client",Client);values.Put("id",id);values.Put("sealed",Seal(json));db.InsertWithOnConflict("receipts",null,values,Conflict.Ignore);
     }
     public void DrainReceipts()
     {
