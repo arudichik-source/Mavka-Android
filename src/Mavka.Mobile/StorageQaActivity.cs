@@ -68,8 +68,13 @@ public sealed class StorageQaActivity:Activity
                     access=access with{revision=3,isMvo=true,canConfirmInvoices=true,autoPostInvoices=false};
                     mirror.TryAccept(Wire(8,[Asset(1,10)]));mirror.TryAccept(Wire(9,[Invoice(12)]));
                     using(var archive=new DocumentArchiveStore(this))Check(archive.ListSummaries("QA One").Any(d=>d.DocumentId.StartsWith("root:"+source+":1:12:",StringComparison.Ordinal) && d.PostingStatus!="posted"),"MVO new receipt awaits manual confirmation");
+                    var header=System.Text.Json.Nodes.JsonNode.Parse(Invoice(20).payload.GetRawText())!.AsObject();header["chunkCount"]=2;header["chunkIndex"]=0;
+                    var tail=header.DeepClone().AsObject();tail["chunkIndex"]=1;
+                    mirror.TryAccept(Wire(10,[new("document","document:1:20",1,false,JsonSerializer.SerializeToElement(header)),new("document","document:1:20:chunk:1",1,false,JsonSerializer.SerializeToElement(tail))]));
+                    var whole=mirror.List("document",1).Single(d=>d.Key=="document:1:20");using(var assembled=JsonDocument.Parse(whole.Json))Check(assembled.RootElement.GetProperty("movements").GetArrayLength()==2,"large document chunks compose as one complete read-only document");
+                    using(var ledger=new PropertyLedgerStore(this))Check(!ledger.HasReceiptFamily("root:"+source+":1:20"),"large chunk never becomes a partial receipt");
                     using(var ledger=new PropertyLedgerStore(this))Check(!ledger.HasReceiptFamily("root:"+source+":1:12"),"MVO ledger not changed by download");
-                    mirror.TryAccept(Wire(10,[Invoice(12,5)]));
+                    mirror.TryAccept(Wire(11,[Invoice(12,5)]));
                     using(var archive=new DocumentArchiveStore(this))
                     {
                         var versions=archive.ListSummaries("QA One").Where(d=>d.DocumentId.StartsWith("root:"+source+":1:12:",StringComparison.Ordinal)).ToArray();
@@ -78,7 +83,7 @@ public sealed class StorageQaActivity:Activity
                         var latest=archive.FindDocument(versions.Single(d=>d.PostingStatus!="superseded").DocumentId)!;MavkaExchangeParser.TryInvoice(latest.Json,out var currentInvoice);Check(mirror.IsCurrentInvoice(currentInvoice!),"corrected pending version matches current root");
                         using var ledger=new PropertyLedgerStore(this);ledger.AddConfirmedInvoice(currentInvoice!);ledger.MarkMailSent(currentInvoice!.DocumentId);
                         Check(ledger.HasReceiptFamily("root:"+source+":1:12"),"receipt family prevents another version being credited twice");
-                        mirror.TryAccept(Wire(11,[new("document","document:1:12",1,true,JsonSerializer.SerializeToElement(new{}))]));Check(!mirror.IsCurrentInvoice(currentInvoice),"deleted document cannot be newly posted");
+                        mirror.TryAccept(Wire(12,[new("document","document:1:12",1,true,JsonSerializer.SerializeToElement(new{}))]));Check(!mirror.IsCurrentInvoice(currentInvoice),"deleted document cannot be newly posted");
                     }
                 }
                 using(var ledger=new PropertyLedgerStore(this))

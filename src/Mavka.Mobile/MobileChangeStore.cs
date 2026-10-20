@@ -122,6 +122,7 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
     private void QueueReceipt(SQLiteDatabase db,MobileChangePart batch,MobileChangeOperation op)
     {
         var p=op.payload;
+        if(p.TryGetProperty("chunkCount",out var chunkCount) && chunkCount.GetInt32()>1)return; // whole large documents remain read-only; never post a partial receipt
         if(!p.GetProperty("type").GetString()!.Contains("накладна",StringComparison.OrdinalIgnoreCase) || p.GetProperty("status").GetString()=="Скасовано")return;
         var lines=p.GetProperty("movements").EnumerateArray().Where(r=>r.GetProperty("quantity").GetDecimal()>0).ToArray();
         if(lines.Length is <1 or >200 || lines.Any(r=>r.GetProperty("quantity").GetDecimal()>1000000000m || r.GetProperty("price").ValueKind!=JsonValueKind.Number))return;
@@ -165,6 +166,7 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
         var fields=family.Split(':');if(!int.TryParse(fields[2],out var location) || new MobileAccessStore(context).Load()?.Allows(location)!=true)return false;
         using var db=ReadableDatabase;using var row=db.RawQuery("SELECT sealed FROM records WHERE client=? AND source=? AND key=?",new[]{Client,fields[1],"document:"+location+":"+fields[3]});if(!row.MoveToFirst())return false;
         using var doc=JsonDocument.Parse(Open(row.GetString(0)));var p=doc.RootElement;
+        if(p.TryGetProperty("chunkCount",out var chunkCount) && chunkCount.GetInt32()>1)return false;
         if(p.GetProperty("status").GetString()=="Скасовано" || p.GetProperty("number").GetString()!=invoice.Number || p.GetProperty("date").GetString()!=invoice.Date || p.GetProperty("location").GetString()!=invoice.Recipient)return false;
         var expected=p.GetProperty("movements").EnumerateArray().Where(r=>r.GetProperty("quantity").GetDecimal()>0).Select(r=>(r.GetProperty("name").GetString(),r.GetProperty("unit").GetString(),r.GetProperty("quantity").GetDecimal(),r.GetProperty("price").ValueKind==JsonValueKind.Number?(decimal?)r.GetProperty("price").GetDecimal():null));
         return expected.SequenceEqual(invoice.Positions.Select(r=>((string?)r.Name,(string?)r.Unit,r.Quantity,r.UnitPrice)));
@@ -191,6 +193,17 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
         using var source=db.RawQuery("SELECT source FROM heads WHERE client=? ORDER BY rowid DESC LIMIT 1",new[]{Client});if(!source.MoveToFirst())return [];
         using var rows=db.RawQuery("SELECT key,location,sealed FROM records WHERE client=? AND source=? AND kind=?",new[]{Client,source.GetString(0),kind});
         while(rows.MoveToNext())if((location is null || rows.GetInt(1)==location) && access.Allows(rows.GetInt(1),kind=="asset"))result.Add(new(rows.GetString(0),kind,rows.GetInt(1),Open(rows.GetString(2))));
-        return result;
+        if(kind!="document")return result;
+        var complete=new List<MobileMirrorRecord>();
+        foreach(var group in result.GroupBy(r=>r.Key.Split(":chunk:",StringSplitOptions.None)[0]))
+        {
+            var chunks=group.Select(r=>(Record:r,Node:System.Text.Json.Nodes.JsonNode.Parse(r.Json)!.AsObject())).OrderBy(r=>r.Node["chunkIndex"]?.GetValue<int>()??0).ToArray();
+            var count=chunks[0].Node["chunkCount"]?.GetValue<int>()??1;
+            if(count!=chunks.Length || chunks.Where((r,i)=>(r.Node["chunkIndex"]?.GetValue<int>()??0)!=i).Any())throw new CryptographicException("Не всі частини документа збережені.");
+            var merged=chunks[0].Node.DeepClone().AsObject();var movements=new System.Text.Json.Nodes.JsonArray();
+            foreach(var chunk in chunks)foreach(var row in chunk.Node["movements"]!.AsArray())movements.Add(row!.DeepClone());
+            merged["movements"]=movements;complete.Add(new(group.Key,"document",chunks[0].Record.LocationId,merged.ToJsonString()));
+        }
+        return complete;
     }
 }

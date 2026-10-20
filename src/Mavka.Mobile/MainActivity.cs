@@ -3592,7 +3592,7 @@ public partial class MainActivity : Activity
             if (_busy) return; _busy = true; status.Text = "Синхронізація Relay...";
             try
             {
-                status.Text = await new RelaySync(this).Synchronize();
+                status.Text = await new RelaySync(this).SynchronizeNow();
                 try { await SendPendingFilePartsAsync(maximum: 1); }
                 catch (Exception) { status.Text += " Вихідні частини файлів збережені в черзі."; }
             }
@@ -3608,7 +3608,7 @@ public partial class MainActivity : Activity
                 var id = Guid.NewGuid().ToString("D");
                 relay.Queue("test:" + id, RelayProtocol.Serialize(new { format = "MAVKA_RELAY_TEST_V1",
                     testId = id, text = "Тестовий пакет Android → ПК", createdAtUtc = DateTimeOffset.UtcNow }));
-                status.Text = await relay.Synchronize();
+                status.Text = await relay.SynchronizeNow();
             }
             catch (Exception ex) { status.Text = ex.Message; }
             finally { _busy = false; }

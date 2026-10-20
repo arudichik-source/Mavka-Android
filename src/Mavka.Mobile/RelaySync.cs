@@ -82,7 +82,8 @@ internal sealed class RelaySync
         }
         return sent;
     }
-    public async Task<string> Synchronize(CancellationToken cancellation = default)
+    public Task<string> SynchronizeNow(CancellationToken cancellation=default)=>Synchronize(cancellation,true);
+    public async Task<string> Synchronize(CancellationToken cancellation = default,bool manual=false)
     {
         if (!_identity.Enabled) throw new InvalidOperationException("Relay не активовано.");
         if (_identity.RetryAfter > DateTimeOffset.UtcNow.ToUnixTimeSeconds())
@@ -96,7 +97,7 @@ internal sealed class RelaySync
                 Queue("bootstrap-installed:"+RelayProtocol.Hash(bootstrapAck),bootstrapAck);
             int received = 0, sent = 0, acked = 0, deferred = 0;
             string path = "/v1/messages?limit=10";
-            for (int page = 0; page < 3; page++)
+            for (int page = 0; page < (manual?50:3); page++)
             {
                 var reply = await api.Call("GET", path, "", cancellation);
                 foreach (var packet in reply.GetProperty("messages").EnumerateArray())
@@ -123,7 +124,7 @@ internal sealed class RelaySync
                 path = "/v1/messages?limit=10&afterTime=" + next.GetProperty("afterTime").GetInt64() + "&afterId=" + Uri.EscapeDataString(afterId);
             }
             deferred += await ImportPending(db, cancellation);
-            foreach (var row in db.Inbox(false).Take(30))
+            foreach (var row in db.Inbox(false).Take(manual?500:30))
             {
                 // Direct documents require domain import; transport chunks may be
                 // ACKed after durable save, independently of whole-file completion.

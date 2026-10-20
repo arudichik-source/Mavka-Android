@@ -118,11 +118,21 @@ public partial class MainActivity
         if(new MobileAccessStore(this).Load()?.Allows(record.LocationId)!=true){Text(_body,"Доступ до підрозділу відкликано.",15);return;}
         using var json=JsonDocument.Parse(record.Json);var p=json.RootElement;var card=Card();
         Text(card,p.GetProperty("type")+" № "+p.GetProperty("number"),19,true);Text(card,p.GetProperty("date")+" · "+p.GetProperty("location")+" · "+p.GetProperty("status"),14);
-        foreach(var row in p.GetProperty("movements").EnumerateArray())
+        var movementRows=p.GetProperty("movements").EnumerateArray().Select(r=>r.Clone()).ToArray();var page=0;
+        var rows=new Android.Widget.LinearLayout(this){Orientation=Orientation.Vertical};card.AddView(rows);
+        void Draw()
         {
-            Text(card,row.GetProperty("name").GetString()!,16,true);Text(card,"Рух: "+row.GetProperty("quantity")+" "+row.GetProperty("unit")+" · ціна "+row.GetProperty("price")+" · кат. "+row.GetProperty("category"),14);
-            Text(card,"Партія: "+row.GetProperty("batch")+" · код: "+row.GetProperty("code")+" · серії: "+row.GetProperty("serials"),13);
+            rows.RemoveAllViews();Text(rows,$"Рядків руху: {movementRows.Length} · сторінка {page+1}",13);
+            foreach(var row in movementRows.Skip(page*50).Take(50))
+            {
+                Text(rows,row.GetProperty("name").GetString()!,16,true);Text(rows,"Рух: "+row.GetProperty("quantity")+" "+row.GetProperty("unit")+" · ціна "+row.GetProperty("price")+" · кат. "+row.GetProperty("category"),14);
+                Text(rows,"Партія: "+row.GetProperty("batch")+" · код: "+row.GetProperty("code")+" · серії: "+row.GetProperty("serials"),13);
+            }
+            if(page>0)Button(rows,"← Попередні 50",()=>{page--;Draw();});if((page+1)*50<movementRows.Length)Button(rows,"Наступні 50 →",()=>{page++;Draw();});
         }
+        Draw();
+        if(p.TryGetProperty("chunkCount",out var chunks) && chunks.GetInt32()>1 && p.GetProperty("type").GetString()!.Contains("накладна",StringComparison.OrdinalIgnoreCase) && new MobileAccessStore(this).Load()?.isMvo==true)
+            Text(card,"Для цієї великої накладної доступний повний перегляд; її локальне зарахування на телефоні поки недоступне.",13);
         Text(card,"Збереження змін не означає ручного підтвердження МВО.",12);Button(card,"До документів",ShowDocuments);
     }
 }

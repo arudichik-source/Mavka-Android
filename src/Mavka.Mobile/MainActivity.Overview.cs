@@ -10,7 +10,7 @@ public partial class MainActivity
         try
         {
             if(!new RelayIdentity(this).Enabled)throw new InvalidOperationException("Спочатку завершіть QR-підключення до головної Мавки.");
-            status.Text=await new RelaySync(this).Synchronize();
+            status.Text=await new RelaySync(this).SynchronizeNow();
         }
         catch(Exception ex){status.Text=ExplainOperationError(ex);}
         finally{_busy=false;}
