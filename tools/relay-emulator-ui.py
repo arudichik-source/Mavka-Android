@@ -145,3 +145,11 @@ OUT.joinpath("in-app-qr-scanner.png").write_bytes(adb("exec-out","screencap","-p
 tap("Скасувати сканування")
 assert_screen("Сканувати QR камерою")
 print("ANDROID15 EXCHANGE-KEY SCREEN, MANUAL PASSWORD KEYSTORE PERSISTENCE, LOCAL P256 SIGNATURE PROOF, BACKGROUND OFF, IN-APP SCANNER NAVIGATION AND RESTART: PASS. NO NETWORK ENROLLMENT OR PHYSICAL CAMERA DECODE.")
+
+menu("Головна")
+assert_screen("Оновити пошту")
+assert_screen("Оновити сервер")
+adb("shell","am","start","-n",PACKAGE+"/ua.mavka.mobile.StorageQaActivity")
+assert_screen("NATIVE STORAGE QA PASS")
+OUT.joinpath("native-storage-qa.png").write_bytes(adb("exec-out","screencap","-p"))
+print("NATIVE ANDROID SQLITE MIGRATION, NOTICE DELETION/TOMBSTONE, CHANGE BATCH RESTART/ORDER/SCOPE, MVO/OBSERVER AND OPENING STATUS: PASS; NO NETWORK")

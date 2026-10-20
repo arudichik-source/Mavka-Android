@@ -6,7 +6,7 @@ using System.Security.Cryptography;
 
 namespace Mavka.Mobile;
 internal sealed record MobileMirrorRecord(string Key,string Kind,int LocationId,string Json);
-internal sealed class MobileChangeStore(Context context):SQLiteOpenHelper(context,"mavka_root_mirror_v1.db",null,1)
+internal sealed class MobileChangeStore(Context context,string databaseName="mavka_root_mirror_v1.db"):SQLiteOpenHelper(context,databaseName,null,1)
 {
     private string Client=>new UserProfileStore(context).Load()?.ClientId??throw new InvalidOperationException("Немає профілю.");
     public override void OnCreate(SQLiteDatabase db)

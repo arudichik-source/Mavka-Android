@@ -18,8 +18,8 @@ internal sealed record StoredNotice(
 /// in SQLite; a duplicate ID with different bytes is a hard integrity error.
 /// Reminder state is persisted so Gmail re-fetch never schedules duplicates.
 /// </summary>
-internal sealed class MavkaNoticeStore(Context context)
-    : SQLiteOpenHelper(context, "mavka_secure_notices_v1.db", null, 2)
+internal sealed class MavkaNoticeStore(Context context,string databaseName="mavka_secure_notices_v1.db")
+    : SQLiteOpenHelper(context, databaseName, null, 2)
 {
     private const string Alias = "mavka_notices_aes_v1";
 
