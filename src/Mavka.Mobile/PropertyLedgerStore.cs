@@ -438,6 +438,14 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
     /// Import a single, explicit opening-balance baseline for the unit.
     /// Never mix a dated snapshot into a ledger that already has posted receipts.
     /// </summary>
+    public bool HasOpeningBalances(string unit)
+    {
+        var id="OPENING:"+Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(unit.Trim().ToUpperInvariant())))[..24];
+        using var db=ReadableDatabase;
+        using var row=db.RawQuery("SELECT 1 FROM receipts WHERE document_id = ? AND recipient = ? COLLATE NOCASE",new[]{id,unit.Trim()});
+        return row.MoveToFirst();
+    }
+
     public bool AddOpeningBalances(UnitAssetsSnapshot snapshot)
     {
         if (string.IsNullOrWhiteSpace(snapshot.Unit) ||

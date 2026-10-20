@@ -14,4 +14,15 @@ var key=RegistrationV2Protocol.Derive(invitation,"request");try{Check(Registrati
 var tampered=System.Text.Json.Nodes.JsonNode.Parse(envelope)!;var bytes=Convert.FromBase64String(tampered["ciphertext"]!.GetValue<string>());bytes[0]^=1;tampered["ciphertext"]=Convert.ToBase64String(bytes);Reject(()=>BootstrapProtocol.Open(tampered.ToJsonString(),invitation,request,password,now),"Tamper accepted");
 var observer=keys.access with{isMvo=false,canConfirmInvoices=false,autoPostInvoices=true,units=[new(1,"One"),new(2,"Two")]};observer.Validate(client);Check(observer.Allows(1) && observer.Allows(2) && !observer.Allows(3),"Observer units");Reject(()=>(observer with{isMvo=true}).Validate(client),"MVO multi-unit accepted");Reject(()=>(observer with{canConfirmInvoices=true}).Validate(client),"Observer confirmation accepted");
 using var ack=JsonDocument.Parse(BootstrapProtocol.Confirmation(keys,now));Check(ack.RootElement.GetProperty("sessionId").GetString()==invitation.sessionId && ack.RootElement.GetProperty("messageId").GetString()==keys.messageId,"Bound confirmation");
+var admin=observer with{allUnits=true};admin.Validate(client);Check(admin.allUnits && admin.Allows(1) && !admin.Allows(3),"All scope still constrained to explicit delivered grants");
+Reject(()=>(keys.access with{allUnits=true}).Validate(client),"MVO global scope accepted");
+var op=new MobileChangeOperation("asset","asset:1:1:1",1,false,JsonSerializer.SerializeToElement(new{locationId=1,itemId=1,name="Synthetic",quantity=7m,price=1.123456789m,unit="од.",category=1}));
+var part=new MobileChangePart(MobileChangePart.Format,client,new string('a',64),Guid.NewGuid().ToString("N"),1,0,true,"2026-10-20",admin,0,1,MobileChangePart.Hash([op]),[op]);part.Validate(client);checks++;
+var roundtrip=JsonSerializer.Deserialize<MobileChangePart>(JsonSerializer.Serialize(part))!;roundtrip.Validate(client);Check(MobileChangePart.Hash(roundtrip.operations)==part.manifestHash,"Manifest survives wire roundtrip exactly");
+Reject(()=>(part with{operations=[op with{locationId=3,key="asset:3:1:1"}]}).Validate(client),"Unpermitted unit accepted");
+Reject(()=>(part with{operations=[op with{payload=JsonSerializer.SerializeToElement(new{locationId=2})}]}).Validate(client),"Mismatched payload scope accepted");
+Reject(()=>(part with{operations=[op,op]}).Validate(client),"Duplicate record key accepted");
+Reject(()=>(part with{sequence=3}).Validate(client),"Invalid sequence accepted");
+Reject(()=>(part with{count=0}).Validate(client),"Invalid part count accepted");
+Reject(()=>part.Validate("other-client"),"Wrong recipient accepted");
 Console.WriteLine($"PASS {checks} PC → Android V2 bootstrap, shared password, expiry, tamper and role checks (synthetic)");

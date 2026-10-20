@@ -99,6 +99,13 @@ internal sealed class MobileAccessStore(Context context)
         if(!editor.PutString("mobile_access",JsonSerializer.Serialize(policy))!.Commit())throw new IOException("Дозволи не збережено.");return policy;
     }
     public bool Allows(string unit,bool assets=false)=>Load() is {} access && access.units.Any(u=>u.unit.Equals(unit.Trim(),StringComparison.OrdinalIgnoreCase)) && (assets?access.canViewAssets:access.canViewDocuments);
+    public bool TryNotice(string? json,out MavkaNotice? notice)
+    {
+        notice=null;var access=Load();if(access is null)return false;
+        foreach(var grant in access.units)
+            if(MavkaNoticeProtocol.TryRead(json,grant.unit,DateTimeOffset.UtcNow,out notice) && notice is not null)return true;
+        return false;
+    }
     public bool TryDocument(string json,out ArchiveImport? document)
     {
         document=null;using var parsed=JsonDocument.Parse(json);

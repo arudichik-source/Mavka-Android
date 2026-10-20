@@ -133,6 +133,13 @@ internal static class MavkaNoticeAlerts
             .Notify(TestReminderCode, builder.Build());
     }
 
+    public static void Remove(Context context,string id)
+    {
+        SetReminder(context,id,null);
+        var manager=context.GetSystemService(Context.NotificationService) as NotificationManager;
+        manager?.Cancel(StableCode(id));manager?.Cancel(unchecked(StableCode(id)+1));
+    }
+
     public static void RescheduleOnStart(Context context, MavkaNoticeStore store)
     {
         foreach (var row in store.PendingReminders())

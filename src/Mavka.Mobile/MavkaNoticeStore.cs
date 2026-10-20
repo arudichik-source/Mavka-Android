@@ -19,7 +19,7 @@ internal sealed record StoredNotice(
 /// Reminder state is persisted so Gmail re-fetch never schedules duplicates.
 /// </summary>
 internal sealed class MavkaNoticeStore(Context context)
-    : SQLiteOpenHelper(context, "mavka_secure_notices_v1.db", null, 1)
+    : SQLiteOpenHelper(context, "mavka_secure_notices_v1.db", null, 2)
 {
     private const string Alias = "mavka_notices_aes_v1";
 
@@ -33,13 +33,39 @@ internal sealed class MavkaNoticeStore(Context context)
             received_utc TEXT NOT NULL,
             is_read INTEGER NOT NULL DEFAULT 0,
             reminder_ms INTEGER NULL,
-            reminded INTEGER NOT NULL DEFAULT 0)");
+            reminded INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0)");
         db.ExecSQL("CREATE INDEX idx_notice_unit_received ON notices(unit,received_utc DESC)");
         db.ExecSQL("CREATE INDEX idx_notice_reminder ON notices(reminder_ms)");
     }
 
-    public override void OnUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) =>
-        throw new InvalidOperationException("Unsupported secure notice database migration.");
+    public override void OnUpgrade(SQLiteDatabase db, int oldVersion, int newVersion)
+    {
+        if(oldVersion==1 && newVersion==2)db.ExecSQL("ALTER TABLE notices ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+        else throw new InvalidOperationException("Unsupported secure notice database migration.");
+    }
+
+    public void Delete(string id,string unit)
+    {
+        using var db=WritableDatabase;
+        var values=new ContentValues();values.Put("deleted",1);values.Put("sealed_content","");
+        values.Put("is_read",1);values.PutNull("reminder_ms");values.Put("reminded",1);
+        if(db.Update("notices",values,"notice_id = ? AND unit = ? COLLATE NOCASE",new[]{id,unit})!=1)
+            throw new InvalidOperationException("Повідомлення не знайдено.");
+        MavkaHomeWidget.Refresh(context);
+    }
+
+    // A deleted tombstone is still a durable acceptance of these exact bytes.
+    // A cross-channel retry must be ACKed without restoring the notice/body.
+    public bool ContainsSaved(string id,string unit,string authenticatedJson)
+    {
+        using var db=ReadableDatabase;
+        using var row=db.RawQuery("SELECT content_sha,deleted FROM notices WHERE notice_id = ? AND unit = ? COLLATE NOCASE",new[]{id,unit});
+        if(!row.MoveToFirst())return false;
+        var hash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(authenticatedJson)));
+        if(row.GetString(0)!=hash)throw new CryptographicException("Повторне повідомлення має інший зміст.");
+        return row.GetInt(1)!=0 || Find(id,unit) is not null;
+    }
 
     public bool Add(MavkaNotice incoming, string originalAuthenticatedJson)
     {
@@ -89,7 +115,7 @@ internal sealed class MavkaNoticeStore(Context context)
         using var db = ReadableDatabase;
         using var cursor = db.RawQuery(
             @"SELECT sealed_content,is_read,reminder_ms,reminded,content_sha
-              FROM notices WHERE notice_id = ? AND unit = ? COLLATE NOCASE",
+              FROM notices WHERE notice_id = ? AND unit = ? COLLATE NOCASE AND deleted = 0",
             new[] { id, unit });
         if (!cursor.MoveToFirst()) return null;
         var json = Unseal(cursor.GetString(0));
@@ -112,7 +138,7 @@ internal sealed class MavkaNoticeStore(Context context)
         var ids = new List<string>();
         using (var db = ReadableDatabase)
         using (var cursor = db.RawQuery(
-            "SELECT notice_id FROM notices WHERE unit = ? COLLATE NOCASE ORDER BY received_utc DESC LIMIT 250",
+            "SELECT notice_id FROM notices WHERE unit = ? COLLATE NOCASE AND deleted = 0 ORDER BY received_utc DESC LIMIT 250",
             new[] { unit.Trim() }))
             while (cursor.MoveToNext()) ids.Add(cursor.GetString(0));
         return ids.Select(id => Find(id, unit)!).ToList();
@@ -122,7 +148,7 @@ internal sealed class MavkaNoticeStore(Context context)
     {
         using var db = ReadableDatabase;
         using var cursor = db.RawQuery(
-            "SELECT COUNT(*) FROM notices WHERE unit = ? COLLATE NOCASE AND is_read = 0",
+            "SELECT COUNT(*) FROM notices WHERE unit = ? COLLATE NOCASE AND deleted = 0 AND is_read = 0",
             new[] { unit.Trim() });
         return cursor.MoveToFirst() ? cursor.GetInt(0) : 0;
     }
@@ -133,7 +159,7 @@ internal sealed class MavkaNoticeStore(Context context)
         using var cursor = db.RawQuery(
             @"SELECT COUNT(*) FROM notices
               WHERE unit = ? COLLATE NOCASE
-              AND reminder_ms > ? AND reminded = 0",
+              AND deleted = 0 AND reminder_ms > ? AND reminded = 0",
             new[] { unit.Trim(),
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(
                     System.Globalization.CultureInfo.InvariantCulture) });
@@ -145,7 +171,7 @@ internal sealed class MavkaNoticeStore(Context context)
         using var db = WritableDatabase;
         var cv = new ContentValues();
         cv.Put("is_read", 1);
-        if (db.Update("notices", cv, "notice_id = ? AND unit = ? COLLATE NOCASE",
+        if (db.Update("notices", cv, "notice_id = ? AND unit = ? COLLATE NOCASE AND deleted = 0",
                 new[] { id, unit }) != 1)
             throw new InvalidOperationException("Повідомлення не знайдено.");
         MavkaHomeWidget.Refresh(context);
@@ -161,7 +187,7 @@ internal sealed class MavkaNoticeStore(Context context)
         if (when is null) cv.PutNull("reminder_ms");
         else cv.Put("reminder_ms", when.Value.ToUnixTimeMilliseconds());
         cv.Put("reminded", 0);
-        if (db.Update("notices", cv, "notice_id = ? AND unit = ? COLLATE NOCASE",
+        if (db.Update("notices", cv, "notice_id = ? AND unit = ? COLLATE NOCASE AND deleted = 0",
                 new[] { id, unit }) != 1)
             throw new InvalidOperationException("Повідомлення не знайдено.");
         MavkaHomeWidget.Refresh(context);
@@ -173,7 +199,7 @@ internal sealed class MavkaNoticeStore(Context context)
         var cv = new ContentValues();
         cv.Put("reminded", 1);
         bool consumed = db.Update("notices", cv,
-            "notice_id = ? AND reminder_ms <= ? AND reminded = 0",
+            "notice_id = ? AND deleted = 0 AND reminder_ms <= ? AND reminded = 0",
             new[] { id, now.ToUnixTimeMilliseconds().ToString(
                 System.Globalization.CultureInfo.InvariantCulture) }) == 1;
         if (consumed) MavkaHomeWidget.Refresh(context);
@@ -185,7 +211,7 @@ internal sealed class MavkaNoticeStore(Context context)
         var list = new List<(string, DateTimeOffset)>();
         using var db = ReadableDatabase;
         using var cursor = db.RawQuery(
-            "SELECT notice_id, reminder_ms FROM notices WHERE reminder_ms IS NOT NULL AND reminded = 0 LIMIT 250",
+            "SELECT notice_id, reminder_ms FROM notices WHERE deleted = 0 AND reminder_ms IS NOT NULL AND reminded = 0 LIMIT 250",
             null);
         while (cursor.MoveToNext())
             list.Add((cursor.GetString(0),

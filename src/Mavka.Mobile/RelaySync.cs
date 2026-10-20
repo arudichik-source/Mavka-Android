@@ -195,11 +195,12 @@ internal sealed class RelaySync
             json = MavkaPasswordedEnvelope.Unwrap(json, password);
             if (MavkaEncryptedEnvelope.IsEnvelope(json)) json = RelayContentCipher.Decrypt(json, key => _keys.GetKey(key));
         }
-        if (MavkaNoticeProtocol.TryRead(json, _profile.Unit, DateTimeOffset.UtcNow, out var notice) && notice is not null)
+        using(var changes=new MobileChangeStore(_context))if(changes.TryAccept(json))return true;
+        if (new MobileAccessStore(_context).TryNotice(json,out var notice) && notice is not null)
         {
             using var notices = new MavkaNoticeStore(_context);
             bool added = notices.Add(notice, json);
-            if (notices.Find(notice.NoticeId, _profile.Unit) is null) throw new IOException("Сповіщення не збережено.");
+            if (!notices.ContainsSaved(notice.NoticeId, notice.Unit, json)) throw new IOException("Сповіщення не збережено.");
             if (added) MavkaNoticeAlerts.ShowNew(_context, notice.NoticeId);
             return true;
         }

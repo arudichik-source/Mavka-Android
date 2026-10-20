@@ -286,7 +286,9 @@ public partial class MainActivity : Activity
             }
             catch { Text(overview, "Сповіщення поки недоступні.", 13); }
         }
-        Text(overview, "Дії з поштою та налаштування — у меню праворуч (☰).", 13);
+        var syncStatus=Text(overview,"Оновлення виконується лише за вашим запитом.",13);
+        Button(overview,"Оновити пошту",async()=>await RefreshMessagesAsync(syncStatus));
+        Button(overview,"Оновити сервер",async()=>await RefreshRelayAsync(syncStatus));
         var profile = LoadUserProfile();
         var card = Card();
         Text(card, "Майно та документи", 19, true);
@@ -306,8 +308,9 @@ public partial class MainActivity : Activity
                     ExplainOperationError(ex), 13);
             }
         }
-        Button(card, "Бібліотека документів", ShowFiles);
-        Text(card, "Перехід між розділами — через натискання на логотип ліворуч.", 13);
+        Button(card,"Майно",ShowAssets);
+        Button(card,"Документи",ShowDocuments);
+        Button(card, "Бібліотека файлів", ShowFiles);
     }
 
     private void ShowSynchronization()
@@ -434,6 +437,7 @@ public partial class MainActivity : Activity
         Begin("assets", "Майно підрозділу");
         var selected=LoadUserProfile();
         if(selected is null || !new MobileAccessStore(this).Allows(selected.Unit,true)){Text(_body,"Немає дозволу на перегляд залишків. Налаштування надає головна Мавка.",15);return;}
+        if(_allMobileUnits && new MobileAccessStore(this).Load() is {isMvo:false,units.Length:>1}){ShowGrantedAssets();return;}
         var top = Card();
         Button(top,"Змінити підрозділ",()=>ChooseMobileUnit(ShowAssets));
         var profile = LoadUserProfile();
@@ -458,7 +462,7 @@ public partial class MainActivity : Activity
             RenderAssets();
         });
         var status = Text(top, "Джерело: JSON-лист ГОЛОВНОЇ МАВКИ (MAVKA_UNIT_ASSETS_V1).", 13);
-        Text(top, "Оновлення з Gmail доступне у правому меню ☰.", 12);
+        Text(top, "Оновити пошту й сервер можна на головному екрані.", 12);
         RenderAssets();
     }
 
@@ -489,6 +493,7 @@ public partial class MainActivity : Activity
         Button(_body, "← До майна", ShowAssets);
     }
 
+    private bool _showReferenceSnapshot;
     private void RenderAssets()
     {
         while (_body.ChildCount > 2)
@@ -502,6 +507,8 @@ public partial class MainActivity : Activity
             return;
         }
 
+        if(_showRootMirror && DrawRootAssets(new MobileAccessStore(this).Load()!.units.Single(u=>u.unit==profile.Unit).locationId))return;
+        if(!_showRootMirror){var rootLink=Card();Button(rootLink,"Актуальний облік головної Мавки",()=>{_showRootMirror=true;ShowAssets();});}
         // Local holdings reflect only manually confirmed, transactionally stored receipts.
         var localCard = Card();
         Text(localCard, "Майно, підтверджене на телефоні", 18, true);
@@ -566,6 +573,13 @@ public partial class MainActivity : Activity
         search.TextChanged += (_, _) => DrawLocal();
         DrawLocal();
 
+        var openingPosted=_ledger.HasOpeningBalances(profile.Unit);
+        if(openingPosted && !_showReferenceSnapshot)
+        {
+            var imported=Card();Text(imported,"Початкові залишки зараховано",16,true);
+            Button(imported,"Відкрити вихідний знімок для звірки",()=>{_showReferenceSnapshot=true;RenderAssets();});
+            return;
+        }
         // Only snapshots received from the configured sender are present in _messages.
         // Never merge snapshots from different units or add quantities from separate dates.
         // Consult independently archived snapshots first: their Gmail letters may
@@ -625,6 +639,12 @@ public partial class MainActivity : Activity
                 asset.Quantity.ToString("0.###") + " " + asset.Measure,
                 () => ShowAssetHistory(profile.Unit, asset.Name, asset.Measure, asset.Nsn));
 
+        if(openingPosted)
+        {
+            Text(header,"Цей підрозділ уже має зараховані початкові залишки. Повторне зарахування недоступне.",13);
+            Button(header,"Згорнути вихідний знімок",()=>{_showReferenceSnapshot=false;RenderAssets();});
+            return;
+        }
         var importing = Text(header, "Початкові залишки поки не зараховано.", 12);
         Button(header, "Зарахувати початкові залишки", () =>
         {
@@ -646,9 +666,8 @@ public partial class MainActivity : Activity
                     try
                     {
                         var changed = _ledger.AddOpeningBalances(snapshot);
-                        importing.Text = changed
-                            ? "Початкові залишки зараховано. Перевідкрий вкладку «Майно»."
-                            : "Початкові залишки вже були зараховані; дубль відхилено.";
+                        _showReferenceSnapshot=false;RenderAssets();
+                        Toast.MakeText(this,changed?"Початкові залишки зараховано.":"Початкові залишки вже зараховані; дубль відхилено.",ToastLength.Long)?.Show();
                     }
                     catch (InvalidOperationException)
                     {
@@ -1725,15 +1744,14 @@ public partial class MainActivity : Activity
                 // An unsigned Gmail body or plaintext JSON can never
                 // create a notice or schedule any reminder.
                 if (attachment.AuthenticatedJson && profile is not null &&
-                    MavkaNoticeProtocol.TryRead(attachment.RawJson, profile.Unit,
-                        DateTimeOffset.UtcNow, out var incomingNotice) &&
+                    new MobileAccessStore(this).TryNotice(attachment.RawJson,out var incomingNotice) &&
                     incomingNotice is not null)
                 {
                     try
                     {
                         bool inserted = _noticeStore.Add(
                             incomingNotice, attachment.RawJson!);
-                        if (_noticeStore.Find(incomingNotice.NoticeId, profile.Unit) is null)
+                        if (!_noticeStore.ContainsSaved(incomingNotice.NoticeId, incomingNotice.Unit, attachment.RawJson!))
                             throw new InvalidOperationException("Notice readback failed.");
                         if (inserted)
                         {
@@ -1752,6 +1770,7 @@ public partial class MainActivity : Activity
                 }
                 if(attachment.AuthenticatedJson && attachment.RawJson is string policyRaw)
                 {
+                    using(var changes=new MobileChangeStore(this))if(changes.TryAccept(policyRaw)){saved++;continue;}
                     using var policyDoc=System.Text.Json.JsonDocument.Parse(policyRaw);
                     if(policyDoc.RootElement.TryGetProperty("format",out var pf) && pf.GetString()=="MAVKA_ACCESS_UPDATE_V1")
                     {
@@ -1836,6 +1855,7 @@ public partial class MainActivity : Activity
         }
         var header = Card();
         Text(header, "Повідомлення ГОЛОВНОЇ МАВКИ", 18, true);
+        Button(header,"Обрати підрозділ",()=>ChooseMobileUnit(ShowNotices));
         Text(header, "Надходять лише із зашифрованих вкладень від дозволеного " +
             "відправника. Нові листи перевіряються під час синхронізації Gmail. " +
             "Нагадування ставиш тільки ти; ГОЛОВНА МАВКА може запропонувати час.", 13);
@@ -1911,7 +1931,8 @@ public partial class MainActivity : Activity
         var listCard = Card();
         try
         {
-            var notices = _noticeStore.List(profile.Unit);
+            var noticePolicy=new MobileAccessStore(this).Load();
+            var notices=(_allMobileUnits && noticePolicy is {isMvo:false}?noticePolicy.units.SelectMany(u=>_noticeStore.List(u.unit)):_noticeStore.List(profile.Unit)).OrderByDescending(n=>n.Notice.IssuedUtc).ToList();
             Text(listCard, "Повідомлень: " + notices.Count +
                 " · непрочитаних: " + notices.Count(n => !n.IsRead), 14);
             if (notices.Count == 0)
@@ -1934,7 +1955,7 @@ public partial class MainActivity : Activity
                 if (!row.IsRead)
                     Button(tile, "Позначити прочитаним", () =>
                     {
-                        try { _noticeStore.MarkRead(notice.NoticeId, profile.Unit); ShowNotices(); }
+                        try { _noticeStore.MarkRead(notice.NoticeId, notice.Unit); ShowNotices(); }
                         catch (Exception ex) {
                             Toast.MakeText(this, ExplainOperationError(ex),
                                 ToastLength.Long)?.Show();
@@ -1948,12 +1969,21 @@ public partial class MainActivity : Activity
                     suggested > DateTimeOffset.UtcNow && row.RemindUtc is null)
                     Button(tile, "Нагадати у запропонований час: " +
                         suggested.ToLocalTime().ToString("dd.MM HH:mm"),
-                        () => SaveNoticeReminder(notice, profile.Unit, suggested));
+                        () => SaveNoticeReminder(notice, notice.Unit, suggested));
                 Button(tile, "Вибрати дату та час нагадування", () =>
-                    ChooseNoticeReminder(notice, profile.Unit));
+                    ChooseNoticeReminder(notice, notice.Unit));
                 if (row.RemindUtc is not null && !row.Reminded)
                     Button(tile, "Скасувати нагадування", () =>
-                        SaveNoticeReminder(notice, profile.Unit, null));
+                        SaveNoticeReminder(notice, notice.Unit, null));
+                Button(tile,"Видалити повідомлення",()=>new AlertDialog.Builder(this)
+                    .SetTitle("Видалити повідомлення й нагадування?")
+                    .SetMessage("Повідомлення буде видалено на цьому телефоні. Облік і документи не зміняться.")
+                    .SetNegativeButton("Скасувати",(_,_)=>{})
+                    .SetPositiveButton("Видалити",(_,_)=>
+                    {
+                        try{_noticeStore.Delete(notice.NoticeId,notice.Unit);MavkaNoticeAlerts.Remove(this,notice.NoticeId);ShowNotices();}
+                        catch(Exception ex){Toast.MakeText(this,ExplainOperationError(ex),ToastLength.Long)?.Show();}
+                    }).Show());
             }
         }
         catch (Exception ex)
@@ -2025,10 +2055,12 @@ public partial class MainActivity : Activity
             Button(_body, "Профіль", ShowProfile);
             return;
         }
+        var policyForView=new MobileAccessStore(this).Load();
+        if(policyForView is not null)DrawRootDocuments(_allMobileUnits && !policyForView.isMvo?null:policyForView.units.Single(u=>u.unit==profile.Unit).locationId);
         var card = Card();
         if(!new MobileAccessStore(this).Allows(profile.Unit)){Text(card,"Доступ до документів не надано.",15);return;}
         Button(card,"Змінити підрозділ",()=>ChooseMobileUnit(ShowDocuments));
-        Text(card, "Локальний архів · " + profile.Unit, 17, true);
+        Text(card, "Локальний архів · " + (_allMobileUnits?"усі доступні підрозділи":profile.Unit), 17, true);
         Text(card, "Документи доступні без Gmail. Збереження не означає проведення.", 13);
         Button(card, "Кошик документів (відновлення до 30 днів)", ShowArchiveTrash);
         var search = ProfileInput(card, "Пошук за номером, типом, датою", _documentQuery);
@@ -2039,7 +2071,9 @@ public partial class MainActivity : Activity
         // requery SQLite or change any stored document.
         try
         {
-            var documents = _archive.ListSummaries(profile.Unit);
+            var policy=new MobileAccessStore(this).Load()!;
+            var documents=(_allMobileUnits && !policy.isMvo?policy.units.SelectMany(u=>_archive.ListSummaries(u.unit)):_archive.ListSummaries(profile.Unit))
+                .DistinctBy(d=>d.DocumentId).OrderByDescending(d=>d.DocumentDate,StringComparer.Ordinal).ThenByDescending(d=>d.SavedUtc,StringComparer.Ordinal).ToList();
 
             void Render()
             {
@@ -2132,7 +2166,7 @@ public partial class MainActivity : Activity
                                 {
                                     try
                                     {
-                                        _archive.MoveToTrash(item.DocumentId, profile.Unit);
+                                        _archive.MoveToTrash(item.DocumentId, item.Unit);
                                         ShowDocuments();
                                     }
                                     catch (Exception ex)
@@ -3007,12 +3041,15 @@ public partial class MainActivity : Activity
     }
 
     private string? _selectedMobileUnit;
+    private bool _allMobileUnits;
     private void ChooseMobileUnit(Action refresh)
     {
         var policy=new MobileAccessStore(this).Load();
         if(policy is null){Toast.MakeText(this,"Спочатку виконай нове QR-підключення.",ToastLength.Long)?.Show();return;}
-        new AlertDialog.Builder(this).SetTitle("Доступні підрозділи")
-            .SetItems(policy.units.Select(u=>u.unit).ToArray(),(_,args)=>{_selectedMobileUnit=policy.units[args.Which].unit;refresh();}).Show();
+        var combined=!policy.isMvo && policy.units.Length>1;
+        var labels=(combined?new[]{"Усі доступні підрозділи"}:Array.Empty<string>()).Concat(policy.units.Select(u=>u.unit)).ToArray();
+        new AlertDialog.Builder(this).SetTitle("Перегляд майна й документів")
+            .SetItems(labels,(_,args)=>{_allMobileUnits=combined && args.Which==0;if(!_allMobileUnits)_selectedMobileUnit=policy.units[args.Which-(combined?1:0)].unit;_documentPage=0;refresh();}).Show();
     }
     private UserProfile? LoadUserProfile()
     {
