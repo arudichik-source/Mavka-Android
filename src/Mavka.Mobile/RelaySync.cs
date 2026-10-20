@@ -15,6 +15,7 @@ internal sealed class RelaySync
     {
         _context = context;
         _profile = new UserProfileStore(context).Load() ?? throw new InvalidOperationException("Спочатку заповни профіль.");
+        if(new MobileAccessStore(context).Load() is {} granted)_profile=_profile with{Unit=granted.units[0].unit,IsMvo=granted.isMvo};
         _identity = new RelayIdentity(context); _keys = new ExchangeKeyStore(context);
     }
     private RelayStore Store() => new(_context, _identity.DeviceId + "|" + _profile.ClientId);

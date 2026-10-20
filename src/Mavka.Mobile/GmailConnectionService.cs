@@ -359,6 +359,7 @@ internal static class GmailConnectionService
                                 chunk.Content.DecodeTo(chunkStream);
                                 var encrypted = new System.Text.UTF8Encoding(false, true)
                                     .GetString(chunkStream.ToArray());
+                                if(exchangeKeys?.RequiresPassword==true && !MavkaPasswordedEnvelope.IsWrapped(encrypted))throw new System.Security.Cryptography.CryptographicException("Немає захисту спільним паролем.");
                                 if (MavkaPasswordedEnvelope.IsWrapped(encrypted))
                                 {
                                     var savedPassword = documentPasswords?.Load();

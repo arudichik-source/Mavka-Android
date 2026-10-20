@@ -3029,7 +3029,7 @@ public partial class MainActivity : Activity
     private void ShowProfile()
     {
         Begin("profile", "Профіль користувача");
-        var current = _profileStore.Load();
+        var current = LoadUserProfile();
         var card = Card();
         Text(card, "Ідентифікатор користувача: " +
             (current?.ClientId ?? "з’явиться після першого збереження профілю"), 13);
@@ -3157,6 +3157,7 @@ public partial class MainActivity : Activity
 
         var sendButton = new Android.Widget.Button(this) { Text = "Надіслати оновлення профілю" };
         StylePrimaryButton(sendButton);
+        sendButton.Visibility=_exchangeKeys.HasKeyPair?ViewStates.Visible:ViewStates.Gone;
         card.AddView(sendButton);
         sendButton.Click += (_, _) =>
         {
@@ -3171,7 +3172,7 @@ public partial class MainActivity : Activity
             var sender = _store.GetEmail();
             var recipient = _store.GetMainMavkaEmail();
             new AlertDialog.Builder(this)
-                .SetTitle("Надіслати реєстраційний лист?")
+                .SetTitle("Надіслати захищене оновлення профілю?")
                 .SetMessage("З пошти: " + sender + "\nКому: " + recipient +
                             "\n\nБуде передано збережені поля профілю. " +
                             "Надсилання не означає, що головна Мавка вже зареєструвала користувача.")

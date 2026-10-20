@@ -19,8 +19,24 @@ OUT = Path("emulator-smoke-artifacts")
 def adb(*args):
     return subprocess.check_output(["adb", *args])
 def tree():
-    adb("shell", "uiautomator", "dump", "/sdcard/relay-window.xml")
-    return ET.fromstring(adb("shell", "cat", "/sdcard/relay-window.xml"))
+    for attempt in range(3):
+        adb("shell", "uiautomator", "dump", "/sdcard/relay-window.xml")
+        raw=adb("shell", "cat", "/sdcard/relay-window.xml")
+        root=ET.fromstring(raw)
+        # The hosted emulator sometimes shows an ANR from its SYSTEM launcher.
+        # Dismiss ONLY that exact dialog; MaVka ANRs/crashes remain test failures.
+        launcher=any(n.get("resource-id")=="android:id/alertTitle" and n.get("text")=="Pixel Launcher isn't responding" and n.get("package")=="android" for n in root.iter("node"))
+        if not launcher:return root
+        OUT.mkdir(exist_ok=True)
+        OUT.joinpath("system-launcher-anr-"+str(attempt)+".xml").write_bytes(raw)
+        close=next((n for n in root.iter("node") if n.get("resource-id")=="android:id/aerr_close"),None)
+        assert close is not None and attempt<2,"System launcher repeatedly blocks Android smoke"
+        x1,y1,x2,y2=bounds(close)
+        adb("shell","input","tap",str((x1+x2)//2),str((y1+y2)//2))
+        adb("shell","monkey","-p",PACKAGE,"-c","android.intent.category.LAUNCHER","1")
+        time.sleep(3)
+    raise AssertionError("Android UI unavailable")
+
 def bounds(n):
     return list(map(int, re.findall(r"\d+", n.attrib["bounds"])))
 def swipe():
