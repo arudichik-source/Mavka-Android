@@ -30,7 +30,10 @@ foreach(var pcPart in pcChanges)pcPart.Validate(pcPart.recipientClientId);
 Check(pcChanges.Length>0 && MobileChangePart.Hash(pcChanges.OrderBy(p=>p.index).SelectMany(p=>p.operations))==pcChanges[0].manifestHash,"Actual PC delta fixture manifest and scope validated on Android codec");
 
 
-var changeJson=JsonSerializer.Serialize(part);var packed=MobileChangeCompression.Pack(changeJson);
+var compressionOp=op with{payload=JsonSerializer.SerializeToElement(new{locationId=1,name=new string('a',5000),quantity=7m})};
+var compressionPart=part with{operations=[compressionOp],manifestHash=MobileChangePart.Hash([compressionOp])};
+var changeJson=JsonSerializer.Serialize(compressionPart);var packed=MobileChangeCompression.Pack(changeJson);
+using(var packedMetadata=JsonDocument.Parse(packed))Check(packedMetadata.RootElement.GetProperty("format").GetString()==MobileChangeCompression.Format,"Compression fixture really compressed on every platform");
 Check(MobileChangeCompression.Open(packed,client)==changeJson,"Brotli restores exact logical bytes");
 Reject(()=>MobileChangeCompression.Open(packed,"other-client"),"Compressed wrong recipient accepted");
 var corrupt=System.Text.Json.Nodes.JsonNode.Parse(packed)!.AsObject();corrupt["sha256"]=new string('0',64);Reject(()=>MobileChangeCompression.Open(corrupt.ToJsonString(),client),"Compressed tamper accepted");

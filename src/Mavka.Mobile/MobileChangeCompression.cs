@@ -23,7 +23,11 @@ public static class MobileChangeCompression
     public static string Open(string json,string client)
     {
         using var parsed=JsonDocument.Parse(json);
-        if(!parsed.RootElement.TryGetProperty("format",out var format) || format.GetString()!=Format)return json;
+        if(!parsed.RootElement.TryGetProperty("format",out var format) || format.GetString()!=Format)
+        {
+            if(format.ValueKind==JsonValueKind.String && format.GetString()==MobileChangePart.Format && (Encoding.UTF8.GetByteCount(json)>150000 || parsed.RootElement.GetProperty("recipientClientId").GetString()!=client))throw new InvalidDataException("Невірний одержувач або розмір змін.");
+            return json;
+        }
         if(Encoding.UTF8.GetByteCount(json)>210000)throw new InvalidDataException("Стиснений пакет завеликий.");
         var data=parsed.RootElement.Deserialize<Compressed>()??throw new InvalidDataException("Порожній пакет.");
         if(data.recipientClientId!=client || data.size is <1 or >150000 || data.data.Length>200000 || data.sha256.Length!=64)throw new InvalidDataException("Невірні межі або одержувач пакета.");
