@@ -3515,6 +3515,15 @@ public partial class MainActivity : Activity
         Text(card, "Сервер: " + RelayProtocol.Origin, 12);
         Text(card, "Два канали: Gmail та Relay. Реєстрація починається скануванням QR з ПК; приватні ключі телефона не передаються.", 13);
         var status = Text(card, identity.LastStatus, 14);
+        var background=new CheckBox(this){Text="Фоновий обмін із сервером",Checked=RelayBackground.IsEnabled(this)};
+        card.AddView(background);
+        var changingBackground=false;
+        background.CheckedChange+=(_,args)=>
+        {
+            if(changingBackground)return;
+            try{RelayBackground.SetEnabled(this,args.IsChecked);status.Text=args.IsChecked?"Фоновий обмін увімкнено.":"Фоновий обмін вимкнено. Доступна ручна синхронізація.";}
+            catch(Exception ex){changingBackground=true;background.Checked=RelayBackground.IsEnabled(this);changingBackground=false;status.Text=ex is InvalidOperationException or IOException?ex.Message:"Не вдалося змінити фоновий обмін.";}
+        };
         var profile = LoadUserProfile();
         if (profile is null)
         {
@@ -3530,7 +3539,7 @@ public partial class MainActivity : Activity
         Button(card, "Активувати після дозволу на ПК", async () =>
         {
             if (_busy) return; _busy = true; status.Text = "Перевіряємо дозвіл пристрою...";
-            try { await new RelaySync(this).Activate(); status.Text = "Пристрій активний. Фонове отримання увімкнено."; }
+            try { await new RelaySync(this).Activate(); status.Text = RelayBackground.IsEnabled(this)?"Пристрій активний. Фоновий обмін увімкнено за вашим вибором.":"Пристрій активний. Фоновий обмін вимкнено; синхронізуйте вручну або ввімкніть його окремо."; }
             catch (Exception ex) { status.Text = ex.Message; }
             finally { _busy = false; }
         });
@@ -3563,9 +3572,10 @@ public partial class MainActivity : Activity
         Button(card, "Призупинити Relay на телефоні", () =>
         {
             identity.SetEnabled(false); RelayBackground.SetEnabled(this, false);
+            background.Checked=false;
             status.Text = "Relay призупинено. Ключі та локальна черга збережені. Для відновлення натисни «Активувати».";
         });
-        Text(card, "Фонова перевірка виконується приблизно раз на 15 хвилин; Android може відкладати її. Для негайного обміну натисни «Синхронізувати зараз».", 12);
+        Text(card, "За замовчуванням фоновий обмін вимкнений. Якщо ввімкнути його вручну, перевірка виконується приблизно раз на 15 хвилин; Android може відкладати її. Для одноразового обміну натисни «Синхронізувати зараз».", 12);
         Button(card, "Документи з локального архіву", ShowDocuments);
         Button(card, "Сповіщення та нагадування", ShowNotices);
         Button(card, "Збережені файли", ShowFiles);

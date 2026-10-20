@@ -83,6 +83,8 @@ def field(hint, value):
 def prove_device():
     menu("Синхронізація Gmail")
     tap("Cloudflare Relay →")
+    backgrounds=[n for n in tree().iter("node") if n.get("text")=="Фоновий обмін із сервером"]
+    assert len(backgrounds)==1 and backgrounds[0].get("checked")=="false", "Background exchange must default off and remain off after restart"
     tap("Перевірити ключі пристрою")
     root = tree()
     texts = [n.get("text", "") for n in root.iter("node")]

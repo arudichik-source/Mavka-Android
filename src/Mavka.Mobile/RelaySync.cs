@@ -27,7 +27,8 @@ internal sealed class RelaySync
         if (reply.GetProperty("deviceId").GetString() != _identity.DeviceId ||
             reply.GetProperty("status").GetString() != "active") throw new CryptographicException("Некоректна відповідь активації.");
         _identity.SetEnabled(true); _identity.Status("Пристрій активний");
-        RelayBackground.SetEnabled(_context, true);
+        // Registration/activation grants access; it never opts into background polling.
+        RelayBackground.SetEnabled(_context, RelayBackground.IsEnabled(_context));
     }
     public string Queue(string logicalId, string json)
     {
