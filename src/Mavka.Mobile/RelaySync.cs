@@ -195,7 +195,7 @@ internal sealed class RelaySync
             json = MavkaPasswordedEnvelope.Unwrap(json, password);
             if (MavkaEncryptedEnvelope.IsEnvelope(json)) json = RelayContentCipher.Decrypt(json, key => _keys.GetKey(key));
         }
-        using(var changes=new MobileChangeStore(_context))if(changes.TryAccept(json))return true;
+        if(await Task.Run(()=>{using var changes=new MobileChangeStore(_context);return changes.TryAccept(json);},cancellation))return true;
         if (new MobileAccessStore(_context).TryNotice(json,out var notice) && notice is not null)
         {
             using var notices = new MavkaNoticeStore(_context);

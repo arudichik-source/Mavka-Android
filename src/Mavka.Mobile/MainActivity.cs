@@ -179,6 +179,7 @@ public partial class MainActivity : Activity
         else if (state?.GetString("mavka_restored_screen") == "settings")
             ShowSettings();
         else ShowHome();
+        _ = RecoverMirrorAsync();
         // Orientation changes are handled by this Activity, not a new OnCreate.
         // Do not replay welcome after restoring an existing Activity.
         if (state is null)
@@ -257,6 +258,7 @@ public partial class MainActivity : Activity
 
     private void Begin(string screen, string title)
     {
+        _mirrorReadGeneration++;
         _screen = screen;
         Title = "Мавка Mobile — " + title;
         _body.RemoveAllViews();
@@ -1773,7 +1775,7 @@ public partial class MainActivity : Activity
                 }
                 if(attachment.AuthenticatedJson && attachment.RawJson is string policyRaw)
                 {
-                    using(var changes=new MobileChangeStore(this))if(changes.TryAccept(policyRaw)){saved++;continue;}
+                    if(await Task.Run(()=>{using var changes=new MobileChangeStore(this);return changes.TryAccept(policyRaw);})){saved++;continue;}
                     using var policyDoc=System.Text.Json.JsonDocument.Parse(policyRaw);
                     if(policyDoc.RootElement.TryGetProperty("format",out var pf) && pf.GetString()=="MAVKA_ACCESS_UPDATE_V1")
                     {
@@ -1899,37 +1901,7 @@ public partial class MainActivity : Activity
             }
         });
 
-        var diagnostic = Card();
-        Text(diagnostic, "Тест нагадування без Gmail", 17, true);
-        Text(diagnostic,
-            "Створює тільки локальне тестове сповіщення приблизно через 2 хв. " +
-            "Не додає документів, не імітує ГОЛОВНУ МАВКУ й не змінює облік.", 12);
-        Button(diagnostic, "Запланувати тестове нагадування (2 хв)", () =>
-        {
-            try
-            {
-                if (!MavkaNoticeAlerts.Allowed(this))
-                {
-                    if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
-                        RequestPermissions(new[] { Android.Manifest.Permission.PostNotifications }, 1917);
-                    Toast.MakeText(this,
-                        "Дозволь сповіщення Android і натисни кнопку ще раз.",
-                        ToastLength.Long)?.Show();
-                    return;
-                }
-                MavkaNoticeAlerts.ScheduleLocalTest(this);
-                Toast.MakeText(this,
-                    "Тестове нагадування заплановано приблизно через 2 хв. " +
-                    "Android може його трохи відкласти.",
-                    ToastLength.Long)?.Show();
-            }
-            catch (Exception ex)
-            {
-                Toast.MakeText(this,
-                    ex is InvalidOperationException ? ex.Message : ExplainOperationError(ex),
-                    ToastLength.Long)?.Show();
-            }
-        });
+        Button(header,"Налаштування сповіщень і перевірка нагадування",ShowNoticeDiagnostics);
 
         var listCard = Card();
         try
@@ -1994,6 +1966,44 @@ public partial class MainActivity : Activity
             Text(listCard, "Не вдалося відкрити сповіщення: " +
                 ExplainOperationError(ex), 13);
         }
+    }
+
+    private void ShowNoticeDiagnostics()
+    {
+        Begin("notice-diagnostics","Перевірка нагадувань");
+        var diagnostic = Card();
+        Text(diagnostic, "Тест нагадування без Gmail", 17, true);
+        Text(diagnostic,
+            "Створює тільки локальне тестове сповіщення приблизно через 2 хв. " +
+            "Не додає документів, не імітує ГОЛОВНУ МАВКУ й не змінює облік.", 12);
+        Button(diagnostic, "Запланувати тестове нагадування (2 хв)", () =>
+        {
+            try
+            {
+                if (!MavkaNoticeAlerts.Allowed(this))
+                {
+                    if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
+                        RequestPermissions(new[] { Android.Manifest.Permission.PostNotifications }, 1917);
+                    Toast.MakeText(this,
+                        "Дозволь сповіщення Android і натисни кнопку ще раз.",
+                        ToastLength.Long)?.Show();
+                    return;
+                }
+                MavkaNoticeAlerts.ScheduleLocalTest(this);
+                Toast.MakeText(this,
+                    "Тестове нагадування заплановано приблизно через 2 хв. " +
+                    "Android може його трохи відкласти.",
+                    ToastLength.Long)?.Show();
+            }
+            catch (Exception ex)
+            {
+                Toast.MakeText(this,
+                    ex is InvalidOperationException ? ex.Message : ExplainOperationError(ex),
+                    ToastLength.Long)?.Show();
+            }
+        });
+
+        Button(_body,"До повідомлень",ShowNotices);
     }
 
     private void SaveNoticeReminder(MavkaNotice notice, string unit, DateTimeOffset? when)
@@ -2154,9 +2164,7 @@ public partial class MainActivity : Activity
                     Text(tile, item.Kind + " № " + item.Number, 16, true);
                     Text(tile, item.DocumentDate + " · " + item.Unit +
                         " · " + item.Status, 13);
-                    Text(tile, "Облік: " + item.PostingStatus +
-                        " · Передавання: " + item.DeliveryStatus +
-                        " · Синхронізація: " + item.SyncStatus, 12);
+                    Text(tile,item.PostingStatus switch{"posted"=>"Зараховано локально","superseded"=>"Застаріла версія — використайте оновлений документ",_=>item.Kind=="Накладна"?"Очікує локального зарахування":"Збережено для перегляду"},13);
                     Button(tile, "Переглянути документ", () => ShowArchivedDocument(item.DocumentId));
                     if (ArchiveTrashPolicy.CanMoveToTrash(item.PostingStatus))
                         Button(tile, "У кошик", () =>

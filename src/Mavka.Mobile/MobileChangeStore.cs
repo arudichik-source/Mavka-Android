@@ -169,11 +169,21 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
         var expected=p.GetProperty("movements").EnumerateArray().Where(r=>r.GetProperty("quantity").GetDecimal()>0).Select(r=>(r.GetProperty("name").GetString(),r.GetProperty("unit").GetString(),r.GetProperty("quantity").GetDecimal(),r.GetProperty("price").ValueKind==JsonValueKind.Number?(decimal?)r.GetProperty("price").GetDecimal():null));
         return expected.SequenceEqual(invoice.Positions.Select(r=>((string?)r.Name,(string?)r.Unit,r.Quantity,r.UnitPrice)));
     }
-    public IReadOnlyList<MobileMirrorRecord> List(string kind,int? location=null)
+    public void Recover()
     {
         using(var pendingDb=ReadableDatabase)using(var sources=pendingDb.RawQuery("SELECT DISTINCT source FROM parts WHERE client=? AND sealed<>''",new[]{Client}))
         {var ids=new List<string>();while(sources.MoveToNext())ids.Add(sources.GetString(0));foreach(var id in ids)ApplyReady(id);}
         DrainReceipts();
+    }
+    public bool HasRecords(string kind,int? location=null)
+    {
+        var access=new MobileAccessStore(context).Load();if(access is null)return false;
+        using var db=ReadableDatabase;using var rows=db.RawQuery("SELECT location FROM records WHERE client=? AND kind=?",new[]{Client,kind});
+        while(rows.MoveToNext())if((location is null || rows.GetInt(0)==location) && access.Allows(rows.GetInt(0),kind=="asset"))return true;
+        return false;
+    }
+    public IReadOnlyList<MobileMirrorRecord> List(string kind,int? location=null)
+    {
         var access=new MobileAccessStore(context).Load();if(access is null || kind=="asset" && !access.canViewAssets || kind=="document" && !access.canViewDocuments)return [];
         var result=new List<MobileMirrorRecord>();using var db=ReadableDatabase;
         // The most recently applied source is the active root mirror; never sum
