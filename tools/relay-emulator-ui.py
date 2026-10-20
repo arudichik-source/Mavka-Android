@@ -139,6 +139,7 @@ menu("Профіль користувача")
 adb("shell","pm","grant",PACKAGE,"android.permission.CAMERA")
 tap("Сканувати QR камерою")
 assert_screen("Сканер QR Мавки")
+assert_screen("Сканування QR: наведіть камеру на код із ПК.")
 assert b"ua.mavka.mobile.LiveQrScannerActivity" in adb("shell","dumpsys","activity","activities"), "Scanner must stay in MaVka instead of launching a photo app"
 OUT.joinpath("in-app-qr-scanner.png").write_bytes(adb("exec-out","screencap","-p"))
 tap("Скасувати сканування")

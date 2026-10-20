@@ -36,10 +36,11 @@ public sealed class LiveQrScannerActivity:Activity,TextureView.ISurfaceTextureLi
         base.OnCreate(state);
         _main=new Handler(Looper.MainLooper!);
         var root=new LinearLayout(this){Orientation=Orientation.Vertical};root.SetPadding(18,36,18,24);
+        root.SetOnApplyWindowInsetsListener(new ScannerInsets((int)(16*Resources!.DisplayMetrics!.Density)));
         root.AddView(new TextView(this){Text="Сканер QR Мавки",TextSize=24});
         _status=new TextView(this){Text="Наведіть телефон на QR реєстрації на екрані ПК. Знімок робити не потрібно.",TextSize=16};root.AddView(_status);
         _preview=new TextureView(this){SurfaceTextureListener=this};root.AddView(_preview,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,0,1));
-        var back=new Button(this){Text="Скасувати сканування"};back.Click+=(_,_)=>Finish();root.AddView(back);
+        var back=new Button(this){Text="Скасувати сканування"};back.SetAllCaps(false);back.Click+=(_,_)=>Finish();root.AddView(back);
         SetContentView(root);
     }
     protected override void OnResume()
@@ -79,7 +80,7 @@ public sealed class LiveQrScannerActivity:Activity,TextureView.ISurfaceTextureLi
             _preview.SetTransform(transform);
             _opening=true;_deviceState=new DeviceState(this,_generation);manager.OpenCamera(id,_deviceState,_main);
         }
-        catch(Exception){_opening=false;_status.Text="Не вдалося відкрити камеру. Закрийте іншу програму камери або виберіть фото QR у профілі.";}
+        catch(Exception error){Android.Util.Log.Warn("MaVkaQrScanner",error.GetType().FullName);_opening=false;_status.Text="Не вдалося відкрити камеру. Закрийте іншу програму камери або виберіть фото QR у профілі.";}
     }
     private void BeginPreview(CameraDevice camera)
     {
@@ -94,6 +95,7 @@ public sealed class LiveQrScannerActivity:Activity,TextureView.ISurfaceTextureLi
         {
             _session=session;using var request=_camera.CreateCaptureRequest(CameraTemplate.Preview);request.AddTarget(_surface);
             using var capture=request.Build();session.SetRepeatingRequest(capture,null,_main);
+            _status.Text="Сканування QR: наведіть камеру на код із ПК.";
             _poll?.Cancel();_poll=new();var token=_poll.Token;
             _=Task.Run(async()=>{try{while(!token.IsCancellationRequested){await Task.Delay(350,token);RunOnUiThread(DecodeFrame);}}catch(System.OperationCanceledException){}},token);
         }
@@ -129,6 +131,14 @@ public sealed class LiveQrScannerActivity:Activity,TextureView.ISurfaceTextureLi
     public void OnSurfaceTextureSizeChanged(SurfaceTexture surface,int width,int height){}
     public bool OnSurfaceTextureDestroyed(SurfaceTexture surface){CloseCamera();return true;}
     public void OnSurfaceTextureUpdated(SurfaceTexture surface){}
+    private sealed class ScannerInsets(int padding):Java.Lang.Object,View.IOnApplyWindowInsetsListener
+    {
+        public WindowInsets OnApplyWindowInsets(View? view,WindowInsets? insets)
+        {
+            if(view is not null && insets is not null)view.SetPadding(padding+insets.SystemWindowInsetLeft,padding+insets.SystemWindowInsetTop,padding+insets.SystemWindowInsetRight,padding+insets.SystemWindowInsetBottom);
+            return insets!;
+        }
+    }
     private sealed class DeviceState(LiveQrScannerActivity owner,int generation):CameraDevice.StateCallback
     {
         public override void OnOpened(CameraDevice camera){if(owner._generation==generation)owner.BeginPreview(camera);else camera.Close();}
