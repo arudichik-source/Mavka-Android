@@ -29,6 +29,7 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
     }
     private static string Open(string value)
     {
+        if(value.StartsWith("batch1:",StringComparison.Ordinal)){using var session=new TransferKeystoreCipher.ReadSession();return session.OpenText(value);}
         var bytes=TransferKeystoreCipher.Open(Convert.FromBase64String(value));try{return Encoding.UTF8.GetString(bytes);}finally{CryptographicOperations.ZeroMemory(bytes);}
     }
     private static string Hash(string value)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
