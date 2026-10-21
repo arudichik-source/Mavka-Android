@@ -154,6 +154,8 @@ public sealed class StorageQaActivity:Activity
                     mirror.TryAccept(Wire(2,[Asset(1,8)]));Check(JsonDocument.Parse(mirror.List("asset",1).Single().Json).RootElement.GetProperty("quantity").GetInt32()==9,"ordered catchup applies pending batch");
                     mirror.TryAccept(Wire(4,[new("asset","asset:2:1:1",2,true,JsonSerializer.SerializeToElement(new{}))]));Check(mirror.List("asset").Count==1,"explicit deletion applied");
                     mirror.TryAccept(JsonSerializer.Serialize(first));Check(mirror.List("asset").Count==1,"old duplicate cannot rollback");
+                    mirror.TryAccept(Wire(5,[Invoice(10,99m)]));
+                    using(var archive=new DocumentArchiveStore(this))Check(!archive.ListSummaries("QA One").Any(d=>d.DocumentId.StartsWith("root:"+source+":1:10:",StringComparison.Ordinal)),"editing historical initial invoice never creates another receipt");
                     access=access with{revision=2,units=[new(1,"QA One")],allUnits=false};using(var doc=JsonDocument.Parse(JsonSerializer.Serialize(access)))new MobileAccessStore(this).Accept(doc.RootElement);
                     mirror.TryAccept(Wire(6,[Asset(1,10)],full:true));Check(mirror.List("asset").Single().LocationId==1,"new grant revision rebases complete authorized state");
                     Reject(()=>mirror.TryAccept(Wire(7,[Asset(2,10)])),"forbidden unit accepted");

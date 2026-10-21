@@ -118,7 +118,7 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
                     bool existed;using(var row=db.RawQuery("SELECT 1 FROM records WHERE client=? AND source=? AND key=?",new[]{client,source,op.key}))existed=row.MoveToFirst();
                     if(op.remove){db.Delete("records","client=? AND source=? AND key=?",new[]{client,source,op.key});continue;}
                     var values=new ContentValues();values.Put("client",client);values.Put("source",source);values.Put("key",op.key);values.Put("kind",op.kind);values.Put("location",op.locationId);values.Put("sealed",Seal(op.payload.GetRawText()));db.InsertWithOnConflict("records",null,values,Conflict.Replace);
-                    if(!first.initial && !reset && op.kind=="document")QueueReceipt(db,first,op);
+                    if(!first.initial && !reset && op.kind=="document")QueueReceipt(db,first,op,existed);
                 }
                 var head=new ContentValues();head.Put("client",client);head.Put("source",source);head.Put("sequence",first.sequence);head.Put("revision",first.access.revision);head.Put("asof",first.asOf);db.InsertWithOnConflict("heads",null,head,Conflict.Replace);
                 var clear=new ContentValues();clear.Put("sealed","");db.Update("parts",clear,"client=? AND source=? AND batch=?",new[]{client,source,first.batchId});
@@ -127,7 +127,7 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             finally{db.EndTransaction();}
         }
     }
-    private void QueueReceipt(SQLiteDatabase db,MobileChangePart batch,MobileChangeOperation op)
+    private void QueueReceipt(SQLiteDatabase db,MobileChangePart batch,MobileChangeOperation op,bool existed)
     {
         var p=op.payload;
         if(p.TryGetProperty("chunkCount",out var chunkCount) && chunkCount.GetInt32()>1)return; // whole large documents remain read-only; never post a partial receipt
@@ -141,6 +141,15 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             if(previous is not null && previous.Unit==p.GetProperty("location").GetString())return;
         }
         var family="root:"+batch.sourceId+":"+op.locationId+":"+p.GetProperty("id").GetInt32();
+        if(existed)
+        {
+            // A card/name/price correction to a document already present in the
+            // initial mirror is history, not a newly received invoice. Only a
+            // known pending receipt family may be superseded by its revision.
+            using var archive=new DocumentArchiveStore(context);using var archiveDb=archive.ReadableDatabase;
+            using var previous=archiveDb.RawQuery("SELECT 1 FROM documents WHERE document_id LIKE ? AND unit=? COLLATE NOCASE LIMIT 1",new[]{family+":%",p.GetProperty("location").GetString()!});
+            if(!previous.MoveToFirst())return;
+        }
         using(var ledger=new PropertyLedgerStore(context))if(ledger.HasReceiptFamily(family))return;
         var id=family+":"+Hash(p.GetRawText())[..16];
         var json=JsonSerializer.Serialize(new{format="MAVKA_DOCUMENT_V1",type="invoice",documentId=id,documentNumber=p.GetProperty("number").GetString(),documentDate=p.GetProperty("date").GetString(),recipient=p.GetProperty("location").GetString(),recipientClientId=Client,positions=lines.Select(r=>new{name=r.GetProperty("name").GetString(),unit=r.GetProperty("unit").GetString(),quantity=r.GetProperty("quantity").GetDecimal(),price=r.GetProperty("price").GetDecimal()})});
@@ -211,6 +220,13 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
         foreach(var group in result.GroupBy(r=>r.Key.Split(":chunk:",StringSplitOptions.None)[0]))
         {
             cancellation.ThrowIfCancellationRequested();
+            if(group.Count()==1)
+            {
+                var record=group.First();using var json=JsonDocument.Parse(record.Json);var root=json.RootElement;
+                var count=root.TryGetProperty("chunkCount",out var c)?c.GetInt32():1;
+                var index=root.TryGetProperty("chunkIndex",out var i)?i.GetInt32():0;
+                if(count==1 && index==0){complete.Add(record);continue;}
+            }
             var chunks=group.Select(r=>(Record:r,Node:System.Text.Json.Nodes.JsonNode.Parse(r.Json)!.AsObject())).OrderBy(r=>r.Node["chunkIndex"]?.GetValue<int>()??0).ToArray();
             var count=chunks[0].Node["chunkCount"]?.GetValue<int>()??1;
             if(count!=chunks.Length || chunks.Where((r,i)=>(r.Node["chunkIndex"]?.GetValue<int>()??0)!=i).Any())throw new CryptographicException("Не всі частини документа збережені.");
