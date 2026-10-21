@@ -19,7 +19,7 @@ public partial class MainActivity
         var status=Text(card,_incomingPostingIssue??"",12);
         Button(card,"Зарахувати всі отримані надходження",()=>
         {
-            if(_busy)return;
+            if(_busy || _resetRequested)return;
             var current=new MobileAccessStore(this).Load();
             if(current is null)return;
             new AlertDialog.Builder(this).SetTitle("Зарахувати всі отримані надходження?")
@@ -27,12 +27,14 @@ public partial class MainActivity
                 .SetNegativeButton("Скасувати",(_,_)=>{})
                 .SetPositiveButton("Зарахувати всі",async(_,_)=>
                 {
-                    if(_busy)return;_busy=true;status.Text="Зарахування всіх доступних надходжень…";
+                    if(_busy || _resetRequested)return;
+                    using var operation=BeginExchange();var cancellation=operation.Token;
+                    _busy=true;status.Text="Зарахування всіх доступних надходжень…";
                     try
                     {
-                        await RelaySync.Gate.WaitAsync();
+                        await RelaySync.Gate.WaitAsync(cancellation);
                         IncomingBatchResult result;
-                        try{result=await Task.Run(()=>IncomingBatchPosting.Apply(this,manual:true));}
+                        try{result=await Task.Run(()=>IncomingBatchPosting.Apply(this,manual:true,cancellation:cancellation));}
                         finally{RelaySync.Gate.Release();}
                         _incomingPostingIssue=result.Issues.Count>0?result.Summary:null;
                         if(IsFinishing)return;
@@ -49,7 +51,7 @@ public partial class MainActivity
 
     private void PromptFullAccountReset(TextView status)
     {
-        if(_busy){status.Text="Спочатку завершіть поточну операцію.";return;}
+        if(_resetRequested){status.Text="Очищення вже виконується.";return;}
         var word=new EditText(this){Hint="Введіть ОБНУЛИТИ",InputType=Android.Text.InputTypes.ClassText};
         ConfigureKeyboard(word);word.SetSingleLine(true);
         new AlertDialog.Builder(this).SetTitle("Обнулити облік на телефоні?")
@@ -58,7 +60,13 @@ public partial class MainActivity
             .SetPositiveButton("Обнулити",async(_,_)=>
             {
                 if(word.Text?.Trim()!="ОБНУЛИТИ"){status.Text="Контрольне слово не збігається. Облік не змінено.";return;}
-                if(_busy){status.Text="Спочатку завершіть поточну операцію.";return;}
+                if(_resetRequested)return;
+                if(_busy && _exchangeOperation is null){status.Text="Завершіть поточне збереження перед очищенням.";return;}
+                _resetRequested=true;
+                StopForegroundRefresh();_screenReads.Cancel();_mirrorReadGeneration++;
+                status.Text="Скасування обміну перед очищенням…";
+                var active=_exchangeOperation;active?.Cancel();
+                if(active is not null)await active.Finished;
                 _busy=true;status.Text="Очищення всього локального обліку…";
                 try
                 {
@@ -70,7 +78,7 @@ public partial class MainActivity
                     status.Text="Облік усіх підрозділів і документи очищено. Акаунт, паролі, ключі та доступ збережені.";
                 }
                 catch(Exception ex){_messages=[];status.Text="Очищення не завершено: "+ExplainOperationError(ex)+". Повторіть очищення; воно також продовжиться після перезапуску.";}
-                finally{_busy=false;}
+                finally{_busy=false;_resetRequested=false;StartForegroundRefresh();}
             }).Show();
     }
 }

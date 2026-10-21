@@ -39,6 +39,25 @@ internal static class TransferKeystoreCipher
         cipher.Init(Javax.Crypto.CipherMode.EncryptMode, key); cipher.UpdateAAD(Aad);
         return cipher.GetIV()!.Concat(cipher.DoFinal(plain)!).ToArray();
     }
+    internal sealed class WriteSession:IDisposable
+    {
+        private readonly KeyStore _store=Store();
+        private readonly Java.Security.IKey _key;
+        private readonly Cipher _cipher=Cipher.GetInstance("AES/GCM/NoPadding")!;
+        // Staging has already created this alias. Never export or replace it.
+        public WriteSession(){_key=_store.GetKey(Alias,null)??throw new System.Security.Cryptography.CryptographicException("Local key unavailable.");}
+        public string SealText(string value)
+        {
+            var bytes=System.Text.Encoding.UTF8.GetBytes(value);
+            try
+            {
+                _cipher.Init(Javax.Crypto.CipherMode.EncryptMode,_key);_cipher.UpdateAAD(Aad);
+                return Convert.ToBase64String(_cipher.GetIV()!.Concat(_cipher.DoFinal(bytes)!).ToArray());
+            }
+            finally{System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes);}
+        }
+        public void Dispose(){_cipher.Dispose();_key.Dispose();_store.Dispose();}
+    }
     public static byte[] Open(byte[] encrypted)
     {
         if (encrypted.Length < 29) throw new System.Security.Cryptography.CryptographicException("Truncated part.");

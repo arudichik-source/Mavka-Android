@@ -68,8 +68,8 @@ jobs:
             -f net10.0-android -c Release \
             -p:ApplicationId=ua.mavka.mobile.registrationqa \
             -p:ApplicationTitle="Mavka Registration Test" \
-            -p:ApplicationVersion=20261026 \
-            -p:ApplicationDisplayVersion=1.2.5-registration-v2-qa \
+            -p:ApplicationVersion=20261027 \
+            -p:ApplicationDisplayVersion=1.2.6-registration-v2-qa \
             -p:AndroidKeyStore=true \
             "-p:AndroidSigningKeyStore=$HOME/.mavka-qa-signing/registrationqa.jks" \
             -p:AndroidSigningKeyAlias=mavka-test-only \

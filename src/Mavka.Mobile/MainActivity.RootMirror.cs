@@ -9,14 +9,15 @@ public partial class MainActivity
     private long _mirrorReadGeneration;
     private async Task RecoverMirrorAsync()
     {
-        if(_busy)return;
+        if(_busy || _resetRequested)return;
+        using var operation=BeginExchange();var cancellation=operation.Token;
         _busy=true;
         try
         {
             if(new UserProfileStore(this).Load() is null && !LocalAccountReset.IsPending(this))return;
-            await RelaySync.Gate.WaitAsync();
+            await RelaySync.Gate.WaitAsync(cancellation);
             IncomingBatchResult posting;
-            try{posting=await Task.Run(()=>{var pending=LocalAccountReset.IsPending(this);LocalAccountReset.ResumePending(this);if(pending)_messages=[];if(new UserProfileStore(this).Load() is null)return new IncomingBatchResult(0,0,[]);using var store=new MobileChangeStore(this);store.Recover();return IncomingBatchPosting.Apply(this);});}
+            try{posting=await Task.Run(()=>{var pending=LocalAccountReset.IsPending(this);LocalAccountReset.ResumePending(this);if(pending)_messages=[];if(new UserProfileStore(this).Load() is null)return new IncomingBatchResult(0,0,[]);using var store=new MobileChangeStore(this);store.Recover(cancellation);return IncomingBatchPosting.Apply(this,cancellation:cancellation);});}
             finally{RelaySync.Gate.Release();}
             _incomingPostingIssue=posting.Issues.Count>0?posting.Summary:null;
             if(IsFinishing)return;

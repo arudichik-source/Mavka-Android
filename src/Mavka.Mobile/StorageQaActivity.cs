@@ -138,6 +138,28 @@ public sealed class StorageQaActivity:Activity
                 MobileChangeOperation Asset(int loc,int qty)=>new("asset",$"asset:{loc}:1:1",loc,false,JsonSerializer.SerializeToElement(new{locationId=loc,location=loc==1?"QA One":"QA Two",itemId=1,name="Synthetic",unit="од.",quantity=qty,price=1.123456789m,category=1}));
                 MobileChangeOperation Invoice(int id,decimal qty=3m)=>new("document",$"document:1:{id}",1,false,JsonSerializer.SerializeToElement(new{locationId=1,location="QA One",id,number="SYNTHETIC-"+id,date="2026-10-20",type="Накладна",status="Проведено",movements=new[]{new{itemId=1,name="Synthetic",unit="од.",quantity=qty,price=1.123456789m,category=1,batch="QA",code="QA",serials=""}}}));
                 string Wire(long seq,MobileChangeOperation[] ops,MobileAccessPolicy? policy=null,bool full=false)=>JsonSerializer.Serialize(new MobileChangePart(MobileChangePart.Format,client,source,Guid.NewGuid().ToString("N"),seq,seq-1,seq==1,"2026-10-20",policy??access,0,1,MobileChangePart.Hash(ops),ops,full));
+                // Exercise actual multipart validation, Keystore writes and transaction
+                // cancellation, rather than inserting pre-encrypted fixture rows.
+                using(var bulk=new MobileChangeStore(this,"qa_cancel_"+suffix+".db"))
+                {
+                    var ops=Enumerable.Range(1,500).Select(i=>new MobileChangeOperation("asset",$"asset:1:{i}:1",1,false,JsonSerializer.SerializeToElement(new{locationId=1,location="QA One",itemId=i,name="Synthetic "+i,unit="од.",quantity=i,price=1.123456789m,category=1}))).ToArray();
+                    var prototype=new MobileChangePart(MobileChangePart.Format,client,source,Guid.NewGuid().ToString("N"),1,0,true,"2026-10-20",access,0,10,MobileChangePart.Hash(ops),[]);
+                    var wires=ops.Chunk(50).Select((rows,i)=>JsonSerializer.Serialize(prototype with{index=i,operations=rows})).ToArray();
+                    foreach(var wire in wires.Take(9))bulk.TryAccept(wire);
+                    Check(bulk.List("asset").Count==0,"real incomplete multipart import is invisible");
+                    using var cancel=new CancellationTokenSource();
+                    var written=0;
+                    try{bulk.TryAccept(wires[9],cancel.Token,new InlineProgress(n=>{written=n;if(n==50)cancel.Cancel();}));throw new Exception("import did not cancel");}
+                    catch(OperationCanceledException){Check(written==50,"cancellation reached actual encrypted record writes");}
+                    Check(bulk.List("asset").Count==0,"cancelled import rolls back entire transaction");
+                    using(var db=bulk.ReadableDatabase)using(var rows=db.RawQuery("SELECT COUNT(*) FROM heads",null))Check(rows.MoveToFirst() && rows.GetInt(0)==0,"cancelled import never advances sequence");
+                    bulk.Recover();Check(bulk.List("asset").Count==500,"cancelled staged import resumes once without losing records");
+                    bulk.ClearAllForAccountReset();bulk.Recover();Check(bulk.List("asset").Count==0,"reset clears both applied and staged data without resurrection");
+                    using var writer=new TransferKeystoreCipher.WriteSession();using var reader=new TransferKeystoreCipher.ReadSession();
+                    var ciphertexts=Enumerable.Range(0,100).Select(_=>writer.SealText("synthetic-session-roundtrip")).ToArray();
+                    Check(ciphertexts.Distinct().Count()==100 && ciphertexts.All(c=>reader.OpenText(c)=="synthetic-session-roundtrip"),"bulk Keystore session roundtrip with fresh IV for every record");
+                    Console.WriteLine("NATIVE REAL MULTIPART IMPORT, MID-WRITE CANCELLATION, ATOMIC ROLLBACK, RESUME AND RESET: PASS");
+                }
                 var initial=new[]{Asset(1,7),Asset(2,9),Invoice(10)};var batch=Guid.NewGuid().ToString("N");
                 var first=new MobileChangePart(MobileChangePart.Format,client,source,batch,1,0,true,"2026-10-20",access,0,2,MobileChangePart.Hash(initial),[initial[0]]);
                 var second=first with{index=1,operations=[initial[1],initial[2]]};
@@ -250,6 +272,7 @@ public sealed class StorageQaActivity:Activity
         }
         catch(Exception ex){return "NATIVE STORAGE QA FAILED: "+ex;}
     }
+    private sealed class InlineProgress(Action<int> report):IProgress<int>{public void Report(int value)=>report(value);}
     private sealed class LegacyNotices(Context context,string name):SQLiteOpenHelper(context,name,null,1)
     {
         public override void OnCreate(SQLiteDatabase db)=>db.ExecSQL("CREATE TABLE notices(notice_id TEXT PRIMARY KEY,unit TEXT,content_sha TEXT,sealed_content TEXT,received_utc TEXT,is_read INTEGER,reminder_ms INTEGER,reminded INTEGER)");

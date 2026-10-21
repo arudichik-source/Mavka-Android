@@ -21,7 +21,7 @@ public partial class MainActivity
     }
     protected override void OnDestroy()
     {
-        StopForegroundRefresh();base.OnDestroy();
+        StopForegroundRefresh();_exchangeOperation?.Cancel();_screenReads.Cancel();base.OnDestroy();
     }
     private void StopForegroundRefresh()
     {
@@ -82,7 +82,9 @@ public partial class MainActivity
             while(!token.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(5),token);
-                if(_foregroundNext is not { } due || DateTimeOffset.UtcNow<due || !ForegroundPollingPolicy.CanRun(ForegroundSettings.GetBoolean("enabled",false),_activityResumed,_busy))continue;
+                if(_resetRequested || _foregroundNext is not { } due || DateTimeOffset.UtcNow<due || !ForegroundPollingPolicy.CanRun(ForegroundSettings.GetBoolean("enabled",false),_activityResumed,_busy))continue;
+                using var operation=BeginExchange(token);
+                var operationToken=operation.Token;
                 _busy=true;string result;
                 try
                 {
@@ -92,15 +94,15 @@ public partial class MainActivity
                     {
                         if(!_store.HasCredentials || string.IsNullOrWhiteSpace(_store.GetMainMavkaEmail()))throw new InvalidOperationException("Підключіть Gmail у налаштуваннях.");
                         var password=_store.GetPassword()!;var sender=_store.GetMainMavkaEmail();
-                        _messages=await GmailConnectionService.ReadFromSenderAsync(_store.GetEmail(),password,sender,_exchangeKeys,_documentPasswords,LoadUserProfile()?.ClientId,
-                            validity=>_archive.ListMailProcessingStates(validity,MailProcessingScope()),cancellation:token);
-                        reports.Add(await ArchiveAndCleanupAsync(password,sender,token));SaveInboxCacheSafe();
+                        _messages=await Task.Run(()=>GmailConnectionService.ReadFromSenderAsync(_store.GetEmail(),password,sender,_exchangeKeys,_documentPasswords,LoadUserProfile()?.ClientId,
+                            validity=>_archive.ListMailProcessingStates(validity,MailProcessingScope()),cancellation:operationToken),operationToken);
+                        reports.Add(await ArchiveAndCleanupAsync(password,sender,operationToken));SaveInboxCacheSafe();
                     }
                     token.ThrowIfCancellationRequested();
                     if(channel is 1 or 2)
                     {
                         if(!new RelayIdentity(this).Enabled)throw new InvalidOperationException("Завершіть QR-підключення сервера.");
-                        reports.Add(await new RelaySync(this).SynchronizeNow(token));
+                        reports.Add(await Task.Run(()=>new RelaySync(this).SynchronizeNow(operationToken),operationToken));
                     }
                     token.ThrowIfCancellationRequested();
                     using(var editor=ForegroundSettings.Edit()!)if(!editor.PutLong("last",DateTimeOffset.UtcNow.ToUnixTimeSeconds())!.Commit())throw new IOException("Не вдалося зберегти час перевірки.");

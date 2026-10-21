@@ -168,6 +168,7 @@ internal sealed class RelaySync
         {
             try
             {
+                cancellation.ThrowIfCancellationRequested();
                 if (await Import(row.Plain, cancellation)) db.Imported(new[] { row.Id });
                 else deferred++;
             }
@@ -179,6 +180,7 @@ internal sealed class RelaySync
         {
             try
             {
+                cancellation.ThrowIfCancellationRequested();
                 var json = RelayProtocol.Assemble(group.Select(x => x.Part!).ToArray());
                 if (json is not null && await Import(json, cancellation)) db.Imported(group.Select(x => x.Row.Id));
             }
@@ -197,7 +199,7 @@ internal sealed class RelaySync
             json = MavkaPasswordedEnvelope.Unwrap(json, password);
             if (MavkaEncryptedEnvelope.IsEnvelope(json)) json = RelayContentCipher.Decrypt(json, key => _keys.GetKey(key));
         }
-        if(await Task.Run(()=>{using var changes=new MobileChangeStore(_context);return changes.TryAccept(json);},cancellation))return true;
+        if(await Task.Run(()=>{using var changes=new MobileChangeStore(_context);return changes.TryAccept(json,cancellation);},cancellation))return true;
         if (new MobileAccessStore(_context).TryNotice(json,out var notice) && notice is not null)
         {
             using var notices = new MavkaNoticeStore(_context);

@@ -36,8 +36,9 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
     {
         using var row=db.RawQuery("SELECT sequence FROM heads WHERE client=? AND source=?",new[]{client,source});return row.MoveToFirst()?row.GetLong(0):0;
     }
-    public bool TryAccept(string authenticatedJson)
+    public bool TryAccept(string authenticatedJson,CancellationToken cancellation=default,IProgress<int>? progress=null)
     {
+        cancellation.ThrowIfCancellationRequested();
         LocalAccountReset.EnsureReady(context);
         authenticatedJson=MobileChangeCompression.Open(authenticatedJson,Client);
         using var json=JsonDocument.Parse(authenticatedJson);
@@ -75,14 +76,15 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             }
             finally{db.EndTransaction();}
         }
-        if(!obsolete)ApplyReady(part.sourceId);
-        DrainReceipts();return true; // authenticated readback/staging is durable even while other parts are missing
+        if(!obsolete)ApplyReady(part.sourceId,cancellation,progress);
+        DrainReceipts(cancellation);return true; // authenticated readback/staging is durable even while other parts are missing
     }
-    private void ApplyReady(string source)
+    private void ApplyReady(string source,CancellationToken cancellation,IProgress<int>? progress=null)
     {
         var client=Client;
         while(true)
         {
+            cancellation.ThrowIfCancellationRequested();
             using var db=WritableDatabase;var current=Head(db,client,source);
             var candidates=new List<MobileChangePart>();
             using(var rows=db.RawQuery("SELECT sealed FROM parts WHERE client=? AND source=? AND part=0 AND sealed<>''",new[]{client,source}))
@@ -91,12 +93,17 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             var latestPolicy=new MobileAccessStore(context).Load()?.revision??0;
             var first=candidates.Where(p=>p.access.revision>=latestPolicy && (p.baseSequence==current || p.full && p.access.revision>revision)).OrderByDescending(p=>p.access.revision).ThenBy(p=>p.sequence).FirstOrDefault();
             if(first is null)return;
+            // Do not decrypt an incomplete batch on every arriving part.
+            using(var count=db.RawQuery("SELECT COUNT(*) FROM parts WHERE client=? AND source=? AND batch=? AND sealed<>''",new[]{client,source,first.batchId}))
+                if(!count.MoveToFirst() || count.GetInt(0)<first.count)return;
             var parts=new List<MobileChangePart>();
+            using var reader=new TransferKeystoreCipher.ReadSession();
             using(var rows=db.RawQuery("SELECT part,sealed FROM parts WHERE client=? AND source=? AND batch=? ORDER BY part",new[]{client,source,first.batchId}))
                 while(rows.MoveToNext())
                 {
                     if(rows.GetString(1).Length==0)return;
-                    var part=JsonSerializer.Deserialize<MobileChangePart>(Open(rows.GetString(1)))!;part.Validate(client);parts.Add(part);
+                    cancellation.ThrowIfCancellationRequested();
+                    var part=JsonSerializer.Deserialize<MobileChangePart>(reader.OpenText(rows.GetString(1)))!;part.Validate(client);parts.Add(part);
                 }
             if(parts.Count<first.count)return;
             var metadata=JsonSerializer.Serialize(first with{index=0,operations=[]});
@@ -108,18 +115,24 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             // Persist policy first: a crash can only hide/restrict old rows, never
             // expose another unit. Applying the staged batch is retried next time.
             using(var policy=JsonDocument.Parse(JsonSerializer.Serialize(first.access)))new MobileAccessStore(context).Accept(policy.RootElement);
+            using var writer=new TransferKeystoreCipher.WriteSession();
+            cancellation.ThrowIfCancellationRequested();
             db.BeginTransaction();try
             {
                 var reset=(first.full || first.initial) && first.access.revision>revision;
                 if(!reset && Head(db,client,source)!=first.baseSequence)throw new IOException("Послідовність змін оновилась.");
                 if(reset)db.Delete("records","client=? AND source=?",new[]{client,source});
+                var applied=0;
                 foreach(var op in operations)
                 {
+                    cancellation.ThrowIfCancellationRequested();
                     bool existed;using(var row=db.RawQuery("SELECT 1 FROM records WHERE client=? AND source=? AND key=?",new[]{client,source,op.key}))existed=row.MoveToFirst();
                     if(op.remove){db.Delete("records","client=? AND source=? AND key=?",new[]{client,source,op.key});continue;}
-                    var values=new ContentValues();values.Put("client",client);values.Put("source",source);values.Put("key",op.key);values.Put("kind",op.kind);values.Put("location",op.locationId);values.Put("sealed",Seal(op.payload.GetRawText()));db.InsertWithOnConflict("records",null,values,Conflict.Replace);
+                    var values=new ContentValues();values.Put("client",client);values.Put("source",source);values.Put("key",op.key);values.Put("kind",op.kind);values.Put("location",op.locationId);values.Put("sealed",writer.SealText(op.payload.GetRawText()));db.InsertWithOnConflict("records",null,values,Conflict.Replace);
                     if(!first.initial && !reset && op.kind=="document")QueueReceipt(db,first,op,existed);
+                    progress?.Report(++applied);
                 }
+                cancellation.ThrowIfCancellationRequested();
                 var head=new ContentValues();head.Put("client",client);head.Put("source",source);head.Put("sequence",first.sequence);head.Put("revision",first.access.revision);head.Put("asof",first.asOf);db.InsertWithOnConflict("heads",null,head,Conflict.Replace);
                 var clear=new ContentValues();clear.Put("sealed","");db.Update("parts",clear,"client=? AND source=? AND batch=?",new[]{client,source,first.batchId});
                 db.SetTransactionSuccessful();
@@ -160,12 +173,13 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
         if(!MavkaExchangeParser.TryInvoice(json,out _))return;
         var values=new ContentValues();values.Put("client",Client);values.Put("id",id);values.Put("sealed",Seal(json));db.InsertWithOnConflict("receipts",null,values,Conflict.Ignore);
     }
-    public void DrainReceipts()
+    public void DrainReceipts(CancellationToken cancellation=default)
     {
         var pending=new List<(string Id,string Json)>();
         using(var db=ReadableDatabase)using(var rows=db.RawQuery("SELECT id,sealed FROM receipts WHERE client=? AND done=0 LIMIT 200",new[]{Client}))while(rows.MoveToNext())pending.Add((rows.GetString(0),Open(rows.GetString(1))));
         foreach(var receipt in pending)
         {
+            cancellation.ThrowIfCancellationRequested();
             var access=new MobileAccessStore(context);if(!access.TryDocument(receipt.Json,out var doc) || doc is null)continue;
             using var archive=new DocumentArchiveStore(context);archive.SaveDocument(doc.DocumentId,doc.Kind,doc.Number,doc.Unit,doc.DocumentDate,"mavka-changes.json",doc.Json);
             if(archive.FindDocument(doc.DocumentId) is null)throw new IOException("Накладну не збережено.");
@@ -192,11 +206,11 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
         var expected=p.GetProperty("movements").EnumerateArray().Where(r=>r.GetProperty("quantity").GetDecimal()>0).Select(r=>(r.GetProperty("name").GetString(),r.GetProperty("unit").GetString(),r.GetProperty("quantity").GetDecimal(),r.GetProperty("price").ValueKind==JsonValueKind.Number?(decimal?)r.GetProperty("price").GetDecimal():null));
         return expected.SequenceEqual(invoice.Positions.Select(r=>((string?)r.Name,(string?)r.Unit,r.Quantity,r.UnitPrice)));
     }
-    public void Recover()
+    public void Recover(CancellationToken cancellation=default)
     {
         using(var pendingDb=ReadableDatabase)using(var sources=pendingDb.RawQuery("SELECT DISTINCT source FROM parts WHERE client=? AND sealed<>''",new[]{Client}))
-        {var ids=new List<string>();while(sources.MoveToNext())ids.Add(sources.GetString(0));foreach(var id in ids)ApplyReady(id);}
-        DrainReceipts();
+        {var ids=new List<string>();while(sources.MoveToNext())ids.Add(sources.GetString(0));foreach(var id in ids)ApplyReady(id,cancellation);}
+        DrainReceipts(cancellation);
     }
     public bool HasRecords(string kind,int? location=null)
     {

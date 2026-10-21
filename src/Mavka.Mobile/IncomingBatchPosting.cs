@@ -14,8 +14,9 @@ internal sealed record IncomingBatchResult(int OpeningUnits,int Invoices,IReadOn
 /// Only authenticated, read-back-verified archive documents are candidates. No network calls.</summary>
 internal static class IncomingBatchPosting
 {
-    public static IncomingBatchResult Apply(Context context,bool manual=false)
+    public static IncomingBatchResult Apply(Context context,bool manual=false,CancellationToken cancellation=default)
     {
+        cancellation.ThrowIfCancellationRequested();
         LocalAccountReset.EnsureReady(context);
         var accessStore=new MobileAccessStore(context);
         var policy=accessStore.Load();
@@ -25,6 +26,7 @@ internal static class IncomingBatchPosting
         var openings=0;var invoices=0;var issues=new List<string>();
         foreach(var grant in policy.units)
         {
+            cancellation.ThrowIfCancellationRequested();
             var summaries=archive.ListSummaries(grant.unit);
             // Never sum dated snapshots or pick one by Gmail arrival order.
             if(policy.canViewAssets && !ledger.HasOpeningBalances(grant.unit))
@@ -42,6 +44,7 @@ internal static class IncomingBatchPosting
 
         void Post(ArchivedDocumentSummary summary,bool opening)
         {
+            cancellation.ThrowIfCancellationRequested();
             try
             {
                 var stored=archive.FindDocument(summary.DocumentId)??throw new IOException("Документ не прочитано з архіву.");

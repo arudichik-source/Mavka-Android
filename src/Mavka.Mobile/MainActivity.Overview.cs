@@ -6,12 +6,12 @@ public partial class MainActivity
 {
     private async Task RefreshRelayAsync(TextView status)
     {
-        if(_busy)return;_busy=true;status.Text="Оновлення сервера…";
+        if(_busy || _resetRequested)return;using var operation=BeginExchange();var cancellation=operation.Token;_busy=true;status.Text="Оновлення сервера…";
         try
         {
             if(!new RelayIdentity(this).Enabled)throw new InvalidOperationException("Спочатку завершіть QR-підключення до головної Мавки.");
-            status.Text=await new RelaySync(this).SynchronizeNow();
-            var posting=await Task.Run(()=>IncomingBatchPosting.Apply(this));
+            status.Text=await Task.Run(()=>new RelaySync(this).SynchronizeNow(cancellation),cancellation);
+            var posting=await Task.Run(()=>IncomingBatchPosting.Apply(this,cancellation:cancellation));
             _incomingPostingIssue=posting.Issues.Count>0?posting.Summary:null;
             if(posting.OpeningUnits+posting.Invoices>0 || posting.Issues.Count>0)status.Text+="\n"+posting.Summary;
         }

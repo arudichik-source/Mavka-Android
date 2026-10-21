@@ -299,6 +299,7 @@ public partial class MainActivity : Activity
         var syncStatus=Text(overview,"Оновлення виконується лише за вашим запитом.",13);
         Button(overview,"Оновити пошту",async()=>await RefreshMessagesAsync(syncStatus));
         Button(overview,"Оновити сервер",async()=>await RefreshRelayAsync(syncStatus));
+        Button(overview,"Скасувати обмін",()=>CancelExchange(syncStatus));
         DrawForegroundRefresh(overview);
         var profile = LoadUserProfile();
         var card = Card();
@@ -1399,7 +1400,7 @@ public partial class MainActivity : Activity
 
     private async Task RefreshMessagesAsync(TextView status)
     {
-        if (_busy) return;
+        if (_busy || _resetRequested) return;
         if (!_store.HasCredentials)
         {
             status.Text = "Підключи Gmail у меню «Налаштування → Пошта Gmail».";
@@ -1411,6 +1412,8 @@ public partial class MainActivity : Activity
             status.Text = "У налаштуваннях не задана адреса ГОЛОВНОЇ МАВКИ.";
             return;
         }
+        using var operation=BeginExchange();
+        var cancellation=operation.Token;
         _busy = true;
         try { _archive.RecordSyncEvent("start", "Розпочато отримання листів"); }
         catch { /* Do not interrupt encrypted mail processing for diagnostics. */ }
@@ -1423,10 +1426,10 @@ public partial class MainActivity : Activity
             var password = _store.GetPassword();
             if (string.IsNullOrEmpty(password))
                 throw new InvalidOperationException("Пароль не збережений.");
-            _messages = await GmailConnectionService.ReadFromSenderAsync(
+            _messages = await Task.Run(()=>GmailConnectionService.ReadFromSenderAsync(
                 _store.GetEmail(), password, sender, _exchangeKeys,
                 _documentPasswords, LoadUserProfile()?.ClientId,
-                validity => _archive.ListMailProcessingStates(validity, MailProcessingScope()));
+                validity => _archive.ListMailProcessingStates(validity, MailProcessingScope()),cancellation:cancellation),cancellation);
             metadataMillis = syncWatch.ElapsedMilliseconds;
             try
             {
@@ -1454,9 +1457,9 @@ public partial class MainActivity : Activity
                 // Pairing is optional. Never relax Gmail authentication or
                 // prevent existing encrypted transfers after a bad QR.
             }
-            await ProcessFileTransfersAsync(password, sender);
+            await ProcessFileTransfersAsync(password, sender,cancellation);
             importMillis = syncWatch.ElapsedMilliseconds - metadataMillis;
-            var report = await ArchiveAndCleanupAsync(password, sender);
+            var report = await ArchiveAndCleanupAsync(password, sender,cancellation);
             trashMillis = syncWatch.ElapsedMilliseconds - metadataMillis - importMillis;
             try
             {
@@ -1466,6 +1469,7 @@ public partial class MainActivity : Activity
             }
             catch { /* Privacy-safe logging must not affect synchronization. */ }
             SaveInboxCacheSafe();
+            cancellation.ThrowIfCancellationRequested();
             var syncReport = await SendPendingReceiptsAsync(password, sender);
             try { await SendPendingFilePartsAsync(maximum: 3); }
             catch { syncReport += " Частини файлів залишені в черзі надсилання."; }
@@ -1484,7 +1488,7 @@ public partial class MainActivity : Activity
         catch (System.OperationCanceledException)
         {
             if (_screen is "sync" or "home" or "inbox")
-                status.Text = "Gmail не відповідає вчасно. Перевір інтернет і спробуй знову." +
+                status.Text = "Обмін скасовано або вичерпано час очікування. Збережені дані залишено; можна продовжити оновлення." +
                     CachedMailHint();
         }
         catch (Exception ex)
@@ -1540,12 +1544,13 @@ public partial class MainActivity : Activity
         }
     }
 
-    private async Task ProcessFileTransfersAsync(string password, string sender)
+    private async Task ProcessFileTransfersAsync(string password, string sender,CancellationToken cancellation=default)
     {
         var pending = Transfers();
         var messages = _messages.ToList();
         foreach (var mail in messages)
         {
+            cancellation.ThrowIfCancellationRequested();
             if (mail.CachedPreview) continue;
             // Only an AES-GCM failure raised while authenticating a SINGLE
             // mail attachment can authorize reversible Trash. Do not delete
@@ -1797,7 +1802,7 @@ public partial class MainActivity : Activity
                 }
                 if(attachment.AuthenticatedJson && attachment.RawJson is string policyRaw)
                 {
-                    if(await Task.Run(()=>{using var changes=new MobileChangeStore(this);return changes.TryAccept(policyRaw);})){saved++;continue;}
+                    if(await Task.Run(()=>{using var changes=new MobileChangeStore(this);return changes.TryAccept(policyRaw,cancellation);})){saved++;continue;}
                     using var policyDoc=System.Text.Json.JsonDocument.Parse(policyRaw);
                     if(policyDoc.RootElement.TryGetProperty("format",out var pf) && pf.GetString()=="MAVKA_ACCESS_UPDATE_V1")
                     {
@@ -1821,13 +1826,18 @@ public partial class MainActivity : Activity
                 }
                 try
                 {
-                    _archive.SaveDocument(document.DocumentId, document.Kind,
-                        document.Number, document.Unit, document.DocumentDate,
-                        attachment.FileName, document.Json);
-                    // Force a verified read-back even on duplicate delivery.
-                    if (_archive.FindDocument(document.DocumentId) is null)
-                        throw new InvalidOperationException("Archive read-back failed.");
-                    new MobileAccessStore(this).AutoPost(document.Json);
+                    await Task.Run(()=>
+                    {
+                        cancellation.ThrowIfCancellationRequested();
+                        using var archive=new DocumentArchiveStore(this);
+                        archive.SaveDocument(document.DocumentId, document.Kind,
+                            document.Number, document.Unit, document.DocumentDate,
+                            attachment.FileName, document.Json);
+                        if (archive.FindDocument(document.DocumentId) is null)
+                            throw new InvalidOperationException("Archive read-back failed.");
+                        cancellation.ThrowIfCancellationRequested();
+                        new MobileAccessStore(this).AutoPost(document.Json);
+                    },cancellation);
                     saved++;
                 }
                 catch (Exception ex)
@@ -1838,6 +1848,7 @@ public partial class MainActivity : Activity
                     break;
                 }
             }
+            cancellation.ThrowIfCancellationRequested();
             if (!ready)
             {
                 remaining.Add(mail with { ProcessingIssue = problem });
