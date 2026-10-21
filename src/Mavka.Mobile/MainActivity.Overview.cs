@@ -11,6 +11,9 @@ public partial class MainActivity
         {
             if(!new RelayIdentity(this).Enabled)throw new InvalidOperationException("Спочатку завершіть QR-підключення до головної Мавки.");
             status.Text=await new RelaySync(this).SynchronizeNow();
+            var posting=await Task.Run(()=>IncomingBatchPosting.Apply(this));
+            _incomingPostingIssue=posting.Issues.Count>0?posting.Summary:null;
+            if(posting.OpeningUnits+posting.Invoices>0 || posting.Issues.Count>0)status.Text+="\n"+posting.Summary;
         }
         catch(Exception ex){status.Text=ExplainOperationError(ex);}
         finally{_busy=false;}
@@ -20,6 +23,7 @@ public partial class MainActivity
     {
         var access=new MobileAccessStore(this).Load()!;
         if(access.isMvo || !access.canViewAssets)return;
+        DrawIncomingBatchAction();
         if(_showRootMirror && DrawRootAssets(null))return;
         var top=Card();
         Text(top,access.allUnits?"Майно військової частини":"Майно доступних підрозділів",19,true);

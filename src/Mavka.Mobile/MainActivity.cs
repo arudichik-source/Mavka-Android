@@ -502,6 +502,8 @@ public partial class MainActivity : Activity
         while (_body.ChildCount > 2)
             _body.RemoveViewAt(2);
 
+        DrawIncomingBatchAction();
+
         var profile = LoadUserProfile();
         if (profile is null || string.IsNullOrWhiteSpace(profile.Unit))
         {
@@ -649,6 +651,11 @@ public partial class MainActivity : Activity
             return;
         }
         var importing = Text(header, "Початкові залишки поки не зараховано.", 12);
+        if(new MobileAccessStore(this).Load() is {isMvo:false})
+        {
+            importing.Text="Залишки обробляються автоматично для всіх доступних підрозділів. Якщо документ отримано раніше, скористайтеся спільною кнопкою зарахування вгорі.";
+            return;
+        }
         Button(header, "Зарахувати початкові залишки", () =>
         {
             if (snapshot.Items.Count == 0)
@@ -1851,7 +1858,10 @@ public partial class MainActivity : Activity
             }
         }
         _messages = remaining;
-        return $"Архівовано/перевірено вкладень: {saved}; у кошик: {moved}; залишено: {kept}.";
+        var posting=await Task.Run(()=>IncomingBatchPosting.Apply(this));
+        _incomingPostingIssue=posting.Issues.Count>0?posting.Summary:null;
+        return $"Архівовано/перевірено вкладень: {saved}; у кошик: {moved}; залишено: {kept}."+
+            (posting.OpeningUnits+posting.Invoices>0 || posting.Issues.Count>0?"\n"+posting.Summary:"");
     }
 
     private void ShowNotices()
@@ -2074,6 +2084,7 @@ public partial class MainActivity : Activity
             return;
         }
         var policyForView=new MobileAccessStore(this).Load();
+        DrawIncomingBatchAction();
         if(policyForView is not null)DrawRootDocuments(_allMobileUnits && !policyForView.isMvo?null:policyForView.units.Single(u=>u.unit==profile.Unit).locationId);
         var card = Card();
         if(!new MobileAccessStore(this).Allows(profile.Unit)){Text(card,"Доступ до документів не надано.",15);return;}
@@ -3678,9 +3689,6 @@ public partial class MainActivity : Activity
         Text(relayCard, "Сервер Cloudflare", 18, true);
         Text(relayCard, "QR-реєстрація пристрою та додатковий захищений канал обміну.", 13);
         Button(relayCard, "Налаштувати Cloudflare Relay", ShowRelay);
-        var diagnostics = Card();
-        Text(diagnostics, "Діагностика", 17, true);
-        Button(diagnostics, "Галерея іконок (демо)", ShowIconGallery);
     }
 
     private void ShowMail()

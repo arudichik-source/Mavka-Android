@@ -13,9 +13,14 @@ namespace Mavka.Mobile;
 [Activity(Name="ua.mavka.mobile.StorageQaActivity",Exported=true)]
 public sealed class StorageQaActivity:Activity
 {
-    protected override void OnCreate(Bundle? state)
+    protected override async void OnCreate(Bundle? state)
     {
         base.OnCreate(state);var text=new TextView(this){TextSize=16};SetContentView(text);
+        text.Text="Перевірка синтетичного локального обліку…";
+        text.Text=await Task.Run(RunChecks);
+    }
+    private string RunChecks()
+    {
         try
         {
             var profile=new UserProfileStore(this).Load();
@@ -95,15 +100,64 @@ public sealed class StorageQaActivity:Activity
                     Check(!ledger.HasOpeningBalances(unit) && ledger.AddOpeningBalances(opening) && ledger.HasOpeningBalances(unit),"opening status from actual durable receipt");
                     Check(!ledger.AddOpeningBalances(opening) && ledger.ListHoldingsAsOf(unit,new(2026,10,20)).Single().Quantity==7,"opening retry never doubles stock");
                 }
+                using(var archive=new DocumentArchiveStore(this))using(var ledger=new PropertyLedgerStore(this))
+                {
+                    var grants=Enumerable.Range(1,65).Select(i=>new MobileUnitGrant(100+i,"QA Batch "+i)).ToArray();
+                    var batchPolicy=access with{revision=5,units=grants};
+                    void Policy(MobileAccessPolicy policy){using var doc=JsonDocument.Parse(JsonSerializer.Serialize(policy));new MobileAccessStore(this).Accept(doc.RootElement);}
+                    void Save(string json)
+                    {
+                        using var parsed=JsonDocument.Parse(json);var root=parsed.RootElement;
+                        var unit=root.TryGetProperty("recipient",out var recipient)?recipient.GetString()!:root.GetProperty("unit").GetString()!;
+                        if(!ArchiveDocumentClassifier.TryClassify(json,unit,out var doc) || doc is null)throw new Exception("Synthetic document parse failed");
+                        archive.SaveDocument(doc.DocumentId,doc.Kind,doc.Number,doc.Unit,doc.DocumentDate,"synthetic.json",json);
+                    }
+                    string Snapshot(string unit,int qty,string date="2026-10-20")=>JsonSerializer.Serialize(new{format="MAVKA_UNIT_ASSETS_V1",recipientClientId=client,unit,asOf=date,items=qty==0?Array.Empty<object>():new object[]{new{name="Synthetic batch",unit="од.",quantity=qty,price=1.123456789m}}});
+                    string Receipt(string unit,string id,int qty,string date="2026-10-21")=>JsonSerializer.Serialize(new{format="MAVKA_DOCUMENT_V1",type="invoice",recipientClientId=client,recipient=unit,documentId=id,documentNumber=id,documentDate=date,positions=new[]{new{name="Synthetic batch",unit="од.",quantity=qty,price=1.123456789m}}});
+                    Policy(batchPolicy);
+                    foreach(var grant in grants)Save(Snapshot(grant.unit,grant.locationId==165?0:7));
+                    Save(Snapshot(grants[0].unit,3,"2026-10-19")); // delivered later but older accounting date
+                    Save(Snapshot("QA Forbidden",99));
+                    Save(Receipt(grants[0].unit,"QA-BATCH-INVOICE",2));
+                    var imported=IncomingBatchPosting.Apply(this);
+                    Check(imported.OpeningUnits==65 && imported.Invoices==1 && imported.Issues.Count==0,"observer all 65 units and invoice posted in one pass");
+                    Check(ledger.ListHoldingsAsOf(grants[0].unit,new(2026,10,21)).Single().Quantity==9,"latest dated snapshot chosen regardless of arrival; later receipt once");
+                    Check(ledger.HasOpeningBalances(grants[^1].unit) && ledger.ListHoldingsAsOf(grants[^1].unit,new(2026,10,21)).Count==0,"empty authorized unit has durable zero baseline");
+                    Check(!ledger.HasReceipts("QA Forbidden"),"batch never posts archived forbidden unit");
+                    Check(ledger.ListPendingReceiptIds(100).Count==0 && archive.FindDocument("QA-BATCH-INVOICE")!.PostingStatus=="posted","automatic posting creates no outgoing MVO receipt");
+                    var retry=IncomingBatchPosting.Apply(this,true);
+                    Check(retry.OpeningUnits==0 && retry.Invoices==0 && retry.Issues.Count==0,"whole batch manual retry idempotent");
+                    using(var reopened=new PropertyLedgerStore(this))Check(reopened.HasOpeningBalances(grants[24].unit),"batch baseline survives fresh store");
+                    var mvo=batchPolicy with{revision=6,isMvo=true,allUnits=false,units=[grants[0]],canConfirmInvoices=true,autoPostInvoices=false};Policy(mvo);
+                    var manualInvoice=Receipt(grants[0].unit,"QA-BATCH-MVO",4);Save(manualInvoice);
+                    new MobileAccessStore(this).AutoPost(manualInvoice);
+                    Check(IncomingBatchPosting.Apply(this).Invoices==0 && ledger.GetMailStatus("QA-BATCH-MVO") is null,"MVO never auto-confirms stored invoice");
+                    Check(IncomingBatchPosting.Apply(this,true).Invoices==1 && ledger.ListHoldingsAsOf(grants[0].unit,new(2026,10,21)).Single().Quantity==13,"MVO one action confirms allowed backlog once");
+                    Check(IncomingBatchPosting.Apply(this,true).Invoices==0,"MVO batch duplicate cannot double-credit");
+                    Save(Receipt(grants[1].unit,"QA-BATCH-ROLE-CHANGE",5));
+                    var observer=batchPolicy with{revision=7,units=[grants[1]],allUnits=false};Policy(observer);
+                    Check(IncomingBatchPosting.Apply(this).Invoices==1 && ledger.GetMailStatus("QA-BATCH-ROLE-CHANGE")=="sent","grant or role change recovers already archived invoice");
+                    Save(Receipt(grants[0].unit,"QA-BATCH-REVOKED",1));
+                    Check(IncomingBatchPosting.Apply(this,true).Invoices==0 && !new MobileAccessStore(this).PostDocument(Receipt(grants[0].unit,"QA-BATCH-REVOKED",1),true),"current access checked after scope revoked");
+                    var conflict=new MobileUnitGrant(900,"QA Conflict");var healthy=new MobileUnitGrant(901,"QA Healthy");var invalid=new MobileUnitGrant(902,"QA Invalid");
+                    Policy(batchPolicy with{revision=8,allUnits=false,units=[conflict,healthy,invalid]});
+                    MavkaExchangeParser.TryInvoice(Receipt(conflict.unit,"QA-EXISTING",1),out var existing);ledger.AddConfirmedInvoice(existing!);ledger.MarkMailSent(existing!.DocumentId);
+                    Save(Snapshot(conflict.unit,7));Save(Snapshot(healthy.unit,8));Save(Snapshot(invalid.unit,2000000000));
+                    var partial=IncomingBatchPosting.Apply(this,true);
+                    Check(partial.OpeningUnits==1 && partial.Issues.Count==2,"conflict and invalid scope reported without blocking healthy unit");
+                    Check(!ledger.HasOpeningBalances(conflict.unit) && ledger.ListHoldingsAsOf(conflict.unit,new(2026,10,21)).Single().Quantity==1,"snapshot never added over existing receipts");
+                    Check(!ledger.HasOpeningBalances(invalid.unit) && !ledger.HasReceipts(invalid.unit),"bad row rolls back the whole unit baseline");
+                    Policy(access with{revision=9});
+                }
                 keepPreview=true;
-                text.Text="NATIVE STORAGE QA PASS "+checks+" · SQLite migration, deleted reminder replay, staged batch restart/order, grants, MVO/observer, opening status. NO NETWORK.";
+                return "NATIVE STORAGE QA PASS "+checks+" · SQLite migration, deleted reminder replay, staged batch restart/order, grants, MVO/observer, 65-unit batch, opening status. NO NETWORK.";
             }
             finally
             {
                 if(!keepPreview){using var editor=prefs.Edit()!;if(old is null)editor.Remove("mobile_access");else editor.PutString("mobile_access",old);if(!editor.Commit())throw new IOException("QA policy restore failed.");}
             }
         }
-        catch(Exception ex){text.Text="NATIVE STORAGE QA FAILED: "+ex;}
+        catch(Exception ex){return "NATIVE STORAGE QA FAILED: "+ex;}
     }
     private sealed class LegacyNotices(Context context,string name):SQLiteOpenHelper(context,name,null,1)
     {

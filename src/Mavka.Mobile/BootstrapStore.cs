@@ -123,16 +123,37 @@ internal sealed class MobileAccessStore(Context context)
         return false;
     }
     public void AutoPost(string json,Func<IncomingInvoice,bool>? currentInvoice=null)
+        => PostDocument(json,false,currentInvoice);
+
+    // Both transports and the single batch action use the same access and
+    // duplicate checks. A batch is local accounting, never an outgoing MVO ACK.
+    public bool PostDocument(string json,bool manual,Func<IncomingInvoice,bool>? currentInvoice=null)
     {
-        if(!TryDocument(json,out var document) || document is null)return;
+        if(!TryDocument(json,out var document) || document is null)return false;
         var access=Load()!;
-        if(access.isMvo || !access.autoPostInvoices || !MavkaExchangeParser.TryInvoice(json,out var invoice) || invoice is null)return;
+        if(access.isMvo ? !manual || !access.canConfirmInvoices : !access.autoPostInvoices)return false;
+        using var ledger=new PropertyLedgerStore(context);
+        using var archive=new DocumentArchiveStore(context);
+        if(MavkaExchangeParser.TryAssets(json,out var snapshot) && snapshot is not null)
+        {
+            if(ledger.HasOpeningBalances(snapshot.Unit))return false;
+            // A later control snapshot must never be added on top of receipts.
+            if(ledger.HasReceipts(snapshot.Unit))
+            {
+                if(manual)throw new InvalidOperationException("У підрозділі вже є рухи; початкові залишки потребують звірки.");
+                return false;
+            }
+            var added=ledger.AddOpeningBalances(snapshot);
+            archive.MarkPosted(document.DocumentId);
+            return added;
+        }
+        if(!MavkaExchangeParser.TryInvoice(json,out var invoice) || invoice is null)return false;
         using var mirror=new MobileChangeStore(context);
         if(!(currentInvoice?.Invoke(invoice)??mirror.IsCurrentInvoice(invoice)))throw new InvalidDataException("Накладна змінена або скасована головною Мавкою.");
-        using var ledger=new PropertyLedgerStore(context);
-        if(MobileChangeStore.ReceiptFamily(invoice.DocumentId) is {} family && ledger.HasReceiptFamily(family))return;
-        ledger.AddConfirmedInvoice(invoice);
-        ledger.MarkMailSent(invoice.DocumentId); // Automatic import is not an MVO approval.
-        using var archive=new DocumentArchiveStore(context);archive.MarkPosted(invoice.DocumentId);
+        if(MobileChangeStore.ReceiptFamily(invoice.DocumentId) is {} family && ledger.HasReceiptFamily(family) && ledger.GetMailStatus(invoice.DocumentId) is null)return false;
+        var posted=ledger.AddConfirmedInvoice(invoice);
+        ledger.MarkMailSent(invoice.DocumentId); // Local import is not a message to the PC.
+        archive.MarkPosted(invoice.DocumentId);
+        return posted;
     }
 }

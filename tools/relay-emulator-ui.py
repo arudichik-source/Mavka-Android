@@ -161,6 +161,10 @@ time.sleep(5)
 menu("Майно підрозділу")
 assert_screen("Актуальний облік головної Мавки")
 assert_screen("10 од.")
+tap("Зарахувати всі отримані надходження")
+assert_screen("Зарахувати всі отримані надходження?")
+tap("Скасувати", False)
+assert_screen("10 од.")
 OUT.joinpath("root-unit-assets.png").write_bytes(adb("exec-out","screencap","-p"))
 tap("Обрати підрозділ")
 tap("Усі доступні підрозділи")
@@ -172,3 +176,10 @@ tap("Переглянути зміни")
 assert_screen("Рядків руху: 2")
 OUT.joinpath("root-document.png").write_bytes(adb("exec-out","screencap","-p"))
 print("ROOT MIRROR UNIT/COMBINED INVENTORY AND COMPLETE DOCUMENT UI: PASS; NO NETWORK")
+
+menu("Налаштування")
+for _ in range(8):
+    texts=[n.get("text","") for n in tree().iter("node")]
+    assert "Діагностика" not in texts and "Галерея іконок (демо)" not in texts, "Demo diagnostics must be absent from settings"
+    swipe()
+print("SETTINGS WITHOUT DEMO DIAGNOSTICS: PASS")

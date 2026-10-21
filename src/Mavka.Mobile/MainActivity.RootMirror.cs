@@ -12,7 +12,8 @@ public partial class MainActivity
         try
         {
             if(new UserProfileStore(this).Load() is null)return;
-            await Task.Run(()=>{using var store=new MobileChangeStore(this);store.Recover();});
+            var posting=await Task.Run(()=>{using var store=new MobileChangeStore(this);store.Recover();return IncomingBatchPosting.Apply(this);});
+            _incomingPostingIssue=posting.Issues.Count>0?posting.Summary:null;
             if(IsFinishing)return;
             if(_screen=="assets")ShowAssets();else if(_screen=="documents")ShowDocuments();else if(_screen=="home")ShowHome();
         }

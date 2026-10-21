@@ -27,7 +27,8 @@ internal sealed record ArchivedDocument(
 /// <summary>
 /// Independent on-device archive. A Gmail message may be moved only after every
 /// relevant attachment is committed and can be read back from this store.
-/// Ledger posting is deliberately separate and never happens during download.
+/// Saving is separate from ledger posting; the access policy determines whether
+/// the authenticated document is posted automatically or awaits the MVO's action.
 /// </summary>
 internal sealed class DocumentArchiveStore : SQLiteOpenHelper
 {

@@ -455,7 +455,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
     public bool AddOpeningBalances(UnitAssetsSnapshot snapshot)
     {
         if (string.IsNullOrWhiteSpace(snapshot.Unit) ||
-            snapshot.Items.Count == 0 || snapshot.Items.Count > 500)
+            snapshot.Items.Count > 500)
             throw new ArgumentException("Invalid opening inventory snapshot.");
 
         // Require a valid accounting baseline date before any SQLite write.
