@@ -183,3 +183,17 @@ for _ in range(8):
     assert "Діагностика" not in texts and "Галерея іконок (демо)" not in texts, "Demo diagnostics must be absent from settings"
     swipe()
 print("SETTINGS WITHOUT DEMO DIAGNOSTICS: PASS")
+
+adb("shell","am","start","-n",PACKAGE+"/ua.mavka.mobile.StorageQaActivity","--ez","reset_only","true")
+assert_screen("NATIVE ACCOUNT RESET QA PASS")
+OUT.joinpath("native-account-reset-qa.png").write_bytes(adb("exec-out","screencap","-p"))
+print("NATIVE ACCOUNT RESET WITH PROFILE/GMAIL/PASSWORD/AES/KEYSTORE/GRANTS PRESERVED AND INTERRUPTED-RESET RECOVERY: PASS; NO NETWORK")
+adb("shell","am","force-stop",PACKAGE)
+adb("shell","monkey","-p",PACKAGE,"-c","android.intent.category.LAUNCHER","1")
+time.sleep(5)
+menu("Налаштування")
+tap("Обнулити облік усіх підрозділів і документи")
+assert_screen("Обнулити облік на телефоні?")
+tap("Скасувати",False)
+assert_screen("Керування локальним обліком")
+print("EXPLICIT WHOLE-ACCOUNT RESET CONFIRMATION AND CANCEL UI: PASS")

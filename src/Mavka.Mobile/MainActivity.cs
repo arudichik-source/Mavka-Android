@@ -1409,6 +1409,7 @@ public partial class MainActivity : Activity
         status.Text = "Перевірка службових листів...";
         try
         {
+            LocalAccountReset.EnsureReady(this);
             var password = _store.GetPassword();
             if (string.IsNullOrEmpty(password))
                 throw new InvalidOperationException("Пароль не збережений.");
@@ -3684,6 +3685,8 @@ public partial class MainActivity : Activity
             LocalLedgerResetDialog.Show(this, _ledger, _archive,
                 LoadUserProfile()?.Unit ?? "",
                 () => _busy, message => ledgerStatus.Text = message));
+        Text(ledgerManagement,"Щоб почати облік заново в усіх підрозділах зі збереженням акаунта й ключів:",13);
+        Button(ledgerManagement,"Обнулити облік усіх підрозділів і документи",()=>PromptFullAccountReset(ledgerStatus));
 
         var relayCard = Card();
         Text(relayCard, "Сервер Cloudflare", 18, true);

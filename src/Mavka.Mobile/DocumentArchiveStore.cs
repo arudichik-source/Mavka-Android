@@ -423,6 +423,11 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
         return cursor.MoveToFirst() ? cursor.GetInt(0) : 0;
     }
 
+    // Keep the processed-mail index: old Gmail deliveries must not resurrect
+    // intentionally discarded documents after clearing the account's content.
+    internal void ClearAllForAccountReset() => LocalAccountReset.ClearTables(WritableDatabase,
+        "document_status_history","documents","sync_journal");
+
     public IReadOnlyList<ArchivedDocumentSummary> ListSummaries(string unit)
     {
         var results = new List<ArchivedDocumentSummary>();

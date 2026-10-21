@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace Mavka.Mobile;
 internal sealed class RelaySync
 {
-    private static readonly SemaphoreSlim Gate = new(1, 1);
+    internal static readonly SemaphoreSlim Gate = new(1, 1);
     private readonly Context _context;
     private readonly UserProfile _profile;
     private readonly RelayIdentity _identity;
@@ -91,6 +91,7 @@ internal sealed class RelaySync
         if (!await Gate.WaitAsync(0, cancellation)) return "Синхронізація Relay вже триває.";
         try
         {
+            LocalAccountReset.ResumePending(_context);
             using var api = new RelayApiClient(_identity.DeviceId, _identity.Sign);
             using var db = Store();
             if(new BootstrapStore(_context).Confirmation is string bootstrapAck)

@@ -9,15 +9,21 @@ public partial class MainActivity
     private long _mirrorReadGeneration;
     private async Task RecoverMirrorAsync()
     {
+        if(_busy)return;
+        _busy=true;
         try
         {
             if(new UserProfileStore(this).Load() is null)return;
-            var posting=await Task.Run(()=>{using var store=new MobileChangeStore(this);store.Recover();return IncomingBatchPosting.Apply(this);});
+            await RelaySync.Gate.WaitAsync();
+            IncomingBatchResult posting;
+            try{posting=await Task.Run(()=>{var pending=LocalAccountReset.IsPending(this);LocalAccountReset.ResumePending(this);if(pending)_messages=[];using var store=new MobileChangeStore(this);store.Recover();return IncomingBatchPosting.Apply(this);});}
+            finally{RelaySync.Gate.Release();}
             _incomingPostingIssue=posting.Issues.Count>0?posting.Summary:null;
             if(IsFinishing)return;
             if(_screen=="assets")ShowAssets();else if(_screen=="documents")ShowDocuments();else if(_screen=="home")ShowHome();
         }
         catch(Exception ex){System.Diagnostics.Debug.WriteLine("MIRROR_RECOVERY: "+ex.GetType().Name);}
+        finally{_busy=false;}
     }
     private bool DrawRootAssets(int? location)
     {

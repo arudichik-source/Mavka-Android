@@ -157,10 +157,10 @@ internal sealed class GmailInboxCache
         }
     }
 
-    public void Clear()
+    public void Clear(bool strict=false)
     {
         try { if (File.Exists(_path)) File.Delete(_path); }
-        catch (IOException) { }
+        catch (IOException) when(!strict) { }
         // Do not delete the Android Keystore alias, keys or archive.
     }
 

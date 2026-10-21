@@ -17,7 +17,57 @@ public sealed class StorageQaActivity:Activity
     {
         base.OnCreate(state);var text=new TextView(this){TextSize=16};SetContentView(text);
         text.Text="Перевірка синтетичного локального обліку…";
-        text.Text=await Task.Run(RunChecks);
+        var resetOnly=Intent?.GetBooleanExtra("reset_only",false)==true;
+        text.Text=await Task.Run(()=>resetOnly?RunResetChecks():RunChecks());
+    }
+    private string RunResetChecks()
+    {
+        try
+        {
+            var profile=new UserProfileStore(this).Load();var gmail=new GmailCredentialsStore(this);var keys=new ExchangeKeyStore(this);var identity=new RelayIdentity(this);
+            if(profile?.FullName!="SYNTHETIC-QA-USER" || gmail.HasCredentials || identity.Enabled || keys.HasKeyPair)throw new InvalidOperationException("Reset QA requires synthetic offline emulator only");
+            var checks=0;void Check(bool ok,string name){if(!ok)throw new Exception(name);checks++;}
+            var access=new MobileAccessStore(this).Load()!;var policyJson=JsonSerializer.Serialize(access);var device=identity.DeviceId;
+            var current=RandomNumberGenerator.GetBytes(32);var future=RandomNumberGenerator.GetBytes(32);
+            var bootstrap=new BootstrapKeys(BootstrapProtocol.Keys,Guid.NewGuid().ToString("N"),Guid.NewGuid().ToString(),Guid.NewGuid().ToString(),profile.ClientId,device,RelayProtocol.MainId,DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds(),1,Convert.ToBase64String(current),Convert.ToBase64String(future),access);
+            var ack=BootstrapProtocol.Confirmation(bootstrap,DateTimeOffset.UtcNow);
+            keys.InstallBootstrap(bootstrap,"synthetic-hash",ack,"synthetic-main@example.invalid");
+            gmail.Save("synthetic-user@example.invalid","synthetic-app-password");gmail.SaveMainMavkaEmail("synthetic-main@example.invalid");
+            var documentPassword=new DocumentPasswordStore(this).Load();var proof=TransferKeystoreCipher.Seal("synthetic account proof"u8.ToArray());
+            var json=JsonSerializer.Serialize(new{format="MAVKA_DOCUMENT_V1",type="invoice",recipientClientId=profile.ClientId,recipient=access.units[0].unit,documentId="QA-RESET-TRASH",documentNumber="QA-RESET-TRASH",documentDate="2026-10-21",positions=new[]{new{name="Synthetic reset",unit="од.",quantity=2,price=3}}});
+            using(var archive=new DocumentArchiveStore(this))
+            {
+                ArchiveDocumentClassifier.TryClassify(json,access.units[0].unit,out var doc);
+                archive.SaveDocument(doc!.DocumentId,doc.Kind,doc.Number,doc.Unit,doc.DocumentDate,"synthetic.json",json);archive.MoveToTrash(doc.DocumentId,doc.Unit);
+                archive.MarkMailReady(77,88,"synthetic-scope");
+            }
+            var privateFolder=Path.Combine(FilesDir!.AbsolutePath,"secure_received_files_v1");Directory.CreateDirectory(privateFolder);File.WriteAllText(Path.Combine(privateFolder,"synthetic.bin"),"synthetic encrypted placeholder");
+            LocalAccountReset.Clear(this);
+            Check(!LocalAccountReset.IsPending(this),"reset completion marker persisted");
+            using(var ledger=new PropertyLedgerStore(this))using(var db=ledger.ReadableDatabase)using(var count=db.RawQuery("SELECT (SELECT COUNT(*) FROM receipts)+(SELECT COUNT(*) FROM receipt_items)+(SELECT COUNT(*) FROM ledger_events)",null))Check(count.MoveToFirst() && count.GetInt(0)==0,"all unit ledger records removed");
+            using(var archive=new DocumentArchiveStore(this))
+            {
+                using(var db=archive.ReadableDatabase)using(var count=db.RawQuery("SELECT (SELECT COUNT(*) FROM documents)+(SELECT COUNT(*) FROM document_status_history)",null))Check(count.MoveToFirst() && count.GetInt(0)==0,"whole archive, posting history and trash removed");
+                Check(archive.IsMailReady(77,88,"synthetic-scope"),"processed-mail index retained against resurrection");
+            }
+            using(var mirror=new MobileChangeStore(this)){mirror.Recover();Check(!mirror.HasRecords("asset") && !mirror.HasRecords("document"),"mirror and staged recovery empty");}
+            Check(IncomingBatchPosting.Apply(this).OpeningUnits==0,"cleared snapshots cannot be re-credited on startup");
+            Check(!Directory.Exists(privateFolder),"local received attachment files removed");
+            Check(new UserProfileStore(this).Load()==profile,"profile/client identity unchanged");
+            Check(JsonSerializer.Serialize(new MobileAccessStore(this).Load())==policyJson,"exact unit and role access retained");
+            Check(gmail.GetEmail()=="synthetic-user@example.invalid" && gmail.GetPassword()=="synthetic-app-password" && gmail.GetMainMavkaEmail()=="synthetic-main@example.invalid","Gmail account and encrypted password retained");
+            Check(new DocumentPasswordStore(this).Load()==documentPassword,"manual common password retained");
+            Check(keys.HasKeyPair && keys.Generation==1 && keys.GetKey(keys.CurrentKeyId!)!.SequenceEqual(current) && keys.GetKey(keys.FutureKeyId!)!.SequenceEqual(future),"both exchange keys and generation retained");
+            Check(identity.DeviceId==device && !identity.Enabled && !RelayBackground.IsEnabled(this),"Relay identity and background-off choice retained");
+            Check(TransferKeystoreCipher.Open(proof).SequenceEqual("synthetic account proof"u8.ToArray()),"existing Keystore ciphertext still decrypts");
+            using(var editor=GetSharedPreferences("mavka_local_account_reset_v1",FileCreationMode.Private)!.Edit()!)if(!editor.PutBoolean("pending",true)!.Commit())throw new Exception("QA marker");
+            try{IncomingBatchPosting.Apply(this);throw new Exception("pending reset must block posting");}catch(InvalidOperationException){checks++;}
+            LocalAccountReset.ResumePending(this);Check(!LocalAccountReset.IsPending(this),"interrupted clear resumes safely");
+            LocalAccountReset.Clear(this);Check(JsonSerializer.Serialize(new MobileAccessStore(this).Load())==policyJson,"whole reset retry retains account access");
+            CryptographicOperations.ZeroMemory(current);CryptographicOperations.ZeroMemory(future);
+            return "NATIVE ACCOUNT RESET QA PASS "+checks+" · all scopes/documents/trash cleared; account, passwords, current/future AES, Keystore and grants retained; resume/replay safe. NO NETWORK.";
+        }
+        catch(Exception ex){return "NATIVE ACCOUNT RESET QA FAILED: "+ex;}
     }
     private string RunChecks()
     {

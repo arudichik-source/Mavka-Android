@@ -17,6 +17,8 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
         db.ExecSQL("CREATE TABLE receipts(client TEXT,id TEXT,sealed TEXT,done INTEGER DEFAULT 0,PRIMARY KEY(client,id))");
     }
     public override void OnUpgrade(SQLiteDatabase db,int oldVersion,int newVersion)=>throw new InvalidOperationException("Непідтримувана версія дзеркала обліку.");
+    internal void ClearAllForAccountReset() => LocalAccountReset.ClearTables(WritableDatabase,
+        "receipts","records","parts","heads");
     private static string Seal(string value)
     {
         var bytes=Encoding.UTF8.GetBytes(value);try{return Convert.ToBase64String(TransferKeystoreCipher.Seal(bytes));}finally{CryptographicOperations.ZeroMemory(bytes);}
@@ -32,6 +34,7 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
     }
     public bool TryAccept(string authenticatedJson)
     {
+        LocalAccountReset.EnsureReady(context);
         authenticatedJson=MobileChangeCompression.Open(authenticatedJson,Client);
         using var json=JsonDocument.Parse(authenticatedJson);
         if(!json.RootElement.TryGetProperty("format",out var format) || format.GetString()!=MobileChangePart.Format)return false;

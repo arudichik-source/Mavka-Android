@@ -305,6 +305,9 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         return cursor.MoveToFirst();
     }
 
+    internal void ClearAllForAccountReset() => LocalAccountReset.ClearTables(WritableDatabase,
+        "ledger_events","receipt_items","receipts");
+
     // Existing durable receipt statuses also act as an offline sending queue.
     // They survive process termination without any extra in-memory job list.
     public IReadOnlyList<string> ListPendingReceiptIds(int limit = 25)

@@ -129,6 +129,7 @@ internal sealed class MobileAccessStore(Context context)
     // duplicate checks. A batch is local accounting, never an outgoing MVO ACK.
     public bool PostDocument(string json,bool manual,Func<IncomingInvoice,bool>? currentInvoice=null)
     {
+        LocalAccountReset.EnsureReady(context);
         if(!TryDocument(json,out var document) || document is null)return false;
         var access=Load()!;
         if(access.isMvo ? !manual || !access.canConfirmInvoices : !access.autoPostInvoices)return false;

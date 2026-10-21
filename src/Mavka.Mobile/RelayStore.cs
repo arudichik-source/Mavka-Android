@@ -96,6 +96,20 @@ internal sealed class RelayStore(Context context, string owner) : SQLiteOpenHelp
         return c.MoveToFirst() && c.GetInt(0) != 0;
     }
     public void Acked(string id) { using var db = WritableDatabase; var v = new ContentValues(); v.Put("acked", 1); db.Update("inbox", v, "owner=? AND id=?", new[] { owner, id }); }
+    internal void DiscardDocumentsForAccountReset(string? keepBootstrapGroup)
+    {
+        using var db=WritableDatabase;db.BeginTransaction();
+        try
+        {
+            // Retain authenticated transport evidence until its normal ACK cleanup,
+            // but never import intentionally discarded local packages again.
+            var imported=new ContentValues();imported.Put("imported",1);db.Update("inbox",imported,null,null);
+            if(keepBootstrapGroup is null)db.Delete("outbox",null,null);
+            else db.Delete("outbox","group_id<>?",new[]{keepBootstrapGroup});
+            db.SetTransactionSuccessful();
+        }
+        finally{db.EndTransaction();}
+    }
     public void Imported(IEnumerable<string> ids)
     {
         using var db = WritableDatabase; db.BeginTransaction();

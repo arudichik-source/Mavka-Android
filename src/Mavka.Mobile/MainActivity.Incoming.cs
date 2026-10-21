@@ -30,7 +30,10 @@ public partial class MainActivity
                     if(_busy)return;_busy=true;status.Text="Зарахування всіх доступних надходжень…";
                     try
                     {
-                        var result=await Task.Run(()=>IncomingBatchPosting.Apply(this,manual:true));
+                        await RelaySync.Gate.WaitAsync();
+                        IncomingBatchResult result;
+                        try{result=await Task.Run(()=>IncomingBatchPosting.Apply(this,manual:true));}
+                        finally{RelaySync.Gate.Release();}
                         _incomingPostingIssue=result.Issues.Count>0?result.Summary:null;
                         if(IsFinishing)return;
                         if(_screen=="assets")ShowAssets();else if(_screen=="documents")ShowDocuments();
@@ -42,5 +45,32 @@ public partial class MainActivity
                     finally{_busy=false;}
                 }).Show();
         });
+    }
+
+    private void PromptFullAccountReset(TextView status)
+    {
+        if(_busy){status.Text="Спочатку завершіть поточну операцію.";return;}
+        var word=new EditText(this){Hint="Введіть ОБНУЛИТИ",InputType=Android.Text.InputTypes.ClassText};
+        ConfigureKeyboard(word);word.SetSingleLine(true);
+        new AlertDialog.Builder(this).SetTitle("Обнулити облік на телефоні?")
+            .SetMessage("Буде остаточно видалено залишки й рухи всіх підрозділів, архів документів разом із кошиком, отримані вкладення та черги передачі документів на цьому телефоні.\n\nАкаунт, підключення, паролі, ключі шифрування й доступ до підрозділів збережуться. Для подальшої роботи отримайте актуальні залишки з головної Мавки повторно.\n\nДля підтвердження введіть ОБНУЛИТИ.")
+            .SetView(word).SetNegativeButton("Скасувати",(_,_)=>{})
+            .SetPositiveButton("Обнулити",async(_,_)=>
+            {
+                if(word.Text?.Trim()!="ОБНУЛИТИ"){status.Text="Контрольне слово не збігається. Облік не змінено.";return;}
+                if(_busy){status.Text="Спочатку завершіть поточну операцію.";return;}
+                _busy=true;status.Text="Очищення всього локального обліку…";
+                try
+                {
+                    await RelaySync.Gate.WaitAsync();
+                    try{await Task.Run(()=>LocalAccountReset.Clear(this));}
+                    finally{RelaySync.Gate.Release();}
+                    _messages=[];_documentPage=0;_showReferenceSnapshot=false;_showRootMirror=true;_mirrorReadGeneration++;_incomingPostingIssue=null;
+                    MavkaHomeWidget.Refresh(this);
+                    status.Text="Облік усіх підрозділів і документи очищено. Акаунт, паролі, ключі та доступ збережені.";
+                }
+                catch(Exception ex){_messages=[];status.Text="Очищення не завершено: "+ExplainOperationError(ex)+". Повторіть очищення; воно також продовжиться після перезапуску.";}
+                finally{_busy=false;}
+            }).Show();
     }
 }

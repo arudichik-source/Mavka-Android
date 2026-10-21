@@ -16,6 +16,7 @@ internal static class IncomingBatchPosting
 {
     public static IncomingBatchResult Apply(Context context,bool manual=false)
     {
+        LocalAccountReset.EnsureReady(context);
         var accessStore=new MobileAccessStore(context);
         var policy=accessStore.Load();
         if(policy is null || policy.isMvo && !manual)return new(0,0,[]);
