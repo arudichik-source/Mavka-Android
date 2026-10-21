@@ -4,6 +4,7 @@ public partial class MainActivity
 {
     private ExchangeOperation? _exchangeOperation;
     private bool _resetRequested;
+    private Android.Widget.TextView? _homeSyncStatus;
 
     // One owner for manual refresh, foreground polling and local recovery.
     // Cancellation is cooperative: reset waits for the transaction to roll back
@@ -24,7 +25,12 @@ public partial class MainActivity
         public void Cancel() => _cancellation.Cancel();
         public void Dispose()
         {
-            if (ReferenceEquals(_owner._exchangeOperation, this)) _owner._exchangeOperation = null;
+            if (ReferenceEquals(_owner._exchangeOperation, this))
+            {
+                _owner._exchangeOperation = null;
+                if(!_owner.IsDestroyed && _owner._screen=="home" && _owner._homeSyncStatus?.Text=="Обмін виконується. Його можна скасувати.")
+                    _owner._homeSyncStatus.Text=_cancellation.IsCancellationRequested?"Обмін скасовано. Збережені дані залишено.":"Обмін завершено.";
+            }
             _cancellation.Dispose();
             _finished.TrySetResult();
         }

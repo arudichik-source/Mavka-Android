@@ -301,6 +301,7 @@ public partial class MainActivity : Activity
             LoadUnread();
         }
         var syncStatus=Text(overview,_exchangeOperation is null?"Оновлення виконується лише за вашим запитом.":"Обмін виконується. Його можна скасувати.",13);
+        _homeSyncStatus=syncStatus;
         Button(overview,"Оновити пошту",async()=>await RefreshMessagesAsync(syncStatus));
         Button(overview,"Оновити сервер",async()=>await RefreshRelayAsync(syncStatus));
         Button(overview,"Скасувати обмін",()=>CancelExchange(syncStatus));
