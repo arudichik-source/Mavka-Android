@@ -150,7 +150,7 @@ public sealed class StorageQaActivity:Activity
                     using var cancel=new CancellationTokenSource();
                     var written=0;
                     try{bulk.TryAccept(wires[9],cancel.Token,new InlineProgress(n=>{written=n;if(n==50)cancel.Cancel();}));throw new Exception("import did not cancel");}
-                    catch(OperationCanceledException){Check(written==50,"cancellation reached actual encrypted record writes");}
+                    catch(System.OperationCanceledException){Check(written==50,"cancellation reached actual encrypted record writes");}
                     Check(bulk.List("asset").Count==0,"cancelled import rolls back entire transaction");
                     using(var db=bulk.ReadableDatabase)using(var rows=db.RawQuery("SELECT COUNT(*) FROM heads",null))Check(rows.MoveToFirst() && rows.GetInt(0)==0,"cancelled import never advances sequence");
                     bulk.Recover();Check(bulk.List("asset").Count==500,"cancelled staged import resumes once without losing records");
