@@ -18,7 +18,8 @@ internal static class RegistrationMailService
                "Звання: " + profile.Rank + "\n" +
                "Посада: " + profile.Position + "\n" +
                "Підрозділ: " + profile.Unit + "\n" +
-               "МВО: " + (profile.IsMvo ? "+" : "-") + "\n";
+               "МВО: " + (profile.IsMvo ? "+" : "-") + "\n" +
+               "Телефон: " + profile.PhoneNumber + "\n";
     }
 
     public static async Task SendAsync(
@@ -40,13 +41,46 @@ internal static class RegistrationMailService
                 rank = profile.Rank,
                 position = profile.Position,
                 unit = profile.Unit,
-                isMvo = profile.IsMvo
-            }, exchangeKeys);
+                isMvo = profile.IsMvo,
+                phoneNumber = profile.PhoneNumber
+            }, exchangeKeys, allowInitialRegistration: true);
 
         var connection = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
         using var client = connection.Client;
         await client.AuthenticateAsync(sender, appPassword, timeout.Token);
         await client.SendAsync(message, timeout.Token);
+        await client.DisconnectAsync(true, timeout.Token);
+    }
+
+    public static async Task SendQrPairRequestAsync(
+        string sender, string password, string mainEmail, UserProfile profile,
+        QrPairingProtocol.Invitation invitation)
+    {
+        if (!string.Equals(mainEmail, invitation.MainEmail,
+            StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("QR-відправник не збігається з налаштованою ГОЛОВНОЮ МАВКОЮ.");
+        var mail = new MimeMessage();
+        mail.From.Add(MailboxAddress.Parse(sender));
+        mail.To.Add(MailboxAddress.Parse(mainEmail));
+        mail.Subject = "MAVKA_QR_PAIR_REQUEST_V1";
+        // NEVER send the QR secret in the request. The desktop Mavka must
+        // read the already displayed QR and independently derive the HMAC.
+        mail.Body = new TextPart("plain")
+        {
+            Text = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                format = "MAVKA_QR_PAIR_REQUEST_V1",
+                sessionId = invitation.SessionId,
+                clientId = profile.ClientId,
+                unit = profile.Unit,
+                mobileEmail = sender
+            })
+        };
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+        var opened = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
+        using var client = opened.Client;
+        await client.AuthenticateAsync(sender, password, timeout.Token);
+        await client.SendAsync(mail, timeout.Token);
         await client.DisconnectAsync(true, timeout.Token);
     }
 
@@ -90,12 +124,72 @@ internal static class RegistrationMailService
         await client.DisconnectAsync(true, timeout.Token);
     }
 
+    /// <summary>
+    /// Explicit user-initiated encrypted PDF/XLSX transfer. Sends only the
+    /// authenticated ciphertext envelope, never plaintext file bytes.
+    /// The address is the configured authorized Gmail correspondent.
+    /// </summary>
+    public static async Task SendFilePartAsync(string sender, string password, string recipient,
+        string fileName, string part)
+    {
+        if (!MavkaPasswordedEnvelope.IsWrapped(part) ||
+            System.Text.Encoding.UTF8.GetByteCount(part) > 700_000)
+            throw new ArgumentException("Потрібна зашифрована та парольна частина.");
+        var mail = new MimeMessage();
+        mail.From.Add(MailboxAddress.Parse(sender)); mail.To.Add(MailboxAddress.Parse(recipient));
+        mail.Subject = MavkaFileParts.Format;
+        var body = new BodyBuilder { TextBody = "Захищена частина файла Мавки." };
+        body.Attachments.Add(fileName + MavkaFileParts.Extension, Encoding.UTF8.GetBytes(part), new ContentType("application", "json"));
+        mail.Body = body.ToMessageBody();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var opened = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
+        using var client = opened.Client;
+        await client.AuthenticateAsync(sender, password, timeout.Token);
+        await client.SendAsync(mail, timeout.Token); await client.DisconnectAsync(true, timeout.Token);
+    }
+
+    public static async Task SendProtectedFileAsync(
+        string sender, string appPassword, string recipient,
+        string originalName, string encryptedEnvelope)
+    {
+        if (!System.Net.Mail.MailAddress.TryCreate(sender, out var from) ||
+            !System.Net.Mail.MailAddress.TryCreate(recipient, out var to) ||
+            from.Address != sender || to.Address != recipient)
+            throw new ArgumentException("Некоректна адреса електронної пошти.");
+        _ = MavkaEncryptedFileEnvelope.MimeFor(originalName);
+        if (encryptedEnvelope.Length is < 100 or > 5_000_000 ||
+            !MavkaPasswordedEnvelope.IsWrapped(encryptedEnvelope))
+            throw new ArgumentException("Документ повинен бути захищений ключем і паролем.");
+
+        var mail = new MimeMessage();
+        mail.From.Add(MailboxAddress.Parse(sender));
+        mail.To.Add(MailboxAddress.Parse(recipient));
+        mail.Subject = "MAVKA_ENCRYPTED_FILE_V1";
+        var body = new BodyBuilder
+        {
+            TextBody = "Захищене вкладення Мавки. Потрібні ключ обміну й пароль документів."
+        };
+        body.Attachments.Add(originalName + MavkaEncryptedFileEnvelope.Extension,
+            Encoding.UTF8.GetBytes(encryptedEnvelope),
+            new ContentType("application", "json"));
+        mail.Body = body.ToMessageBody();
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var connection = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
+        using var client = connection.Client;
+        await client.AuthenticateAsync(sender, appPassword, timeout.Token);
+        await client.SendAsync(mail, timeout.Token);
+        await client.DisconnectAsync(true, timeout.Token);
+    }
+
     private static void SetSecureBody(
         MimeMessage message, string legacySubject, string legacyBody,
-        object structuredData, ExchangeKeyStore? keys)
+        object structuredData, ExchangeKeyStore? keys, bool allowInitialRegistration = false)
     {
         if (keys?.HasKeyPair != true)
         {
+            if (!allowInitialRegistration)
+                throw new KeyNotFoundException("Підтвердження залишено в черзі до отримання ключів.");
             // Only initial registration, before keys have arrived, uses the old protocol.
             message.Subject = legacySubject;
             message.Body = new TextPart("plain") { Text = legacyBody };
@@ -115,3 +209,4 @@ internal static class RegistrationMailService
         message.Body = builder.ToMessageBody();
     }
 }
+
