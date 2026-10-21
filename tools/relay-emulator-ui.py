@@ -46,7 +46,7 @@ def tap(label, scroll=True):
     for _ in range(14 if scroll else 1):
         root = tree()
         for n in root.iter("node"):
-            if label in (n.get("text"), n.get("content-desc")):
+            if any(label.casefold()==value.casefold() for value in (n.get("text"),n.get("content-desc")) if value):
                 x1,y1,x2,y2 = bounds(n)
                 if x2 > x1 and y2 > y1:
                     adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))

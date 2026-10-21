@@ -25,7 +25,7 @@ public sealed class StorageQaActivity:Activity
         try
         {
             var profile=new UserProfileStore(this).Load();var gmail=new GmailCredentialsStore(this);var keys=new ExchangeKeyStore(this);var identity=new RelayIdentity(this);
-            if(profile?.FullName!="SYNTHETIC-QA-USER" || gmail.HasCredentials || identity.Enabled || keys.HasKeyPair)throw new InvalidOperationException("Reset QA requires synthetic offline emulator only");
+            if(profile is null || profile.FullName!="SYNTHETIC-QA-USER" || gmail.HasCredentials || identity.Enabled || keys.HasKeyPair)throw new InvalidOperationException("Reset QA requires synthetic offline emulator only");
             var checks=0;void Check(bool ok,string name){if(!ok)throw new Exception(name);checks++;}
             var access=new MobileAccessStore(this).Load()!;var policyJson=JsonSerializer.Serialize(access);var device=identity.DeviceId;
             var current=RandomNumberGenerator.GetBytes(32);var future=RandomNumberGenerator.GetBytes(32);
@@ -74,7 +74,7 @@ public sealed class StorageQaActivity:Activity
         try
         {
             var profile=new UserProfileStore(this).Load();
-            if(profile?.FullName!="SYNTHETIC-QA-USER" || new GmailCredentialsStore(this).HasCredentials || new RelayIdentity(this).Enabled || new ExchangeKeyStore(this).HasKeyPair)throw new InvalidOperationException("QA requires isolated synthetic emulator profile and no connected Gmail.");
+            if(profile is null || profile.FullName!="SYNTHETIC-QA-USER" || new GmailCredentialsStore(this).HasCredentials || new RelayIdentity(this).Enabled || new ExchangeKeyStore(this).HasKeyPair)throw new InvalidOperationException("QA requires isolated synthetic emulator profile and no connected Gmail.");
             var checks=0;void Check(bool condition,string label){if(!condition)throw new Exception(label);checks++;}
             void Reject(Action action,string label){try{action();}catch(Exception){checks++;return;}throw new Exception(label);}
             var suffix=Guid.NewGuid().ToString("N");var noticeDb="qa_notices_"+suffix+".db";var mirrorDb="mavka_root_mirror_v1.db";

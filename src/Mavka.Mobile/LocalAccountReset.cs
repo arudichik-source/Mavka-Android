@@ -44,8 +44,9 @@ internal static class LocalAccountReset
         using var editor=context.GetSharedPreferences(Preferences,FileCreationMode.Private)!.Edit()!;
         if(!editor.PutBoolean("pending",pending)!.Commit())throw new IOException("Не вдалося зберегти стан очищення.");
     }
-    internal static void ClearTables(SQLiteDatabase db,params string[] tables)
+    internal static void ClearTables(SQLiteDatabase? db,params string[] tables)
     {
+        if(db is null)throw new IOException("Локальна база недоступна для очищення.");
         using(db)
         {
             db.BeginTransaction();try
