@@ -59,6 +59,7 @@ public partial class MainActivity : Activity
     private string _documentQuery = "";
     private string _assetQuery = "";
     private Action? _refreshCurrentAssets;
+    private CancellationTokenSource _screenReads=new();
     private int _documentPage;
     private string _mailFilter = "all";
     private bool _busy;
@@ -261,6 +262,7 @@ public partial class MainActivity : Activity
 
     private void Begin(string screen, string title)
     {
+        _screenReads.Cancel();_screenReads.Dispose();_screenReads=new();
         _mirrorReadGeneration++;
         _refreshCurrentAssets=null;
         _screen = screen;

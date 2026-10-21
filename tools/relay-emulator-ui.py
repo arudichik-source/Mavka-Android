@@ -213,6 +213,21 @@ tap("Переглянути зміни")
 assert_screen("Рядків руху: 2")
 OUT.joinpath("root-document.png").write_bytes(adb("exec-out","screencap","-p"))
 print("ROOT MIRROR UNIT/COMBINED INVENTORY AND COMPLETE DOCUMENT UI: PASS; NO NETWORK")
+adb("shell","am","start","-n",PACKAGE+"/ua.mavka.mobile.StorageQaActivity","--ez","large_ui","true")
+assert_screen("NATIVE LARGE UI QA READY")
+adb("shell","am","force-stop",PACKAGE)
+adb("shell","monkey","-p",PACKAGE,"-c","android.intent.category.LAUNCHER","1")
+assert_screen("Стан синхронізації")
+for _ in range(2):
+    started=time.monotonic()
+    menu("Історія документів")
+    assert_screen("Документи головної Мавки")
+    menu("Головна")
+    assert_screen("Стан синхронізації")
+    assert time.monotonic()-started<20,"Large document load blocked menu/Home navigation"
+OUT.joinpath("large-inventory-home-responsive.png").write_bytes(adb("exec-out","screencap","-p"))
+print("33000 ENCRYPTED DOCUMENT ROWS: MENU/HOME RESPONSIVE DURING LOAD; OBSOLETE READ CANCELLED: PASS; NO NETWORK")
+
 
 menu("Налаштування")
 for _ in range(8):

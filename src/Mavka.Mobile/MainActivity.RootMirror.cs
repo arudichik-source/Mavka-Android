@@ -82,7 +82,7 @@ public partial class MainActivity
         var loading=Text(header,"Завантаження захищених залишків…",13);
         async void Load()
         {
-            try{records=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("asset",location);});if(generation!=_mirrorReadGeneration || _screen!="assets")return;if(records.Count==0){_showRootMirror=false;ShowAssets();return;}loading.Text="";Draw();}
+            try{var token=_screenReads.Token;records=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("asset",location,token);},token);if(generation!=_mirrorReadGeneration || _screen!="assets")return;if(records.Count==0){_showRootMirror=false;ShowAssets();return;}loading.Text="";Draw();}
             catch(Exception ex){if(generation==_mirrorReadGeneration)loading.Text=ExplainOperationError(ex);}
         }
         _refreshCurrentAssets=Load;Load();return true;
@@ -97,22 +97,34 @@ public partial class MainActivity
         var item=p.GetProperty("itemId").GetInt32();var generation=_mirrorReadGeneration;
         var loading=Text(card,"Завантаження історії…",13);
         IReadOnlyList<MobileMirrorRecord> history;
-        try{history=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("document",record.LocationId);});}
+        try{var token=_screenReads.Token;history=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("document",record.LocationId,token);},token);}
         catch(Exception ex){loading.Text=ExplainOperationError(ex);return;}
         if(generation!=_mirrorReadGeneration || _screen!="root-asset")return;loading.Text="";
         if(new MobileAccessStore(this).Load()?.Allows(record.LocationId,true)!=true){loading.Text="Доступ відкликано.";return;}
-        var docs=await Task.Run(()=>history.Select(r=>(Record:r,Doc:JsonDocument.Parse(r.Json))).Where(r=>r.Doc.RootElement.GetProperty("movements").EnumerateArray().Any(l=>l.GetProperty("itemId").GetInt32()==item)).OrderByDescending(d=>d.Doc.RootElement.GetProperty("date").GetString(),StringComparer.Ordinal).ToArray());
-        if(generation!=_mirrorReadGeneration || _screen!="root-asset"){foreach(var doc in docs)doc.Doc.Dispose();return;}
-        foreach(var doc in docs.Take(50))
-
+        var docs=await Task.Run(()=>
         {
-            var root=doc.Doc.RootElement;var lines=root.GetProperty("movements").EnumerateArray().Where(l=>l.GetProperty("itemId").GetInt32()==item).ToArray();if(lines.Length==0)continue;
-            Text(card,root.GetProperty("date")+" · "+root.GetProperty("type")+" № "+root.GetProperty("number"),15,true);
-            foreach(var line in lines)Text(card,"Рух: "+line.GetProperty("quantity")+" · партія "+line.GetProperty("batch")+" · код "+line.GetProperty("code")+" · серії "+line.GetProperty("serials"),13);
-            var selected=doc.Record;Button(card,"Документ",()=>ShowRootDocument(selected));
+            var result=new List<(MobileMirrorRecord Record,string Title,string[] Lines)>();
+            foreach(var entry in history)
+            {
+                using var json=JsonDocument.Parse(entry.Json);var root=json.RootElement;
+                var lines=root.GetProperty("movements").EnumerateArray().Where(l=>l.GetProperty("itemId").GetInt32()==item).Select(l=>"Рух: "+l.GetProperty("quantity")+" · партія "+l.GetProperty("batch")+" · код "+l.GetProperty("code")+" · серії "+l.GetProperty("serials")).ToArray();
+                if(lines.Length>0)result.Add((entry,root.GetProperty("date")+" · "+root.GetProperty("type")+" № "+root.GetProperty("number"),lines));
+            }
+            return result.OrderByDescending(d=>d.Title,StringComparer.Ordinal).ToArray();
+        });
+        if(generation!=_mirrorReadGeneration || _screen!="root-asset")return;
+        var rows=new LinearLayout(this){Orientation=Orientation.Vertical};card.AddView(rows);var page=0;
+        void DrawHistory()
+        {
+            rows.RemoveAllViews();Text(rows,$"Документів руху: {docs.Length} · сторінка {page+1}",13);
+            foreach(var doc in docs.Skip(page*50).Take(50))
+            {
+                Text(rows,doc.Title,15,true);foreach(var line in doc.Lines.Take(50))Text(rows,line,13);
+                Button(rows,"Документ",()=>ShowRootDocument(doc.Record));
+            }
+            if(page>0)Button(rows,"← Попередні 50",()=>{page--;DrawHistory();});if((page+1)*50<docs.Length)Button(rows,"Наступні 50 →",()=>{page++;DrawHistory();});
         }
-        if(docs.Length>50)Text(card,"Показано перші 50 документів. Повна історія доступна в журналі документів.",13);
-        foreach(var doc in docs)doc.Doc.Dispose();Button(card,"До майна",ShowAssets);
+        DrawHistory();Button(card,"До майна",ShowAssets);
     }
     private void DrawRootDocuments(int? location)
     {
@@ -145,7 +157,7 @@ public partial class MainActivity
         var loading=Text(card,"Завантаження захищених документів…",13);
         async void Load()
         {
-            try{records=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("document",location);});if(generation!=_mirrorReadGeneration || _screen!="documents")return;loading.Text="";Draw();}
+            try{var token=_screenReads.Token;records=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("document",location,token);},token);if(generation!=_mirrorReadGeneration || _screen!="documents")return;loading.Text="";Draw();}
             catch(Exception ex){if(generation==_mirrorReadGeneration)loading.Text=ExplainOperationError(ex);}
         }
         Load();

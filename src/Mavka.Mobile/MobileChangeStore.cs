@@ -192,7 +192,7 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
         while(rows.MoveToNext())if((location is null || rows.GetInt(0)==location) && access.Allows(rows.GetInt(0),kind=="asset"))return true;
         return false;
     }
-    public IReadOnlyList<MobileMirrorRecord> List(string kind,int? location=null)
+    public IReadOnlyList<MobileMirrorRecord> List(string kind,int? location=null,CancellationToken cancellation=default)
     {
         var access=new MobileAccessStore(context).Load();if(access is null || kind=="asset" && !access.canViewAssets || kind=="document" && !access.canViewDocuments)return [];
         var result=new List<MobileMirrorRecord>();using var db=ReadableDatabase;
@@ -201,11 +201,16 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
         using var source=db.RawQuery("SELECT source FROM heads WHERE client=? ORDER BY rowid DESC LIMIT 1",new[]{Client});if(!source.MoveToFirst())return [];
         using var crypto=new TransferKeystoreCipher.ReadSession();
         using var rows=db.RawQuery("SELECT key,location,sealed FROM records WHERE client=? AND source=? AND kind=?",new[]{Client,source.GetString(0),kind});
-        while(rows.MoveToNext())if((location is null || rows.GetInt(1)==location) && access.Allows(rows.GetInt(1),kind=="asset"))result.Add(new(rows.GetString(0),kind,rows.GetInt(1),crypto.OpenText(rows.GetString(2))));
+        while(rows.MoveToNext())
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if((location is null || rows.GetInt(1)==location) && access.Allows(rows.GetInt(1),kind=="asset"))result.Add(new(rows.GetString(0),kind,rows.GetInt(1),crypto.OpenText(rows.GetString(2))));
+        }
         if(kind!="document")return result;
         var complete=new List<MobileMirrorRecord>();
         foreach(var group in result.GroupBy(r=>r.Key.Split(":chunk:",StringSplitOptions.None)[0]))
         {
+            cancellation.ThrowIfCancellationRequested();
             var chunks=group.Select(r=>(Record:r,Node:System.Text.Json.Nodes.JsonNode.Parse(r.Json)!.AsObject())).OrderBy(r=>r.Node["chunkIndex"]?.GetValue<int>()??0).ToArray();
             var count=chunks[0].Node["chunkCount"]?.GetValue<int>()??1;
             if(count!=chunks.Length || chunks.Where((r,i)=>(r.Node["chunkIndex"]?.GetValue<int>()??0)!=i).Any())throw new CryptographicException("Не всі частини документа збережені.");

@@ -18,7 +18,31 @@ public sealed class StorageQaActivity:Activity
         base.OnCreate(state);var text=new TextView(this){TextSize=16};SetContentView(text);
         text.Text="Перевірка синтетичного локального обліку…";
         var resetOnly=Intent?.GetBooleanExtra("reset_only",false)==true;
-        text.Text=await Task.Run(()=>resetOnly?RunResetChecks():RunChecks());
+        text.Text=await Task.Run(()=>Intent?.GetBooleanExtra("large_ui",false)==true?PrepareLargeUi():resetOnly?RunResetChecks():RunChecks());
+    }
+    private string PrepareLargeUi()
+    {
+        try
+        {
+            var profile=new UserProfileStore(this).Load();
+            if(profile?.FullName!="SYNTHETIC-QA-USER" || new GmailCredentialsStore(this).HasCredentials || new RelayIdentity(this).Enabled || new ExchangeKeyStore(this).HasKeyPair)throw new InvalidOperationException("Large UI QA requires synthetic offline emulator only");
+            using var mirror=new MobileChangeStore(this);using var db=mirror.WritableDatabase;
+            using var head=db.RawQuery("SELECT source FROM heads WHERE client=? ORDER BY rowid DESC LIMIT 1",new[]{profile.ClientId});
+            if(!head.MoveToFirst())throw new InvalidOperationException("Synthetic mirror required");var source=head.GetString(0);
+            var payload=JsonSerializer.Serialize(new{locationId=1,location="QA One",id=100000,number="PERF-SYNTHETIC",date="2026-10-21",type="Акт",status="Проведено",chunkIndex=0,chunkCount=1,movements=new[]{new{itemId=1,name="Synthetic",unit="од.",quantity=1,price=1.123456789m,category=1,batch="QA",code="QA",serials=""}}});
+            var sealedPayload=Convert.ToBase64String(TransferKeystoreCipher.Seal(System.Text.Encoding.UTF8.GetBytes(payload)));
+            db.BeginTransaction();try
+            {
+                for(var i=0;i<33000;i++)
+                {
+                    var values=new ContentValues();values.Put("client",profile.ClientId);values.Put("source",source);values.Put("key","document:1:"+(100000+i));values.Put("kind","document");values.Put("location",1);values.Put("sealed",sealedPayload);db.InsertWithOnConflict("records",null,values,Conflict.Replace);
+                }
+                db.SetTransactionSuccessful();
+            }
+            finally{db.EndTransaction();}
+            return "NATIVE LARGE UI QA READY 33000 encrypted document rows. NO NETWORK.";
+        }
+        catch(Exception ex){return "NATIVE LARGE UI QA FAILED: "+ex;}
     }
     private string RunResetChecks()
     {
