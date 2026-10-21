@@ -52,4 +52,16 @@ Check(!ForegroundPollingPolicy.CanRun(true,false,false),"Paused activity never p
 Check(!ForegroundPollingPolicy.CanRun(true,true,true),"Existing operation prevents overlapping polls");
 Check(ForegroundPollingPolicy.CanRun(true,true,false),"Only enabled resumed idle activity can poll");
 Check(ForegroundPollingPolicy.Minutes(99)==2 && ForegroundPollingPolicy.Delay(2,0)==TimeSpan.FromMinutes(2) && ForegroundPollingPolicy.Delay(2,4)==TimeSpan.FromMinutes(10),"Polling intervals validated and error retries bounded");
+var allMail=Enumerable.Range(1,300).Select(i=>(uint)i).ToArray();
+var keyMail=new HashSet<uint>{299,300};var changesMail=allMail.Take(298).ToHashSet();
+var batchMail=GmailProcessingSelectionPolicy.PayloadBatch(allMail.Reverse(),keyMail,changesMail,new HashSet<uint>());
+Check(batchMail.Count==3 && batchMail.Take(2).SequenceEqual(new uint[]{299,300}),"Bounded Gmail batch prioritizes key provisioning before changes");
+var remainingMail=allMail.ToHashSet();var completedMail=new HashSet<uint>();
+while(remainingMail.Count>0)
+{
+    var portion=GmailProcessingSelectionPolicy.PayloadBatch(remainingMail,keyMail,changesMail,new HashSet<uint>());
+    Check(portion.Count is >0 and <=3,"Gmail cycle keeps a bounded decrypt budget");
+    foreach(var uid in portion){if(!completedMail.Add(uid))throw new Exception("Gmail duplicate cycle");remainingMail.Remove(uid);}
+}
+Check(completedMail.Count==300,"Every queued multipart mail remains eligible across successive completed cycles");
 Console.WriteLine($"PASS {checks} PC → Android V2 bootstrap, shared password, expiry, tamper, roles and foreground polling checks (synthetic)");

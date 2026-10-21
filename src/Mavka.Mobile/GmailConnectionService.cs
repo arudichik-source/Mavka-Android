@@ -243,7 +243,7 @@ internal static class GmailConnectionService
         // Exact sender re-check. Process key messages in UID order before
         // the rest so even an old provisioning letter unlocks recent files.
         var verified = fetched.Values.Where(ExactSender).ToList();
-        var selected = verified
+        var candidates = verified
             .OrderByDescending(s => s.UniqueId.Id).Take(15)
             .Concat(verified.Where(s => fileUids.Contains(s.UniqueId.Id))
                 .OrderByDescending(s => s.UniqueId.Id).Take(150))
@@ -253,6 +253,12 @@ internal static class GmailConnectionService
             .GroupBy(s => s.UniqueId.Id).Select(group => group.First())
             .OrderBy(s => s.UniqueId.Id)
             .ToList();
+        // Returning one bounded portion lets the Activity durably import/trash
+        // it before downloading more. Previously 100 changes x 50 attachments
+        // could exhaust the whole connection timeout before returning ANY data.
+        // Every remaining UID stays in Gmail for the next requested cycle.
+        var batchIds=GmailProcessingSelectionPolicy.PayloadBatch(candidates.Select(s=>s.UniqueId.Id),keyUids,changeUids,fileUids);
+        var selected=batchIds.Select(id=>candidates.Single(s=>s.UniqueId.Id==id)).ToArray();
 
         var result = new List<MavkaMailItem>();
         foreach (var uid in readyForTrash)
@@ -631,7 +637,8 @@ internal static class GmailConnectionService
                     textAttachments.All(a => a.SecureFileEnvelope is not null)));
         }
 
-        await client.DisconnectAsync(true, timeout.Token);
+        try{await client.DisconnectAsync(true, timeout.Token);}
+        catch(Exception ex)when(ex is IOException or OperationCanceledException){cancellation.ThrowIfCancellationRequested();}
         result.Reverse(); // Display latest first without breaking key rotation processing order.
         return result;
     }

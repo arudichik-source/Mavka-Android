@@ -1700,6 +1700,7 @@ public partial class MainActivity : Activity
     {
         var profile = LoadUserProfile();
         int moved = 0, saved = 0, kept = 0;
+        var portionFull=_messages.Count(m=>!m.PreviouslyArchived)>=3;
         var remaining = new List<MavkaMailItem>();
         foreach (var mail in _messages)
         {
@@ -1887,9 +1888,10 @@ public partial class MainActivity : Activity
         }
         cancellation.ThrowIfCancellationRequested();
         _messages = remaining;
-        var posting=await Task.Run(()=>IncomingBatchPosting.Apply(this));
+        var posting=await Task.Run(()=>IncomingBatchPosting.Apply(this,cancellation:cancellation),cancellation);
         _incomingPostingIssue=posting.Issues.Count>0?posting.Summary:null;
         return $"Архівовано/перевірено вкладень: {saved}; у кошик: {moved}; залишено: {kept}."+
+            (portionFull?" Оброблено порцію листів. Решта — під час наступного оновлення пошти.":"")+
             (posting.OpeningUnits+posting.Invoices>0 || posting.Issues.Count>0?"\n"+posting.Summary:"");
     }
 
