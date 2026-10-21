@@ -47,4 +47,9 @@ Check(MavkaExchangeParser.TryAssets(Snapshot(longName),out var exactSnapshot) &&
 Check(!MavkaExchangeParser.TryAssets(Snapshot(new string('a',1025)),out _),"Catalogue name bound remains enforced");
 var longInvoice=JsonSerializer.Serialize(new{format="MAVKA_DOCUMENT_V1",type="invoice",documentId="synthetic-long-name",documentNumber="1",documentDate="2026-10-20",recipient="One",positions=new[]{new{name=longName,unit="од.",quantity=3m,price=1.123456789m}}});
 Check(MavkaExchangeParser.TryInvoice(longInvoice,out var exactInvoice) && exactInvoice!.Positions.Single().Name==longName,"Full long catalogue name survives invoice parsing");
-Console.WriteLine($"PASS {checks} PC → Android V2 bootstrap, shared password, expiry, tamper and role checks (synthetic)");
+Check(!ForegroundPollingPolicy.CanRun(false,true,false),"Foreground polling defaults/opt-out cannot run");
+Check(!ForegroundPollingPolicy.CanRun(true,false,false),"Paused activity never polls");
+Check(!ForegroundPollingPolicy.CanRun(true,true,true),"Existing operation prevents overlapping polls");
+Check(ForegroundPollingPolicy.CanRun(true,true,false),"Only enabled resumed idle activity can poll");
+Check(ForegroundPollingPolicy.Minutes(99)==2 && ForegroundPollingPolicy.Delay(2,0)==TimeSpan.FromMinutes(2) && ForegroundPollingPolicy.Delay(2,4)==TimeSpan.FromMinutes(10),"Polling intervals validated and error retries bounded");
+Console.WriteLine($"PASS {checks} PC → Android V2 bootstrap, shared password, expiry, tamper, roles and foreground polling checks (synthetic)");

@@ -139,14 +139,14 @@ internal static class GmailConnectionService
         DocumentPasswordStore? documentPasswords = null,
         string? recipientClientId = null,
         Func<uint, IReadOnlyDictionary<uint, string>>? processedIndex = null,
-        bool noticesOnly = false)
+        bool noticesOnly = false,CancellationToken cancellation=default)
     {
         if (string.IsNullOrWhiteSpace(allowedSender) ||
             !System.Net.Mail.MailAddress.TryCreate(allowedSender.Trim(), out var parsed) ||
             !string.Equals(parsed.Address, allowedSender.Trim(), StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Не задана коректна адреса головної Мавки.");
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);timeout.CancelAfter(TimeSpan.FromMinutes(3));
         var connection = await GmailTlsConnection.OpenImapAsync(timeout.Token);
         using var client = connection.Client;
         await client.AuthenticateAsync(account, appPassword, timeout.Token);
@@ -639,11 +639,11 @@ internal static class GmailConnectionService
     // Move only a previously displayed message to Gmail Trash, never permanently expunge it.
     // UIDVALIDITY and the *exact* authorized sender are rechecked immediately before moving.
     public static async Task MoveToTrashAsync(
-        string account, string password, string authorizedSender, MavkaMailItem mail)
+        string account, string password, string authorizedSender, MavkaMailItem mail,CancellationToken cancellation=default)
     {
         if (mail.MessageUid == 0 || mail.UidValidity == 0)
             throw new InvalidOperationException("Не вдалося підтвердити ідентифікатор листа.");
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);timeout.CancelAfter(TimeSpan.FromSeconds(35));
         var opened = await GmailTlsConnection.OpenImapAsync(timeout.Token);
         using var client = opened.Client;
         await client.AuthenticateAsync(account, password, timeout.Token);

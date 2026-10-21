@@ -77,6 +77,6 @@ public partial class MainActivity
             }
             catch(Exception ex){if(generation==_mirrorReadGeneration)status.Text="Не вдалося завантажити залишки: "+ExplainOperationError(ex);}
         }
-        Load();
+        _refreshCurrentAssets=Load;Load();
     }
 }

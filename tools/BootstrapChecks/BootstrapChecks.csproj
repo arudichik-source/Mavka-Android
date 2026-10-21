@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../src/Mavka.Mobile/ForegroundPollingPolicy.cs" Link="ForegroundPollingPolicy.cs"/>
     <Compile Include="../../src/Mavka.Mobile/MavkaExchangeParser.cs" Link="MavkaExchangeParser.cs"/>
     <Compile Include="../../src/Mavka.Mobile/BootstrapProtocol.cs" Link="BootstrapProtocol.cs"/>
     <Compile Include="../../src/Mavka.Mobile/RegistrationV2Protocol.cs" Link="RegistrationV2Protocol.cs"/>

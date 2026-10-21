@@ -71,7 +71,7 @@ public partial class MainActivity
             try{records=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("asset",location);});if(generation!=_mirrorReadGeneration || _screen!="assets")return;loading.Text="";Draw();}
             catch(Exception ex){if(generation==_mirrorReadGeneration)loading.Text=ExplainOperationError(ex);}
         }
-        Load();return true;
+        _refreshCurrentAssets=Load;Load();return true;
     }
     private async void ShowRootAsset(MobileMirrorRecord record)
     {

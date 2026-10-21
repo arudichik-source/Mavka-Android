@@ -58,6 +58,7 @@ public partial class MainActivity : Activity
     private string _inboxQuery = "";
     private string _documentQuery = "";
     private string _assetQuery = "";
+    private Action? _refreshCurrentAssets;
     private int _documentPage;
     private string _mailFilter = "all";
     private bool _busy;
@@ -72,6 +73,7 @@ public partial class MainActivity : Activity
         Window?.SetStatusBarColor(_theme.Header);
         Window?.SetNavigationBarColor(_theme.Surface);
         _store = new GmailCredentialsStore(this);
+        try{RelayBackground.SetEnabled(this,false);}catch{ /* Foreground auto-refresh never creates a persistent job. */ }
         _qrPairing = new QrPairingStore(this);
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
@@ -260,6 +262,7 @@ public partial class MainActivity : Activity
     private void Begin(string screen, string title)
     {
         _mirrorReadGeneration++;
+        _refreshCurrentAssets=null;
         _screen = screen;
         Title = "Мавка Mobile — " + title;
         _body.RemoveAllViews();
@@ -292,6 +295,7 @@ public partial class MainActivity : Activity
         var syncStatus=Text(overview,"Оновлення виконується лише за вашим запитом.",13);
         Button(overview,"Оновити пошту",async()=>await RefreshMessagesAsync(syncStatus));
         Button(overview,"Оновити сервер",async()=>await RefreshRelayAsync(syncStatus));
+        DrawForegroundRefresh(overview);
         var profile = LoadUserProfile();
         var card = Card();
         Text(card, "Майно та документи", 19, true);
@@ -579,6 +583,7 @@ public partial class MainActivity : Activity
         }
         search.TextChanged += (_, _) => {_assetQuery=search.Text??"";DrawLocal();};
         DrawLocal();
+        _refreshCurrentAssets=DrawLocal;
 
         var openingPosted=_ledger.HasOpeningBalances(profile.Unit);
         if(openingPosted && !_showReferenceSnapshot)
@@ -1676,13 +1681,14 @@ public partial class MainActivity : Activity
         _messages = _messages.Select(m => m.UidValidity == original.UidValidity && m.MessageUid == original.MessageUid
             ? m with { ProcessingIssue = status } : m).ToArray();
 
-    private async Task<string> ArchiveAndCleanupAsync(string password, string sender)
+    private async Task<string> ArchiveAndCleanupAsync(string password, string sender,CancellationToken cancellation=default)
     {
         var profile = LoadUserProfile();
         int moved = 0, saved = 0, kept = 0;
         var remaining = new List<MavkaMailItem>();
         foreach (var mail in _messages)
         {
+            cancellation.ThrowIfCancellationRequested();
             if (QrPairingProtocol.IsAck(mail.Body) &&
                 _archive.IsMailReady(mail.UidValidity, mail.MessageUid,
                     MailProcessingScope()))
@@ -1690,7 +1696,7 @@ public partial class MainActivity : Activity
                 try
                 {
                     await GmailConnectionService.MoveToTrashAsync(
-                        _store.GetEmail(), password, sender, mail);
+                        _store.GetEmail(), password, sender, mail,cancellation);
                     _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid,
                         MailProcessingScope());
                     moved++;
@@ -1720,7 +1726,7 @@ public partial class MainActivity : Activity
                 try
                 {
                     await GmailConnectionService.MoveToTrashAsync(
-                        _store.GetEmail(), password, sender, mail);
+                        _store.GetEmail(), password, sender, mail,cancellation);
                     _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, MailProcessingScope());
                     moved++;
                 }
@@ -1759,6 +1765,7 @@ public partial class MainActivity : Activity
             string problem = "";
             foreach (var attachment in mail.Attachments)
             {
+                cancellation.ThrowIfCancellationRequested();
                 if (attachment.InstalledKeyPackage) continue;
                 // Only exact-sender, AES-GCM authenticated JSON is accepted.
                 // An unsigned Gmail body or plaintext JSON can never
@@ -1840,7 +1847,7 @@ public partial class MainActivity : Activity
                 if (!_archive.IsMailReady(mail.UidValidity, mail.MessageUid, MailProcessingScope()))
                     throw new InvalidOperationException("Mail journal not persisted.");
                 await GmailConnectionService.MoveToTrashAsync(
-                    _store.GetEmail(), password, sender, mail);
+                    _store.GetEmail(), password, sender, mail,cancellation);
                 _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, MailProcessingScope());
                 moved++;
             }
@@ -1857,6 +1864,7 @@ public partial class MainActivity : Activity
                 kept++;
             }
         }
+        cancellation.ThrowIfCancellationRequested();
         _messages = remaining;
         var posting=await Task.Run(()=>IncomingBatchPosting.Apply(this));
         _incomingPostingIssue=posting.Issues.Count>0?posting.Summary:null;
@@ -3576,8 +3584,9 @@ public partial class MainActivity : Activity
         Text(card, "Сервер: " + RelayProtocol.Origin, 12);
         Text(card, "Два канали: Gmail та Relay. Реєстрація починається скануванням QR з ПК; приватні ключі телефона не передаються.", 13);
         var status = Text(card, identity.LastStatus, 14);
-        var background=new CheckBox(this){Text="Фоновий обмін із сервером",Checked=RelayBackground.IsEnabled(this)};
+        var background=new CheckBox(this){Text="Фоновий обмін із сервером",Checked=false,Enabled=false};
         card.AddView(background);
+        Text(card,"Автооновлення налаштовується на головному екрані й працює лише поки Мавка відкрита.",12);
         var changingBackground=false;
         background.CheckedChange+=(_,args)=>
         {

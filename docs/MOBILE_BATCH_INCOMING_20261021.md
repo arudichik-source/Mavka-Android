@@ -19,6 +19,13 @@ exchange keys. No enrollment or transport protocol changes are needed.
 - Posting sends no MVO acknowledgement to the PC and does not enable background
   synchronization. Authenticated durable transport ACK/cleanup remain separate.
 - Remove the settings **Діагностика / Галерея іконок (демо)** card.
+- User additionally approved foreground-only auto-refresh on both PC and phone.
+  Android home offers an explicit on/off control (default off), 1/2/5/10-minute
+  interval (default2) and Gmail/Relay/both (default Gmail). Activity resume starts
+  one loop; pause/destroy/off cancel its delay and in-flight IMAP/Relay requests.
+  Busy operations do not overlap; failed checks back off to at most ten minutes.
+  Existing persistent Android Relay jobs are disabled, including jobs surviving
+  an in-place update. OS notice alarms remain independent from network polling.
 - Keep the same case-insensitive name/NSN search when switching between a unit
   and all units, for both the root mirror and legacy snapshots. Legacy all-unit
   snapshots load off the UI thread and render at most 50 filtered rows per page;

@@ -34,7 +34,7 @@ Check(MailAttachmentDisplayPolicy.Detect("../doc.pdf") ==
 Check(MailAttachmentDisplayPolicy.Detect("folder\\\\sample.pdf") ==
     MailAttachmentDisplayPolicy.PreviewType.None, "Reject separator");
 Check(MailAttachmentDisplayPolicy.Description("demo.xlsx", 1536)
-    .Contains("1.5 КБ"), "Display binary size metadata");
+    .Contains($"{1.5:0.#} КБ"), "Display binary size metadata in the current locale");
 Check(MailAttachmentDisplayPolicy.Description("demo.pdf", 50)
     .Contains("не відкрито й не збережено"), "Disclose no import");
 Check(PrivateVaultListingPolicy.MaxFiles == 100, "Vault quota contract");
