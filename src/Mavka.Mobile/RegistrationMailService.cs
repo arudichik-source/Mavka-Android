@@ -131,7 +131,7 @@ internal static class RegistrationMailService
     /// The address is the configured authorized Gmail correspondent.
     /// </summary>
     public static async Task SendFilePartAsync(string sender, string password, string recipient,
-        string fileName, string part)
+        string fileName, string part,CancellationToken cancellation=default)
     {
         if (!MavkaPasswordedEnvelope.IsWrapped(part) ||
             System.Text.Encoding.UTF8.GetByteCount(part) > 700_000)
@@ -142,7 +142,7 @@ internal static class RegistrationMailService
         var body = new BodyBuilder { TextBody = "Захищена частина файла Мавки." };
         body.Attachments.Add(fileName + MavkaFileParts.Extension, Encoding.UTF8.GetBytes(part), new ContentType("application", "json"));
         mail.Body = body.ToMessageBody();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);timeout.CancelAfter(TimeSpan.FromSeconds(90));
         var opened = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
         using var client = opened.Client;
         await client.AuthenticateAsync(sender, password, timeout.Token);

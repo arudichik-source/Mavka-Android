@@ -188,7 +188,7 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             if(family is not null)
                 foreach(var old in archive.ListSummaries(doc.Unit).Where(s=>s.DocumentId!=doc.DocumentId && ReceiptFamily(s.DocumentId)==family && s.PostingStatus!="posted"))archive.MarkSuperseded(old.DocumentId);
             if(MavkaExchangeParser.TryInvoice(receipt.Json,out var incoming) && incoming is not null && !IsCurrentInvoice(incoming))archive.MarkSuperseded(doc.DocumentId);
-            else access.AutoPost(receipt.Json,IsCurrentInvoice);
+            else access.AutoPost(receipt.Json,IsCurrentInvoice,cancellation);
             using var db=WritableDatabase;var values=new ContentValues();values.Put("done",1);values.Put("sealed","");db.Update("receipts",values,"client=? AND id=?",new[]{Client,receipt.Id});
         }
     }

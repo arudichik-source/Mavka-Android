@@ -220,7 +220,7 @@ internal sealed class RelaySync
             archive.SaveDocument(document.DocumentId, document.Kind, document.Number, document.Unit,
                 document.DocumentDate, "relay.json", document.Json);
             if (archive.FindDocument(document.DocumentId) is null) throw new IOException("Документ не збережено.");
-            new MobileAccessStore(_context).AutoPost(document.Json);
+            new MobileAccessStore(_context).AutoPost(document.Json,cancellation:cancellation);
             return true;
         }
         using var parsed = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 12 });

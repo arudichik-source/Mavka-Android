@@ -122,12 +122,12 @@ internal sealed class MobileAccessStore(Context context)
             }
         return false;
     }
-    public void AutoPost(string json,Func<IncomingInvoice,bool>? currentInvoice=null)
-        => PostDocument(json,false,currentInvoice);
+    public void AutoPost(string json,Func<IncomingInvoice,bool>? currentInvoice=null,CancellationToken cancellation=default)
+        => PostDocument(json,false,currentInvoice,cancellation);
 
     // Both transports and the single batch action use the same access and
     // duplicate checks. A batch is local accounting, never an outgoing MVO ACK.
-    public bool PostDocument(string json,bool manual,Func<IncomingInvoice,bool>? currentInvoice=null)
+    public bool PostDocument(string json,bool manual,Func<IncomingInvoice,bool>? currentInvoice=null,CancellationToken cancellation=default)
     {
         LocalAccountReset.EnsureReady(context);
         if(!TryDocument(json,out var document) || document is null)return false;
@@ -144,7 +144,7 @@ internal sealed class MobileAccessStore(Context context)
                 if(manual)throw new InvalidOperationException("У підрозділі вже є рухи; початкові залишки потребують звірки.");
                 return false;
             }
-            var added=ledger.AddOpeningBalances(snapshot);
+            var added=ledger.AddOpeningBalances(snapshot,cancellation);
             archive.MarkPosted(document.DocumentId);
             return added;
         }
@@ -152,7 +152,7 @@ internal sealed class MobileAccessStore(Context context)
         using var mirror=new MobileChangeStore(context);
         if(!(currentInvoice?.Invoke(invoice)??mirror.IsCurrentInvoice(invoice)))throw new InvalidDataException("Накладна змінена або скасована головною Мавкою.");
         if(MobileChangeStore.ReceiptFamily(invoice.DocumentId) is {} family && ledger.HasReceiptFamily(family) && ledger.GetMailStatus(invoice.DocumentId) is null)return false;
-        var posted=ledger.AddConfirmedInvoice(invoice);
+        var posted=ledger.AddConfirmedInvoice(invoice,cancellation);
         ledger.MarkMailSent(invoice.DocumentId); // Local import is not a message to the PC.
         archive.MarkPosted(invoice.DocumentId);
         return posted;

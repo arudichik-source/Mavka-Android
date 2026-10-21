@@ -229,6 +229,21 @@ OUT.joinpath("large-inventory-home-responsive.png").write_bytes(adb("exec-out","
 print("33000 ENCRYPTED DOCUMENT ROWS: MENU/HOME RESPONSIVE DURING LOAD; OBSOLETE READ CANCELLED: PASS; NO NETWORK")
 
 
+# The activity's actual reset path must cancel a busy exchange, await its
+# gate, then clear content; merely testing an idle Clear() missed this bug.
+adb("shell","am","force-stop",PACKAGE)
+adb("shell","am","start","-a","android.intent.action.MAIN","-c","android.intent.category.LAUNCHER","-p",PACKAGE,"--ez","qa_hold_exchange","true")
+assert_screen("Обмін виконується. Його можна скасувати.")
+menu("Налаштування")
+tap("Обнулити облік усіх підрозділів і документи")
+field("Введіть ОБНУЛИТИ","ОБНУЛИТИ")
+started=time.monotonic()
+tap("Обнулити",False)
+assert_screen("Облік усіх підрозділів і документи очищено.")
+assert time.monotonic()-started<20,"Busy exchange cancellation/reset did not release UI/gate promptly"
+OUT.joinpath("cancel-busy-exchange-reset.png").write_bytes(adb("exec-out","screencap","-p"))
+print("BUSY EXCHANGE CANCELLED BEFORE FULL RESET; UI AND SERIALIZATION GATE RELEASED: PASS; NO NETWORK")
+
 menu("Налаштування")
 for _ in range(8):
     texts=[n.get("text","") for n in tree().iter("node")]

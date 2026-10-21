@@ -183,6 +183,10 @@ public partial class MainActivity : Activity
         else if (state?.GetString("mavka_restored_screen") == "settings")
             ShowSettings();
         else ShowHome();
+#if MAVKA_BOOTSTRAP_QA
+        if(Intent?.GetBooleanExtra("qa_hold_exchange",false)==true)_=HoldSyntheticExchangeForResetQa();
+        else
+#endif
         _ = RecoverMirrorAsync();
         // Orientation changes are handled by this Activity, not a new OnCreate.
         // Do not replay welcome after restoring an existing Activity.
@@ -296,7 +300,7 @@ public partial class MainActivity : Activity
             }
             LoadUnread();
         }
-        var syncStatus=Text(overview,"Оновлення виконується лише за вашим запитом.",13);
+        var syncStatus=Text(overview,_exchangeOperation is null?"Оновлення виконується лише за вашим запитом.":"Обмін виконується. Його можна скасувати.",13);
         Button(overview,"Оновити пошту",async()=>await RefreshMessagesAsync(syncStatus));
         Button(overview,"Оновити сервер",async()=>await RefreshRelayAsync(syncStatus));
         Button(overview,"Скасувати обмін",()=>CancelExchange(syncStatus));
@@ -1470,8 +1474,8 @@ public partial class MainActivity : Activity
             catch { /* Privacy-safe logging must not affect synchronization. */ }
             SaveInboxCacheSafe();
             cancellation.ThrowIfCancellationRequested();
-            var syncReport = await SendPendingReceiptsAsync(password, sender);
-            try { await SendPendingFilePartsAsync(maximum: 3); }
+            var syncReport = await Task.Run(()=>SendPendingReceiptsAsync(password, sender),cancellation);
+            try { await SendPendingFilePartsAsync(maximum: 3,cancellation:cancellation); }
             catch { syncReport += " Частини файлів залишені в черзі надсилання."; }
             if (_screen is "sync" or "home" or "inbox" or "assets")
                 status.Text = $"Листів у вхідних: {_messages.Count}. " + report +
@@ -1519,7 +1523,7 @@ public partial class MainActivity : Activity
         "pending_file_parts_v1", TransferScope()), TransferKeystoreCipher.Seal, TransferKeystoreCipher.Open);
     private OutgoingFileQueue OutgoingFiles() => new(System.IO.Path.Combine(FilesDir!.AbsolutePath,
         "outgoing_file_parts_v1", TransferScope()), TransferKeystoreCipher.Seal, TransferKeystoreCipher.Open);
-    private async Task SendPendingFilePartsAsync(int maximum = 125, Action<string>? progress = null)
+    private async Task SendPendingFilePartsAsync(int maximum = 125, Action<string>? progress = null,CancellationToken cancellation=default)
     {
         var queue = OutgoingFiles();
         string password = _store.GetPassword() ?? "";
@@ -1529,13 +1533,14 @@ public partial class MainActivity : Activity
             var batch = original;
             while (batch.NextIndex < batch.Metadata.Count && sent < maximum)
             {
+                cancellation.ThrowIfCancellationRequested();
                 string encrypted = await Task.Run(() => queue.Part(batch));
                 var docPassword = _documentPasswords.Load() ??
                     throw new InvalidOperationException(
                         "Налаштуй пароль документів до відправлення захищених частин.");
                 encrypted = MavkaPasswordedEnvelope.Wrap(encrypted, docPassword);
                 await MobileExchangeTransport.SendFilePartAsync(this, _store.GetEmail(), password,
-                    _store.GetMainMavkaEmail(), batch.Metadata.FileName + "." + (batch.NextIndex + 1) + "-" + batch.Metadata.Count, encrypted);
+                    _store.GetMainMavkaEmail(), batch.Metadata.FileName + "." + (batch.NextIndex + 1) + "-" + batch.Metadata.Count, encrypted,cancellation);
                 batch = await Task.Run(() => queue.Advance(batch)); sent++;
                 progress?.Invoke($"Надіслано {batch.NextIndex} із {batch.Metadata.Count} частин · {batch.Metadata.FileName}");
             }
@@ -1563,7 +1568,7 @@ public partial class MainActivity : Activity
                 foreach (var a in mail.Attachments.Where(a => a.AuthenticatedJson))
                     if (DriveFileCommand.TryRead(a.RawJson, out drive) && drive is not null)
                     {
-                        var downloaded = await Task.Run(() => drive.DownloadAsync());
+                        var downloaded = await Task.Run(() => drive.DownloadAsync(cancellation));
                         foreach (var packet in downloaded)
                         {
                             if (MavkaPasswordedEnvelope.IsWrapped(packet))
@@ -1580,6 +1585,7 @@ public partial class MainActivity : Activity
                 string? id = null;
                 foreach (var part in parts)
                 {
+                    cancellation.ThrowIfCancellationRequested();
                     authenticatingPart = true;
                     var progress = await Task.Run(() => pending.Accept(part, key => _exchangeKeys.GetKey(key),
                         mail.Attachments.Count == 1 ? new PendingFileTransferStore.MailRef(mail.UidValidity, mail.MessageUid) : null, drive?.TransferId));
@@ -1658,6 +1664,7 @@ public partial class MainActivity : Activity
         // Completion is recorded only AFTER whole-file verification and vault read-back.
         foreach (var transfer in await Task.Run(() => pending.List()))
         {
+            cancellation.ThrowIfCancellationRequested();
             if (!transfer.Saved) continue;
             var saved = await Task.Run(() => pending.Saved(transfer.Id));
             if (saved is null) continue;
@@ -1836,7 +1843,7 @@ public partial class MainActivity : Activity
                         if (archive.FindDocument(document.DocumentId) is null)
                             throw new InvalidOperationException("Archive read-back failed.");
                         cancellation.ThrowIfCancellationRequested();
-                        new MobileAccessStore(this).AutoPost(document.Json);
+                        new MobileAccessStore(this).AutoPost(document.Json,cancellation:cancellation);
                     },cancellation);
                     saved++;
                 }

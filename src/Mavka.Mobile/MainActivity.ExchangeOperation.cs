@@ -41,4 +41,23 @@ public partial class MainActivity
         _exchangeOperation.Cancel();
         status.Text = "Скасування обміну… Збережені документи залишаться в обліку.";
     }
+#if MAVKA_BOOTSTRAP_QA
+    private async Task HoldSyntheticExchangeForResetQa()
+    {
+        // Isolated emulator only: hold the same operation/gate as a slow
+        // transport so the UI test can request reset while exchange is busy.
+        if(new UserProfileStore(this).Load()?.FullName!="SYNTHETIC-QA-USER" ||
+            new GmailCredentialsStore(this).HasCredentials || new RelayIdentity(this).Enabled || new ExchangeKeyStore(this).HasKeyPair)
+            throw new InvalidOperationException("Offline synthetic reset QA only.");
+        using var operation=BeginExchange();_busy=true;
+        try
+        {
+            await RelaySync.Gate.WaitAsync(operation.Token);
+            try{ShowHome();await Task.Delay(Timeout.InfiniteTimeSpan,operation.Token);}
+            finally{RelaySync.Gate.Release();}
+        }
+        catch(OperationCanceledException)when(operation.Token.IsCancellationRequested){}
+        finally{_busy=false;}
+    }
+#endif
 }

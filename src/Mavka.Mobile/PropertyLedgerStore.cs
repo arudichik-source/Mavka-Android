@@ -378,7 +378,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         return cursor.MoveToFirst() ? cursor.GetString(0) : null;
     }
 
-    public bool AddConfirmedInvoice(IncomingInvoice invoice)
+    public bool AddConfirmedInvoice(IncomingInvoice invoice,CancellationToken cancellation=default)
     {
         using var database = WritableDatabase;
         database.BeginTransaction();
@@ -415,6 +415,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
 
             foreach (var item in invoice.Positions)
             {
+                cancellation.ThrowIfCancellationRequested();
                 var values = new ContentValues();
                 values.Put("document_id", invoice.DocumentId);
                 values.Put("line_number", item.LineNo);
@@ -455,7 +456,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
         return row.MoveToFirst();
     }
 
-    public bool AddOpeningBalances(UnitAssetsSnapshot snapshot)
+    public bool AddOpeningBalances(UnitAssetsSnapshot snapshot,CancellationToken cancellation=default)
     {
         if (string.IsNullOrWhiteSpace(snapshot.Unit) ||
             snapshot.Items.Count > 500)
@@ -497,6 +498,7 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
             var line = 0;
             foreach (var asset in snapshot.Items)
             {
+                cancellation.ThrowIfCancellationRequested();
                 if (asset.Quantity < 0 || asset.Quantity > 1000000000m ||
                     string.IsNullOrWhiteSpace(asset.Name))
                     throw new ArgumentException("Invalid opening balance row.");

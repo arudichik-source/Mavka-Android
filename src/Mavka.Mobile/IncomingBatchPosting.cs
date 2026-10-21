@@ -50,7 +50,7 @@ internal static class IncomingBatchPosting
                 var stored=archive.FindDocument(summary.DocumentId)??throw new IOException("Документ не прочитано з архіву.");
                 // Revalidate the current grant, recipient and current invoice version
                 // inside PostDocument, including after an access-policy change.
-                if(accessStore.PostDocument(stored.Json,manual))
+                if(accessStore.PostDocument(stored.Json,manual,cancellation:cancellation))
                 {if(opening)openings++;else invoices++;}
             }
             catch(Exception ex) when(ex is InvalidOperationException or InvalidDataException or ArgumentException)

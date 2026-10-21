@@ -19,20 +19,21 @@ internal static class MobileExchangeTransport
         if (!relay.Submitted(group)) throw new IOException("Підтвердження збережене в черзі Relay; буде надіслано повторно.");
     }
     public static async Task SendFilePartAsync(Context context, string sender, string password,
-        string recipient, string fileName, string packet)
+        string recipient, string fileName, string packet,CancellationToken cancellation=default)
     {
         if (!string.IsNullOrWhiteSpace(sender) && !string.IsNullOrWhiteSpace(password) && !string.IsNullOrWhiteSpace(recipient))
         {
-            try { await RegistrationMailService.SendFilePartAsync(sender, password, recipient, fileName, packet); return; }
-            catch (Exception) when (RelayEnabled(context)) { }
+            try { await RegistrationMailService.SendFilePartAsync(sender, password, recipient, fileName, packet,cancellation); return; }
+            catch (Exception ex) when (ex is not OperationCanceledException && RelayEnabled(context)) { }
         }
+        cancellation.ThrowIfCancellationRequested();
         var documentPassword = new DocumentPasswordStore(context).Load() ?? throw new InvalidOperationException("Потрібен пароль документів.");
         var inner = MavkaPasswordedEnvelope.Unwrap(packet, documentPassword);
         using var doc = JsonDocument.Parse(inner);
         var metadata = doc.RootElement.GetProperty("metadata");
         var logical = "filepart:" + metadata.GetProperty("transferId").GetString() + ":" + metadata.GetProperty("index").GetInt32();
         var relay = new RelaySync(context); var group = relay.Queue(logical, packet);
-        await relay.Synchronize();
+        await relay.Synchronize(cancellation);
         if (!relay.Submitted(group)) throw new IOException("Частина файла залишається в надійній черзі Relay.");
     }
     public static async Task SendProtectedFileAsync(Context context, string sender, string password,
