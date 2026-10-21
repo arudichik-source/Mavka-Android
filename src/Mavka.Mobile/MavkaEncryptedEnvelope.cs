@@ -37,7 +37,8 @@ internal static class MavkaEncryptedEnvelope
 
     public static string Decrypt(string envelope, ExchangeKeyStore store)
     {
-        if (envelope.Length > 65000)
+        // Only raise transport size limits; encryption format and key rotation stay unchanged.
+        if (envelope.Length > 262144)
             throw new ArgumentException("Зашифрований файл завеликий.");
 
         using var parsed = JsonDocument.Parse(envelope, new JsonDocumentOptions { MaxDepth = 8 });
@@ -61,7 +62,7 @@ internal static class MavkaEncryptedEnvelope
             var ciphertext = Convert.FromBase64String(Field(root, "ciphertext") ?? "");
             var tag = Convert.FromBase64String(Field(root, "tag") ?? "");
             if (nonce.Length != 12 || tag.Length != 16 ||
-                ciphertext.Length < 1 || ciphertext.Length > 32768)
+                ciphertext.Length < 1 || ciphertext.Length > 196608)
                 throw new ArgumentException("Неприпустимий розмір зашифрованих даних.");
 
             var plaintext = new byte[ciphertext.Length];
