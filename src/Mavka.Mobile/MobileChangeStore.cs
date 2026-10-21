@@ -148,7 +148,11 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             // known pending receipt family may be superseded by its revision.
             using var archive=new DocumentArchiveStore(context);using var archiveDb=archive.ReadableDatabase;
             using var previous=archiveDb.RawQuery("SELECT 1 FROM documents WHERE document_id LIKE ? AND unit=? COLLATE NOCASE LIMIT 1",new[]{family+":%",p.GetProperty("location").GetString()!});
-            if(!previous.MoveToFirst())return;
+            if(!previous.MoveToFirst())
+            {
+                using var staged=db.RawQuery("SELECT 1 FROM receipts WHERE client=? AND id LIKE ? LIMIT 1",new[]{Client,family+":%"});
+                if(!staged.MoveToFirst())return;
+            }
         }
         using(var ledger=new PropertyLedgerStore(context))if(ledger.HasReceiptFamily(family))return;
         var id=family+":"+Hash(p.GetRawText())[..16];
