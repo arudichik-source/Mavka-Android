@@ -231,8 +231,13 @@ print("33000 ENCRYPTED DOCUMENT ROWS: MENU/HOME RESPONSIVE DURING LOAD; OBSOLETE
 
 # The activity's actual reset path must cancel a busy exchange, await its
 # gate, then clear content; merely testing an idle Clear() missed this bug.
+active_components=adb("shell","dumpsys","activity","activities").decode("utf-8",errors="replace")
+launcher_match=re.search(r"(?:topResumedActivity|mResumedActivity)[^\n]*?"+re.escape(PACKAGE)+r"/([^\s}]+)",active_components)
+assert launcher_match is not None,"Observe the actual resumed main component before force-stop"
+launcher_component=PACKAGE+"/"+launcher_match.group(1)
+assert "StorageQaActivity" not in launcher_component,"Reset QA must use MainActivity's actual UI"
 adb("shell","am","force-stop",PACKAGE)
-adb("shell","am","start","-a","android.intent.action.MAIN","-c","android.intent.category.LAUNCHER","-p",PACKAGE,"--ez","qa_hold_exchange","true")
+adb("shell","am","start","-n",launcher_component,"--ez","qa_hold_exchange","true")
 assert_screen("Обмін виконується. Його можна скасувати.")
 menu("Налаштування")
 tap("Обнулити облік усіх підрозділів і документи")
