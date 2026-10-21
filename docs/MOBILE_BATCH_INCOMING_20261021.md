@@ -19,6 +19,14 @@ exchange keys. No enrollment or transport protocol changes are needed.
 - Posting sends no MVO acknowledgement to the PC and does not enable background
   synchronization. Authenticated durable transport ACK/cleanup remain separate.
 - Remove the settings **Діагностика / Галерея іконок (демо)** card.
+- Keep the same case-insensitive name/NSN search when switching between a unit
+  and all units, for both the root mirror and legacy snapshots. Legacy all-unit
+  snapshots load off the UI thread and render at most 50 filtered rows per page;
+  retain distinct unit/date/price rows and current grants.
+- Authenticated notices from the PC persist their reminder time in the same SQLite
+  insert and schedule the local Android alarm without an extra phone confirmation.
+  Both transports use the same receive path. Delayed/overdue notices are still
+  imported and reminded once; replay preserves user snooze/cancel/delete actions.
 - Add an explicit whole-account local content reset, confirmed by typing
   **ОБНУЛИТИ**. Clear every unit's ledger, mirror, archive/history/trash, received
   attachment vault and pending document/file queues. Keep the user/client/device,

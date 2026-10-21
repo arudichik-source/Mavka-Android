@@ -6,7 +6,7 @@ namespace Mavka.Mobile;
 /// <summary>
 /// A notice is an authenticated JSON attachment, not a Gmail body. The caller
 /// must also verify exact configured sender and AES-GCM before parsing.
-/// Suggested reminder time NEVER schedules an alarm without local consent.
+/// The authenticated PC reminder time is imported automatically with the notice.
 /// </summary>
 internal sealed record MavkaNotice(
     string NoticeId, string Unit, string Title, string Body,
@@ -58,8 +58,8 @@ internal static class MavkaNoticeProtocol
             {
                 if (!DateTimeOffset.TryParse(suggested, CultureInfo.InvariantCulture,
                         DateTimeStyles.RoundtripKind, out var candidate) ||
-                    (enforceFreshness && (candidate < now.AddMinutes(-1) ||
-                    candidate > now.AddYears(1)))) return false;
+                    (enforceFreshness && (candidate < issuedAt.AddMinutes(-1) ||
+                    candidate > issuedAt.AddYears(1)))) return false;
                 remind = candidate;
             }
             notice = new MavkaNotice(id.ToLowerInvariant(), unit.Trim(), title,

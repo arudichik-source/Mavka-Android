@@ -99,6 +99,7 @@ internal sealed class MavkaNoticeStore(Context context,string databaseName="mavk
             values.Put("received_utc", DateTimeOffset.UtcNow.ToString("O"));
             values.Put("is_read", 0);
             values.Put("reminded", 0);
+            if(incoming.SuggestedReminderUtc is { } reminder)values.Put("reminder_ms",reminder.ToUnixTimeMilliseconds());
             db.InsertOrThrow("notices", null, values);
             db.SetTransactionSuccessful();
             return true;

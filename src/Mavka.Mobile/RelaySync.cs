@@ -201,9 +201,7 @@ internal sealed class RelaySync
         if (new MobileAccessStore(_context).TryNotice(json,out var notice) && notice is not null)
         {
             using var notices = new MavkaNoticeStore(_context);
-            bool added = notices.Add(notice, json);
-            if (!notices.ContainsSaved(notice.NoticeId, notice.Unit, json)) throw new IOException("Сповіщення не збережено.");
-            if (added) MavkaNoticeAlerts.ShowNew(_context, notice.NoticeId);
+            MavkaNoticeAlerts.Receive(_context,notices,notice,json);
             return true;
         }
         using(var policyJson=JsonDocument.Parse(json))

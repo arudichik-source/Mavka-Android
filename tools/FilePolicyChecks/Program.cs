@@ -226,5 +226,8 @@ Check(MavkaNoticeProtocol.TryRead(MavkaNoticeProtocol.CreateJson(
     "Тестовий підрозділ", "Без нагадування", "Лише повідомлення",
     syntheticNow), "Тестовий підрозділ", syntheticNow,
     out var noAlarmNotice) && noAlarmNotice?.SuggestedReminderUtc is null,
-    "Remote sender cannot force a reminder by default");
-Console.WriteLine("File, QR, notices, trash and protected backups: 71/71 PASS");
+    "Message without a PC reminder time remains an immediate notice");
+Check(MavkaNoticeProtocol.TryRead(noticeJson,"Тестовий підрозділ",syntheticNow.AddDays(1),out var delayed) && delayed?.SuggestedReminderUtc==syntheticNow.AddHours(5),"Delayed delivery retains an overdue reminder for immediate once-only notification");
+var beforeIssue=System.Text.Json.Nodes.JsonNode.Parse(noticeJson)!;beforeIssue["suggestedReminderUtc"]=syntheticNow.AddHours(-1).ToUniversalTime().ToString("O");
+Check(!MavkaNoticeProtocol.TryRead(beforeIssue.ToJsonString(),"Тестовий підрозділ",syntheticNow,out _),"Reminder before notice issue time rejected");
+Console.WriteLine("File, QR, notices, trash and protected backups: 73/73 PASS");

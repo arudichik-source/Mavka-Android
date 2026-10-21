@@ -57,6 +57,7 @@ public partial class MainActivity : Activity
     private const int PickEncryptAndSendRequest = 1528;
     private string _inboxQuery = "";
     private string _documentQuery = "";
+    private string _assetQuery = "";
     private int _documentPage;
     private string _mailFilter = "all";
     private bool _busy;
@@ -520,6 +521,7 @@ public partial class MainActivity : Activity
         var search = new EditText(this)
         {
             Hint = "Пошук за назвою або NSN",
+            Text = _assetQuery,
             InputType = InputTypes.ClassText
         };
         ConfigureKeyboard(search);
@@ -575,7 +577,7 @@ public partial class MainActivity : Activity
                 Text(localRows, "Помилка локальної бази: " + ExplainOperationError(ex), 14);
             }
         }
-        search.TextChanged += (_, _) => DrawLocal();
+        search.TextChanged += (_, _) => {_assetQuery=search.Text??"";DrawLocal();};
         DrawLocal();
 
         var openingPosted=_ledger.HasOpeningBalances(profile.Unit);
@@ -1767,13 +1769,10 @@ public partial class MainActivity : Activity
                 {
                     try
                     {
-                        bool inserted = _noticeStore.Add(
+                        bool inserted = MavkaNoticeAlerts.Receive(this,_noticeStore,
                             incomingNotice, attachment.RawJson!);
-                        if (!_noticeStore.ContainsSaved(incomingNotice.NoticeId, incomingNotice.Unit, attachment.RawJson!))
-                            throw new InvalidOperationException("Notice readback failed.");
                         if (inserted)
                         {
-                            MavkaNoticeAlerts.ShowNew(this, incomingNotice.NoticeId);
                             saved++;
                         }
                         continue;

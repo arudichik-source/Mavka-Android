@@ -35,15 +35,20 @@ public partial class MainActivity
         Text(header,"Останні збережені зміни. Оновлення — на головному екрані.",12);
         Button(header,"Обрати підрозділ",()=>ChooseMobileUnit(ShowAssets));
         Button(header,"Журнал зарахувань на телефоні",()=>{_showRootMirror=false;ShowAssets();});
-        var search=ProfileInput(header,"Пошук майна","");var list=new Android.Widget.LinearLayout(this){Orientation=Orientation.Vertical};header.AddView(list);var page=0;
+        var search=ProfileInput(header,"Пошук за назвою або NSN",_assetQuery);var list=new Android.Widget.LinearLayout(this){Orientation=Orientation.Vertical};header.AddView(list);var page=0;
+        Button(header,"Скинути пошук",()=>search.Text="");
         void Draw()
         {
             list.RemoveAllViews();var query=(search.Text??"").Trim();
-            var parsedRows=records.Select(r=>(Record:r,Payload:JsonDocument.Parse(r.Json))).ToArray();var currentPolicy=new MobileAccessStore(this).Load();var rows=parsedRows.Where(r=>currentPolicy?.Allows(r.Record.LocationId,true)==true).Where(r=>r.Payload.RootElement.GetProperty("name").GetString()!.Contains(query,StringComparison.OrdinalIgnoreCase) && r.Payload.RootElement.GetProperty("quantity").GetDecimal()!=0).OrderBy(r=>r.Payload.RootElement.GetProperty("name").GetString(),StringComparer.CurrentCulture).ThenBy(r=>r.Record.LocationId).ToArray();
+            var parsedRows=records.Select(r=>(Record:r,Payload:JsonDocument.Parse(r.Json))).ToArray();var currentPolicy=new MobileAccessStore(this).Load();
+            var rows=InventorySearchSummary.Filter(parsedRows.Where(r=>currentPolicy?.Allows(r.Record.LocationId,true)==true),query,
+                r=>r.Payload.RootElement.GetProperty("name").GetString()!,r=>r.Payload.RootElement.TryGetProperty("nsn",out var nsn)?nsn.GetString():null)
+                .Where(r=>r.Payload.RootElement.GetProperty("quantity").GetDecimal()!=0).OrderBy(r=>r.Payload.RootElement.GetProperty("name").GetString(),StringComparer.CurrentCulture).ThenBy(r=>r.Record.LocationId).ToArray();
             var groups=rows.GroupBy(r=>location is null?
                 r.Payload.RootElement.GetProperty("itemId")+"|"+r.Payload.RootElement.GetProperty("unit")+"|"+r.Payload.RootElement.GetProperty("price")+"|"+r.Payload.RootElement.GetProperty("category"):
                 r.Record.Key).ToArray();
             page=Math.Min(page,Math.Max(0,(groups.Length-1)/50));Text(list,$"Позицій: {groups.Length} · сторінка {page+1}",13);
+            if(groups.Length==0)Text(list,query.Length>0?"За цим запитом майна не знайдено.":"Ненульових залишків немає.",14);
             foreach(var group in groups.Skip(page*50).Take(50))
             {
                 var entries=group.ToArray();var payload=entries[0].Payload.RootElement;var selected=entries.Select(e=>e.Record).ToArray();
@@ -59,7 +64,7 @@ public partial class MainActivity
             if(page>0)Button(list,"← Попередні 50",()=>{page--;Draw();});if((page+1)*50<groups.Length)Button(list,"Наступні 50 →",()=>{page++;Draw();});
             foreach(var row in parsedRows)row.Payload.Dispose();
         }
-        search.TextChanged+=(_,_)=>{page=0;Draw();};
+        search.TextChanged+=(_,_)=>{_assetQuery=search.Text??"";page=0;Draw();};
         var loading=Text(header,"Завантаження захищених залишків…",13);
         async void Load()
         {

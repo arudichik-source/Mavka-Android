@@ -8,7 +8,7 @@ using System.Text;
 namespace Mavka.Mobile;
 
 /// <summary>
-/// Local notifications and user-approved, inexact offline reminders.
+/// Local notifications and inexact offline reminders from the trusted PC or user.
 /// Generic OS content avoids putting confidential messages on lock screens.
 /// </summary>
 internal static class MavkaNoticeAlerts
@@ -28,7 +28,7 @@ internal static class MavkaNoticeAlerts
         { Description = "Нові захищені службові повідомлення" });
         manager?.CreateNotificationChannel(new NotificationChannel(ChannelReminders,
             "Нагадування Мавки", NotificationImportance.High)
-        { Description = "Нагадування за вибором користувача" });
+        { Description = "Нагадування від головної Мавки та створені на телефоні" });
     }
 
     public static bool Allowed(Context context) =>
@@ -39,6 +39,27 @@ internal static class MavkaNoticeAlerts
     public static void ShowNew(Context context, string id)
     {
         Show(context, id, false);
+    }
+
+    // Called only after exact sender, password/AES authentication and unit/client
+    // access checks. Persist the notice AND reminder before any transport ACK.
+    public static bool Receive(Context context,MavkaNoticeStore store,MavkaNotice notice,string authenticatedJson)
+    {
+        var inserted=store.Add(notice,authenticatedJson);
+        if(!store.ContainsSaved(notice.NoticeId,notice.Unit,authenticatedJson))throw new IOException("Сповіщення не збережено.");
+        var saved=store.Find(notice.NoticeId,notice.Unit);
+        if(saved is null)return inserted; // deleted tombstone: never resurrect
+        if(saved.RemindUtc is { } at && !saved.Reminded)
+        {
+            if(at<=DateTimeOffset.UtcNow)
+            {
+                if(store.ConsumeReminder(notice.NoticeId,DateTimeOffset.UtcNow))ShowReminder(context,notice.NoticeId);
+                return inserted;
+            }
+            SetReminder(context,notice.NoticeId,at); // stable PendingIntent replaces, never duplicates
+        }
+        if(inserted)ShowNew(context,notice.NoticeId);
+        return inserted;
     }
 
     public static void ShowReminder(Context context, string id)

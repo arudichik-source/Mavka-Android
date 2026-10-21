@@ -65,7 +65,7 @@ public partial class MainActivity
                     await RelaySync.Gate.WaitAsync();
                     try{await Task.Run(()=>LocalAccountReset.Clear(this));}
                     finally{RelaySync.Gate.Release();}
-                    _messages=[];_documentPage=0;_showReferenceSnapshot=false;_showRootMirror=true;_mirrorReadGeneration++;_incomingPostingIssue=null;
+                    _messages=[];_documentPage=0;_assetQuery="";_showReferenceSnapshot=false;_showRootMirror=true;_mirrorReadGeneration++;_incomingPostingIssue=null;
                     MavkaHomeWidget.Refresh(this);
                     status.Text="Облік усіх підрозділів і документи очищено. Акаунт, паролі, ключі та доступ збережені.";
                 }

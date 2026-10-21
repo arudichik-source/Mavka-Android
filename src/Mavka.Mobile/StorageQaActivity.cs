@@ -93,6 +93,20 @@ public sealed class StorageQaActivity:Activity
                     Check(!notices.Add(notice,raw) && notices.ContainsSaved(notice.NoticeId,"QA",raw),"deleted duplicate remains ACKable without resurrection");
                     Reject(()=>notices.ContainsSaved(notice.NoticeId,"QA",raw.Replace("Only synthetic data","Changed synthetic data")),"conflicting duplicate accepted");
                     using(var db=notices.ReadableDatabase)using(var row=db.RawQuery("SELECT sealed_content,deleted FROM notices WHERE notice_id=?",new[]{notice.NoticeId}))Check(row.MoveToFirst() && row.GetString(0)=="" && row.GetInt(1)==1,"deleted plaintext/ciphertext body removed");
+                    var timedRaw=MavkaNoticeProtocol.CreateJson("QA","Timed synthetic","Synthetic reminder",DateTimeOffset.UtcNow,DateTimeOffset.UtcNow.AddHours(1));
+                    MavkaNoticeProtocol.TryRead(timedRaw,"QA",DateTimeOffset.UtcNow,out var timed);
+                    Check(MavkaNoticeAlerts.Receive(this,notices,timed!,timedRaw) && notices.Find(timed!.NoticeId,"QA")!.RemindUtc?.ToUnixTimeMilliseconds()==timed.SuggestedReminderUtc?.ToUnixTimeMilliseconds(),"PC notice automatically persists reminder with no phone confirmation");
+                    var snooze=DateTimeOffset.UtcNow.AddHours(2);notices.SetReminder(timed!.NoticeId,"QA",snooze);
+                    Check(!MavkaNoticeAlerts.Receive(this,notices,timed,timedRaw) && notices.Find(timed.NoticeId,"QA")!.RemindUtc?.ToUnixTimeMilliseconds()==snooze.ToUnixTimeMilliseconds(),"cross-channel duplicate preserves user's changed reminder");
+                    notices.SetReminder(timed.NoticeId,"QA",null);MavkaNoticeAlerts.Receive(this,notices,timed,timedRaw);
+                    Check(notices.Find(timed.NoticeId,"QA")!.RemindUtc is null,"duplicate cannot restore a cancelled reminder");
+                    notices.Delete(timed.NoticeId,"QA");MavkaNoticeAlerts.Remove(this,timed.NoticeId);
+                    Check(!MavkaNoticeAlerts.Receive(this,notices,timed,timedRaw) && notices.Find(timed.NoticeId,"QA") is null,"deleted automatic reminder stays deleted on replay");
+                    var lateRaw=MavkaNoticeProtocol.CreateJson("QA","Delayed synthetic","Synthetic overdue reminder",DateTimeOffset.UtcNow.AddHours(-2),DateTimeOffset.UtcNow.AddHours(-1));
+                    Check(MavkaNoticeProtocol.TryRead(lateRaw,"QA",DateTimeOffset.UtcNow,out var late),"offline delayed notice remains importable after reminder time");
+                    MavkaNoticeAlerts.Receive(this,notices,late!,lateRaw);
+                    Check(notices.Find(late!.NoticeId,"QA")!.Reminded && !notices.ConsumeReminder(late.NoticeId,DateTimeOffset.UtcNow),"overdue reminder consumed exactly once");
+                    notices.Delete(late.NoticeId,"QA");MavkaNoticeAlerts.Remove(this,late.NoticeId);
                 }
                 using(var reopened=new MavkaNoticeStore(this,noticeDb))Check(reopened.Find(notice!.NoticeId,"QA") is null && reopened.ContainsSaved(notice.NoticeId,"QA",raw),"deleted tombstone survives restart");
                 var client=profile.ClientId;var source=new string('a',64);var access=new MobileAccessPolicy(MobileAccessPolicy.Format,client,1,false,[new(1,"QA One"),new(2,"QA Two")],true,true,false,true,true);
@@ -162,7 +176,7 @@ public sealed class StorageQaActivity:Activity
                         if(!ArchiveDocumentClassifier.TryClassify(json,unit,out var doc) || doc is null)throw new Exception("Synthetic document parse failed");
                         archive.SaveDocument(doc.DocumentId,doc.Kind,doc.Number,doc.Unit,doc.DocumentDate,"synthetic.json",json);
                     }
-                    string Snapshot(string unit,int qty,string date="2026-10-20")=>JsonSerializer.Serialize(new{format="MAVKA_UNIT_ASSETS_V1",recipientClientId=client,unit,asOf=date,items=qty==0?Array.Empty<object>():new object[]{new{name="Synthetic batch",unit="од.",quantity=qty,price=1.123456789m}}});
+                    string Snapshot(string unit,int qty,string date="2026-10-20",string? nsn=null)=>JsonSerializer.Serialize(new{format="MAVKA_UNIT_ASSETS_V1",recipientClientId=client,unit,asOf=date,items=qty==0?Array.Empty<object>():new object[]{new{name="Synthetic batch",unit="од.",quantity=qty,price=1.123456789m,nsn}}});
                     string Receipt(string unit,string id,int qty,string date="2026-10-21")=>JsonSerializer.Serialize(new{format="MAVKA_DOCUMENT_V1",type="invoice",recipientClientId=client,recipient=unit,documentId=id,documentNumber=id,documentDate=date,positions=new[]{new{name="Synthetic batch",unit="од.",quantity=qty,price=1.123456789m}}});
                     Policy(batchPolicy);
                     foreach(var grant in grants)Save(Snapshot(grant.unit,grant.locationId==165?0:7));
@@ -197,6 +211,7 @@ public sealed class StorageQaActivity:Activity
                     Check(partial.OpeningUnits==1 && partial.Issues.Count==2,"conflict and invalid scope reported without blocking healthy unit");
                     Check(!ledger.HasOpeningBalances(conflict.unit) && ledger.ListHoldingsAsOf(conflict.unit,new(2026,10,21)).Single().Quantity==1,"snapshot never added over existing receipts");
                     Check(!ledger.HasOpeningBalances(invalid.unit) && !ledger.HasReceipts(invalid.unit),"bad row rolls back the whole unit baseline");
+                    Save(Snapshot("QA One",10,nsn:"FIND-ONE"));Save(Snapshot("QA Two",5,nsn:"FIND-TWO"));
                     Policy(access with{revision=9});
                 }
                 keepPreview=true;
