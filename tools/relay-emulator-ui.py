@@ -236,7 +236,7 @@ adb("shell","am","start","-a","android.intent.action.MAIN","-c","android.intent.
 assert_screen("Обмін виконується. Його можна скасувати.")
 menu("Налаштування")
 tap("Обнулити облік усіх підрозділів і документи")
-field("Введіть ОБНУЛИТИ","ОБНУЛИТИ")
+field("Введіть ОБНУЛИТИ або RESET","RESET")
 started=time.monotonic()
 tap("Обнулити",False)
 assert_screen("Облік усіх підрозділів і документи очищено.")

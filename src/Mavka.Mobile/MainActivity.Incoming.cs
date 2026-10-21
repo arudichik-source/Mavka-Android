@@ -52,14 +52,14 @@ public partial class MainActivity
     private void PromptFullAccountReset(TextView status)
     {
         if(_resetRequested){status.Text="Очищення вже виконується.";return;}
-        var word=new EditText(this){Hint="Введіть ОБНУЛИТИ",InputType=Android.Text.InputTypes.ClassText};
+        var word=new EditText(this){Hint="Введіть ОБНУЛИТИ або RESET",InputType=Android.Text.InputTypes.ClassText};
         ConfigureKeyboard(word);word.SetSingleLine(true);
         new AlertDialog.Builder(this).SetTitle("Обнулити облік на телефоні?")
             .SetMessage("Буде остаточно видалено залишки й рухи всіх підрозділів, архів документів разом із кошиком, отримані вкладення та черги передачі документів на цьому телефоні.\n\nАкаунт, підключення, паролі, ключі шифрування й доступ до підрозділів збережуться. Для подальшої роботи отримайте актуальні залишки з головної Мавки повторно.\n\nДля підтвердження введіть ОБНУЛИТИ.")
             .SetView(word).SetNegativeButton("Скасувати",(_,_)=>{})
             .SetPositiveButton("Обнулити",async(_,_)=>
             {
-                if(word.Text?.Trim()!="ОБНУЛИТИ"){status.Text="Контрольне слово не збігається. Облік не змінено.";return;}
+                if(word.Text?.Trim() is not ("ОБНУЛИТИ" or "RESET")){status.Text="Контрольне слово не збігається. Облік не змінено.";return;}
                 if(_resetRequested)return;
                 if(_busy && _exchangeOperation is null){status.Text="Завершіть поточне збереження перед очищенням.";return;}
                 _resetRequested=true;
