@@ -340,6 +340,7 @@ public partial class MainActivity : Activity
             : "Gmail не підключено.", 14);
         Button(card, "Оновити повідомлення", async () =>
             await RefreshMessagesAsync(status));
+        Button(card,"Скасувати обмін",()=>CancelExchange(status));
         Text(card, "Оновлення пошти автоматично повторює відправлення " +
             "підтверджень із черги. Окрема кнопка не потрібна.", 12);
         Text(card, "Повідомлення, що вже надійно оброблені, " +
@@ -3632,33 +3633,23 @@ public partial class MainActivity : Activity
         });
         Button(card, "Активувати після дозволу на ПК", async () =>
         {
-            if (_busy) return; _busy = true; status.Text = "Перевіряємо дозвіл пристрою...";
-            try { await new RelaySync(this).Activate(); status.Text = RelayBackground.IsEnabled(this)?"Пристрій активний. Фоновий обмін увімкнено за вашим вибором.":"Пристрій активний. Фоновий обмін вимкнено; синхронізуйте вручну або ввімкніть його окремо."; }
+            if (_busy || _resetRequested) return; using var operation=BeginExchange(); _busy = true; status.Text = "Перевіряємо дозвіл пристрою...";
+            try { await Task.Run(()=>new RelaySync(this).Activate(operation.Token),operation.Token); status.Text = RelayBackground.IsEnabled(this)?"Пристрій активний. Фоновий обмін увімкнено за вашим вибором.":"Пристрій активний. Фоновий обмін вимкнено; синхронізуйте вручну або ввімкніть його окремо."; }
             catch (Exception ex) { status.Text = ex.Message; }
             finally { _busy = false; }
         });
-        Button(card, "Синхронізувати зараз", async () =>
-        {
-            if (_busy) return; _busy = true; status.Text = "Синхронізація Relay...";
-            try
-            {
-                status.Text = await new RelaySync(this).SynchronizeNow();
-                try { await SendPendingFilePartsAsync(maximum: 1); }
-                catch (Exception) { status.Text += " Вихідні частини файлів збережені в черзі."; }
-            }
-            catch (Exception ex) { status.Text = ex.Message; }
-            finally { _busy = false; }
-        });
+        Button(card, "Синхронізувати зараз", async () => await RefreshRelayAsync(status));
+        Button(card, "Скасувати обмін", () => CancelExchange(status));
         Button(card, "Надіслати тестовий пакет на ПК", async () =>
         {
-            if (_busy) return; _busy = true;
+            if (_busy || _resetRequested) return; using var operation=BeginExchange(); _busy = true;
             try
             {
                 var relay = new RelaySync(this);
                 var id = Guid.NewGuid().ToString("D");
                 relay.Queue("test:" + id, RelayProtocol.Serialize(new { format = "MAVKA_RELAY_TEST_V1",
                     testId = id, text = "Тестовий пакет Android → ПК", createdAtUtc = DateTimeOffset.UtcNow }));
-                status.Text = await relay.SynchronizeNow();
+                status.Text = await Task.Run(()=>relay.SynchronizeNow(operation.Token),operation.Token);
             }
             catch (Exception ex) { status.Text = ex.Message; }
             finally { _busy = false; }
