@@ -227,9 +227,9 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             if(group.Count()==1)
             {
                 var record=group.First();using var json=JsonDocument.Parse(record.Json);var root=json.RootElement;
-                var count=root.TryGetProperty("chunkCount",out var c)?c.GetInt32():1;
-                var index=root.TryGetProperty("chunkIndex",out var i)?i.GetInt32():0;
-                if(count==1 && index==0){complete.Add(record);continue;}
+                var singleCount=root.TryGetProperty("chunkCount",out var c)?c.GetInt32():1;
+                var singleIndex=root.TryGetProperty("chunkIndex",out var i)?i.GetInt32():0;
+                if(singleCount==1 && singleIndex==0){complete.Add(record);continue;}
             }
             var chunks=group.Select(r=>(Record:r,Node:System.Text.Json.Nodes.JsonNode.Parse(r.Json)!.AsObject())).OrderBy(r=>r.Node["chunkIndex"]?.GetValue<int>()??0).ToArray();
             var count=chunks[0].Node["chunkCount"]?.GetValue<int>()??1;
