@@ -282,15 +282,17 @@ public partial class MainActivity : Activity
         Text(overview, "Листів у локальному перегляді: " + _messages.Count, 14);
         Text(overview, new RelayIdentity(this).Enabled ? "Cloudflare Relay активовано" : "Cloudflare Relay не підключено", 14);
         var activeProfile = LoadUserProfile();
-        if (activeProfile is not null)
+        var homeGeneration=_mirrorReadGeneration;
+        if(activeProfile is not null)
         {
-            try
+            var unreadText=Text(overview,"Завантаження кількості сповіщень…",14);
+            Button(overview,"Сповіщення та нагадування",ShowNotices);
+            async void LoadUnread()
             {
-                var unread = _noticeStore.UnreadCount(activeProfile.Unit);
-                Text(overview, "Непрочитаних службових сповіщень: " + unread, 14);
-                Button(overview, "Сповіщення та нагадування", ShowNotices);
+                try{var count=await Task.Run(()=>{using var notices=new MavkaNoticeStore(this);return notices.UnreadCount(activeProfile.Unit);});if(_screen=="home" && homeGeneration==_mirrorReadGeneration)unreadText.Text="Непрочитаних службових сповіщень: "+count;}
+                catch{if(_screen=="home" && homeGeneration==_mirrorReadGeneration)unreadText.Text="Сповіщення поки недоступні.";}
             }
-            catch { Text(overview, "Сповіщення поки недоступні.", 13); }
+            LoadUnread();
         }
         var syncStatus=Text(overview,"Оновлення виконується лише за вашим запитом.",13);
         Button(overview,"Оновити пошту",async()=>await RefreshMessagesAsync(syncStatus));
@@ -300,21 +302,20 @@ public partial class MainActivity : Activity
         var card = Card();
         Text(card, "Майно та документи", 19, true);
         Text(card, "Підрозділ: " + (profile?.Unit ?? "не визначено"), 15);
-        if (profile is not null)
+        if(profile is not null)
         {
-            try
+            var counters=Text(card,"Завантаження стану документів…",14);
+            var isMvo=new MobileAccessStore(this).Load()?.isMvo==true;
+            async void LoadCounters()
             {
-                Text(card, "Документів у захищеному архіві: " +
-                    _archive.CountDocuments(profile.Unit), 14);
-                if(new MobileAccessStore(this).Load()?.isMvo==true)
-                    Text(card,"Накладні очікують підтвердження: "+_archive.ListSummaries(profile.Unit).Count(d=>d.Kind=="Накладна" && d.PostingStatus=="not_posted"),14);
-                else Text(card,"Надходження зараховуються автоматично в межах наданого доступу.",13);
+                try
+                {
+                    var result=await Task.Run(()=>{using var archive=new DocumentArchiveStore(this);return (Count:archive.CountDocuments(profile.Unit),Pending:isMvo?archive.ListSummaries(profile.Unit).Count(d=>d.Kind=="Накладна" && d.PostingStatus=="not_posted"):0);});
+                    if(_screen=="home" && homeGeneration==_mirrorReadGeneration)counters.Text="Документів у захищеному архіві: "+result.Count+(isMvo?" · очікують підтвердження: "+result.Pending:". Надходження зараховуються автоматично в межах доступу.");
+                }
+                catch(Exception ex){if(_screen=="home" && homeGeneration==_mirrorReadGeneration)counters.Text=ExplainOperationError(ex);}
             }
-            catch (Exception ex)
-            {
-                Text(card, "Не вдалося прочитати стан локальних даних: " +
-                    ExplainOperationError(ex), 13);
-            }
+            LoadCounters();
         }
         Button(card,"Майно",ShowAssets);
         Button(card,"Документи",ShowDocuments);
@@ -4263,7 +4264,7 @@ public partial class MainActivity : Activity
     }
 
     private void AddAssetRow(LinearLayout parent, string name, string description,
-        string quantity, Action? showHistory = null)
+        string quantity, Action? showHistory = null, bool doubleTap=false)
     {
         var row = new LinearLayout(this) { Orientation = Orientation.Horizontal };
         row.SetGravity(GravityFlags.CenterVertical);
@@ -4296,7 +4297,13 @@ public partial class MainActivity : Activity
         if (showHistory is not null)
         {
             row.Clickable = true;
-            row.Click += (_, _) => showHistory();
+            long previousTap=-1;
+            row.Click += (_, _) =>
+            {
+                var now=Android.OS.SystemClock.UptimeMillis();
+                if(!doubleTap || previousTap>=0 && now-previousTap<=Android.Views.ViewConfiguration.DoubleTapTimeout){previousTap=-1;showHistory();}
+                else previousTap=now;
+            };
             row.LongClickable = true;
             row.LongClick += (_, _) => showHistory();
         }

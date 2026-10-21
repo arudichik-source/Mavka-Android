@@ -6,9 +6,13 @@ using System.Security.Cryptography;
 
 namespace Mavka.Mobile;
 internal sealed record MobileMirrorRecord(string Key,string Kind,int LocationId,string Json);
-internal sealed class MobileChangeStore(Context context,string databaseName="mavka_root_mirror_v1.db"):SQLiteOpenHelper(context,databaseName,null,1)
+internal sealed class MobileChangeStore:SQLiteOpenHelper
 {
-    private string Client=>new UserProfileStore(context).Load()?.ClientId??throw new InvalidOperationException("Немає профілю.");
+    private readonly Context context;
+    public MobileChangeStore(Context context,string databaseName="mavka_root_mirror_v1.db"):base(context,databaseName,null,1)
+    {this.context=context;SetWriteAheadLoggingEnabled(true);}
+    private string? _client;
+    private string Client=>_client??=new UserProfileStore(context).Load()?.ClientId??throw new InvalidOperationException("Немає профілю.");
     public override void OnCreate(SQLiteDatabase db)
     {
         db.ExecSQL("CREATE TABLE parts(client TEXT,source TEXT,batch TEXT,part INTEGER,hash TEXT,sealed TEXT,PRIMARY KEY(client,source,batch,part))");
@@ -195,8 +199,9 @@ internal sealed class MobileChangeStore(Context context,string databaseName="mav
         // The most recently applied source is the active root mirror; never sum
         // the same accounting base imported through two source paths.
         using var source=db.RawQuery("SELECT source FROM heads WHERE client=? ORDER BY rowid DESC LIMIT 1",new[]{Client});if(!source.MoveToFirst())return [];
+        using var crypto=new TransferKeystoreCipher.ReadSession();
         using var rows=db.RawQuery("SELECT key,location,sealed FROM records WHERE client=? AND source=? AND kind=?",new[]{Client,source.GetString(0),kind});
-        while(rows.MoveToNext())if((location is null || rows.GetInt(1)==location) && access.Allows(rows.GetInt(1),kind=="asset"))result.Add(new(rows.GetString(0),kind,rows.GetInt(1),Open(rows.GetString(2))));
+        while(rows.MoveToNext())if((location is null || rows.GetInt(1)==location) && access.Allows(rows.GetInt(1),kind=="asset"))result.Add(new(rows.GetString(0),kind,rows.GetInt(1),crypto.OpenText(rows.GetString(2))));
         if(kind!="document")return result;
         var complete=new List<MobileMirrorRecord>();
         foreach(var group in result.GroupBy(r=>r.Key.Split(":chunk:",StringSplitOptions.None)[0]))

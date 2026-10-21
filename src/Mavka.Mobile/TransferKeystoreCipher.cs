@@ -8,6 +8,22 @@ internal static class TransferKeystoreCipher
     private const string Alias = "mavka_pending_parts_aes_v1";
     private static readonly byte[] Aad = "MAVKA_PENDING_PART_LOCAL_V1"u8.ToArray();
     private static KeyStore Store() { var s = KeyStore.GetInstance("AndroidKeyStore")!; s.Load(null); return s; }
+    internal sealed class ReadSession:IDisposable
+    {
+        private readonly KeyStore _store=Store();
+        private readonly Java.Security.IKey _key;
+        private readonly Cipher _cipher=Cipher.GetInstance("AES/GCM/NoPadding")!;
+        public ReadSession(){_key=_store.GetKey(Alias,null)??throw new System.Security.Cryptography.CryptographicException("Local key unavailable.");}
+        public string OpenText(string encoded)
+        {
+            var encrypted=Convert.FromBase64String(encoded);
+            if(encrypted.Length<29)throw new System.Security.Cryptography.CryptographicException("Truncated part.");
+            _cipher.Init(Javax.Crypto.CipherMode.DecryptMode,_key,new GCMParameterSpec(128,encrypted[..12]));
+            _cipher.UpdateAAD(Aad);var bytes=_cipher.DoFinal(encrypted[12..])!;
+            try{return System.Text.Encoding.UTF8.GetString(bytes);}finally{System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes);}
+        }
+        public void Dispose(){_cipher.Dispose();_key.Dispose();_store.Dispose();}
+    }
     public static byte[] Seal(byte[] plain)
     {
         using var store = Store();

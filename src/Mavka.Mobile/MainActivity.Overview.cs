@@ -50,7 +50,11 @@ public partial class MainActivity
             {
                 Text(list,"Станом на "+date.Key,17,true);
                 foreach(var row in date)
-                    AddAssetRow(list,row.Asset.Name,row.Snapshot.Unit+" · "+(string.IsNullOrWhiteSpace(row.Asset.Nsn)?"":"NSN: "+row.Asset.Nsn+" · ")+"ціна "+(row.Asset.UnitPrice?.ToString("0.####")??"невідома"),row.Asset.Quantity.ToString("0.###")+" "+row.Asset.Measure);
+                    AddAssetRow(list,row.Asset.Name,row.Snapshot.Unit+" · "+(string.IsNullOrWhiteSpace(row.Asset.Nsn)?"":"NSN: "+row.Asset.Nsn+" · ")+"ціна "+(row.Asset.UnitPrice?.ToString("0.####")??"невідома"),row.Asset.Quantity.ToString("0.###")+" "+row.Asset.Measure,()=>
+                    {
+                        var matches=all.Where(e=>e.Snapshot.AsOf==row.Snapshot.AsOf && e.Asset.Name==row.Asset.Name && e.Asset.Measure==row.Asset.Measure && e.Asset.UnitPrice==row.Asset.UnitPrice && e.Asset.Nsn==row.Asset.Nsn).ToArray();
+                        ShowUnitDistribution(row.Asset.Name,row.Asset.Measure,matches.Select(e=>(e.Snapshot.Unit,e.Asset.Quantity,e.Snapshot.AsOf,(Action?)null)).ToArray());
+                    },doubleTap:true);
             }
             if(page>0)Button(list,"← Попередні 50",()=>{page--;Draw();});
             if((page+1)*50<found.Length)Button(list,"Наступні 50 →",()=>{page++;Draw();});

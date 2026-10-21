@@ -35,7 +35,7 @@ internal sealed class DocumentArchiveStore : SQLiteOpenHelper
     private const string KeyAlias = "mavka_document_archive_aes_v1";
 
     public DocumentArchiveStore(Context context)
-        : base(context, "mavka_document_archive_v1.db", null, 3) { }
+        : base(context, "mavka_document_archive_v1.db", null, 3) { SetWriteAheadLoggingEnabled(true); }
 
     public override void OnCreate(SQLiteDatabase db)
     {

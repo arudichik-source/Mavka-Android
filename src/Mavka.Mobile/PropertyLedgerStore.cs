@@ -25,7 +25,7 @@ internal sealed record InventoryMovement(
 internal sealed class PropertyLedgerStore : SQLiteOpenHelper
 {
     public PropertyLedgerStore(Context context)
-        : base(context, "mavka_property_ledger_v1.db", null, 3) { }
+        : base(context, "mavka_property_ledger_v1.db", null, 3) { SetWriteAheadLoggingEnabled(true); }
 
     public override void OnCreate(SQLiteDatabase db)
     {
