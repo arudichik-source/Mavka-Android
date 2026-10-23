@@ -18,7 +18,34 @@ public sealed partial class StorageQaActivity:Activity
         base.OnCreate(state);var text=new TextView(this){TextSize=16};SetContentView(text);
         text.Text="Перевірка синтетичного локального обліку…";
         var resetOnly=Intent?.GetBooleanExtra("reset_only",false)==true;
-        text.Text=await Task.Run(()=>Intent?.GetBooleanExtra("protected_files",false)==true?RunProtectedFileChecks():Intent?.GetBooleanExtra("state_requests",false)==true?RunStateRequestChecks():Intent?.GetBooleanExtra("large_ui",false)==true?PrepareLargeUi():resetOnly?RunResetChecks():RunChecks());
+        text.Text=await Task.Run(()=>Intent?.GetBooleanExtra("role_ui",false)==true?PrepareRoleUi():Intent?.GetBooleanExtra("empty_ui",false)==true?PrepareEmptyUi():Intent?.GetBooleanExtra("protected_files",false)==true?RunProtectedFileChecks():Intent?.GetBooleanExtra("state_requests",false)==true?RunStateRequestChecks():Intent?.GetBooleanExtra("large_ui",false)==true?PrepareLargeUi():resetOnly?RunResetChecks():RunChecks());
+    }
+    private void RequireOfflineSynthetic()
+    {
+        if(new UserProfileStore(this).Load()?.FullName!="SYNTHETIC-QA-USER" || new GmailCredentialsStore(this).HasCredentials ||
+            new RelayIdentity(this).Enabled || new ExchangeKeyStore(this).HasKeyPair)throw new InvalidOperationException("Offline synthetic QA only");
+    }
+    private string PrepareRoleUi()
+    {
+        try
+        {
+            RequireOfflineSynthetic();var policy=new MobileAccessStore(this).Load()!;var mvo=Intent?.GetBooleanExtra("mvo",false)==true;
+            var next=policy with{revision=policy.revision+1,isMvo=mvo,allUnits=!mvo,units=mvo?[new(1,"QA One")]:[new(1,"QA One"),new(2,"QA Two")],canConfirmInvoices=mvo,autoPostInvoices=!mvo};
+            using var json=JsonDocument.Parse(JsonSerializer.Serialize(next));new MobileAccessStore(this).Accept(json.RootElement);
+            return "NATIVE ROLE UI QA READY "+(mvo?"MVO":"OBSERVER");
+        }
+        catch(Exception ex){return "NATIVE ROLE UI QA FAILED: "+ex;}
+    }
+    private string PrepareEmptyUi()
+    {
+        try
+        {
+            RequireOfflineSynthetic();using var store=new MobileChangeStore(this);using var db=store.WritableDatabase;
+            db.Delete("records","kind=?",new[]{"asset"});
+            if(store.AppliedState()?.AsOf!=new DateOnly(2026,10,20))throw new Exception("Applied PC date lost");
+            return "NATIVE EMPTY UI QA READY";
+        }
+        catch(Exception ex){return "NATIVE EMPTY UI QA FAILED: "+ex;}
     }
     private string PrepareLargeUi()
     {
@@ -135,7 +162,7 @@ public sealed partial class StorageQaActivity:Activity
                 using(var reopened=new MavkaNoticeStore(this,noticeDb))Check(reopened.Find(notice!.NoticeId,"QA") is null && reopened.ContainsSaved(notice.NoticeId,"QA",raw),"deleted tombstone survives restart");
                 var client=profile.ClientId;var source=new string('a',64);var access=new MobileAccessPolicy(MobileAccessPolicy.Format,client,1,false,[new(1,"QA One"),new(2,"QA Two")],true,true,false,true,true);
                 using(var doc=JsonDocument.Parse(JsonSerializer.Serialize(access)))new MobileAccessStore(this).Accept(doc.RootElement);
-                MobileChangeOperation Asset(int loc,int qty)=>new("asset",$"asset:{loc}:1:1",loc,false,JsonSerializer.SerializeToElement(new{locationId=loc,location=loc==1?"QA One":"QA Two",itemId=1,name="Synthetic",unit="од.",quantity=qty,price=1.123456789m,category=1}));
+                MobileChangeOperation Asset(int loc,int qty)=>new("asset",$"asset:{loc}:1:1",loc,false,JsonSerializer.SerializeToElement(new{locationId=loc,location=loc==1?"QA One":"QA Two",itemId=1,name="Synthetic",nsn=loc==1?"FIND-ONE":"FIND-TWO",unit="од.",quantity=qty,price=1.123456789m,category=1}));
                 MobileChangeOperation Invoice(int id,decimal qty=3m)=>new("document",$"document:1:{id}",1,false,JsonSerializer.SerializeToElement(new{locationId=1,location="QA One",id,number="SYNTHETIC-"+id,date="2026-10-20",type="Накладна",status="Проведено",movements=new[]{new{itemId=1,name="Synthetic",unit="од.",quantity=qty,price=1.123456789m,category=1,batch="QA",code="QA",serials=""}}}));
                 string Wire(long seq,MobileChangeOperation[] ops,MobileAccessPolicy? policy=null,bool full=false)=>JsonSerializer.Serialize(new MobileChangePart(MobileChangePart.Format,client,source,Guid.NewGuid().ToString("N"),seq,seq-1,seq==1,"2026-10-20",policy??access,0,1,MobileChangePart.Hash(ops),ops,full));
                 // Exercise actual multipart validation, Keystore writes and transaction

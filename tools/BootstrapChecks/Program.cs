@@ -51,7 +51,7 @@ Check(!ForegroundPollingPolicy.CanRun(false,true,false),"Foreground polling defa
 Check(!ForegroundPollingPolicy.CanRun(true,false,false),"Paused activity never polls");
 Check(!ForegroundPollingPolicy.CanRun(true,true,true),"Existing operation prevents overlapping polls");
 Check(ForegroundPollingPolicy.CanRun(true,true,false),"Only enabled resumed idle activity can poll");
-Check(ForegroundPollingPolicy.Minutes(99)==2 && ForegroundPollingPolicy.Delay(2,0)==TimeSpan.FromMinutes(2) && ForegroundPollingPolicy.Delay(2,4)==TimeSpan.FromMinutes(10),"Polling intervals validated and error retries bounded");
+Check(ForegroundPollingPolicy.Minutes(99)==60 && ForegroundPollingPolicy.Delay(2,0)==TimeSpan.FromMinutes(2) && ForegroundPollingPolicy.Delay(2,4)==TimeSpan.FromMinutes(32),"Polling intervals validated and error retries bounded");
 var allMail=Enumerable.Range(1,300).Select(i=>(uint)i).ToArray();
 var keyMail=new HashSet<uint>{299,300};var changesMail=allMail.Take(298).ToHashSet();
 var batchMail=GmailProcessingSelectionPolicy.PayloadBatch(allMail.Reverse(),keyMail,changesMail,new HashSet<uint>());
@@ -96,3 +96,4 @@ var freshSession=new GmailRefreshSession();Check(freshSession.Register(new[]{(7u
 var bounded=new GmailRefreshSession();for(uint i=1;i<=GmailRefreshSession.MaximumPasses;i++)Check(bounded.Register(new[]{(1u,i)}),"Bounded refresh accepts distinct pages");
 Check(bounded.AtLimit && !bounded.Register(new[]{(1u,999u)}),"One action has a finite page budget");
 Console.WriteLine("PASS automatic Gmail drain34 messages, blocked UID fairness, mailbox reset, resumable new pass and finite session limit");
+Check(ForegroundPollingPolicy.Minutes(60)==60 && ForegroundPollingPolicy.Delay(60,0)==TimeSpan.FromHours(1) && ForegroundPollingPolicy.Delay(240,4)==TimeSpan.FromDays(1),"Hourly foreground schedule and capped exponential backoff never speed up long intervals");

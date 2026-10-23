@@ -6,7 +6,7 @@ public partial class MainActivity
 {
     private async Task RefreshRelayAsync(TextView status)
     {
-        if(_busy || _resetRequested)return;using var operation=BeginExchange();var cancellation=operation.Token;_busy=true;status.Text="Оновлення сервера…";
+        if(_busy || _resetRequested)return;using var operation=BeginExchange();var cancellation=operation.Token;_busy=true;ReportExchangeStatus(status,"Оновлення сервера…");
         try
         {
             if(!new RelayIdentity(this).Enabled)throw new InvalidOperationException("Спочатку завершіть QR-підключення до головної Мавки.");
@@ -19,7 +19,7 @@ public partial class MainActivity
             if(posting.OpeningUnits+posting.Invoices>0 || posting.Issues.Count>0)status.Text+="\n"+posting.Summary;
         }
         catch(Exception ex){status.Text=ExplainOperationError(ex);}
-        finally{_busy=false;}
+        finally{ReportExchangeStatus(status,status.Text??"Обмін завершено.",true);_busy=false;}
     }
 
     private void ShowGrantedAssets()

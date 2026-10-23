@@ -62,7 +62,8 @@ public partial class MainActivity : Activity
     private CancellationTokenSource _screenReads=new();
     private int _documentPage;
     private string _mailFilter = "all";
-    private bool _busy;
+    private bool _localBusy;
+    private bool _busy { get=>_localBusy || WidgetSyncJob.IsRunning; set=>_localBusy=value; }
     private IReadOnlyList<MavkaMailItem> _messages = Array.Empty<MavkaMailItem>();
 
     protected override void OnCreate(Bundle? state)
@@ -186,6 +187,7 @@ public partial class MainActivity : Activity
         else ShowHome();
 #if MAVKA_BOOTSTRAP_QA
         if(Intent?.GetBooleanExtra("qa_hold_exchange",false)==true)_=HoldSyntheticExchangeForResetQa();
+        else if(Intent?.GetBooleanExtra("qa_progress_exchange",false)==true)_=HoldSyntheticExchangeForResetQa(true);
         else
 #endif
         _ = RecoverMirrorAsync();
@@ -301,7 +303,7 @@ public partial class MainActivity : Activity
             }
             LoadUnread();
         }
-        var syncStatus=Text(overview,_exchangeOperation is null?"Оновлення виконується лише за вашим запитом.":"Обмін виконується. Його можна скасувати.",13);
+        var syncStatus=Text(overview,_lastExchangeStatus??(WidgetSyncJob.IsRunning?WidgetSyncJob.LastStatus(this):null)??(_exchangeOperation is null?"Оновлення виконується лише за вашим запитом.":"Обмін виконується. Його можна скасувати."),13);
         _homeSyncStatus=syncStatus;
         Button(overview,"Оновити пошту",async()=>await RefreshMessagesAsync(syncStatus));
         Button(overview,"Оновити сервер",async()=>await RefreshRelayAsync(syncStatus));
@@ -454,22 +456,38 @@ public partial class MainActivity : Activity
 
     private void ShowAssets()
     {
+        if(!_showRootMirror)_assetQuery="";
+        _showRootMirror=true;ShowAssetsView();
+    }
+    private void ShowLocalAssets()
+    {
+        if(new MobileAccessStore(this).Load()?.isMvo!=true){ShowAssets();return;}
+        _showRootMirror=false;_assetQuery="";ShowAssetsView();
+    }
+    private void ShowAssetsView()
+    {
         Begin("assets", "Майно");
         var selected=LoadUserProfile();
         if(selected is null || !new MobileAccessStore(this).Allows(selected.Unit,true)){Text(_body,"Немає дозволу на перегляд залишків. Налаштування надає головна Мавка.",15);return;}
+        if(_showRootMirror)
+        {
+            var policy=new MobileAccessStore(this).Load()!;
+            var location=_allMobileUnits && !policy.isMvo && policy.units.Length>1?(int?)null:policy.units.Single(u=>u.unit==selected.Unit).locationId;
+            DrawRootAssets(location);DrawIncomingBatchAction();return;
+        }
         if(_allMobileUnits && new MobileAccessStore(this).Load() is {isMvo:false,units.Length:>1}){ShowGrantedAssets();return;}
         var top = Card();
         Button(top,"Змінити підрозділ",()=>ChooseMobileUnit(ShowAssets));
         var profile = LoadUserProfile();
         Text(top, "Підрозділ: " + (profile?.Unit ?? "не визначений у профілі"), 17, true);
-        var dateLabel = Text(top, "Обліковий залишок на кінець дня: " +
+        var dateLabel = Text(top, "Локальний журнал на кінець дня: " +
             _assetsAsOf.ToString("dd.MM.yyyy"), 14, true);
         Button(top, "📅 Вибрати облікову дату", () =>
         {
             new DatePickerDialog(this, (_, date) =>
             {
                 _assetsAsOf = new DateOnly(date.Year, date.Month + 1, date.DayOfMonth);
-                dateLabel.Text = "Обліковий залишок на кінець дня: " +
+                dateLabel.Text = "Локальний журнал на кінець дня: " +
                     _assetsAsOf.ToString("dd.MM.yyyy");
                 RenderAssets();
             }, _assetsAsOf.Year, _assetsAsOf.Month - 1, _assetsAsOf.Day).Show();
@@ -477,11 +495,11 @@ public partial class MainActivity : Activity
         Button(top, "Сьогодні", () =>
         {
             _assetsAsOf = DateOnly.FromDateTime(DateTime.Today);
-            dateLabel.Text = "Обліковий залишок на кінець дня: " +
+            dateLabel.Text = "Локальний журнал на кінець дня: " +
                 _assetsAsOf.ToString("dd.MM.yyyy");
             RenderAssets();
         });
-        var status = Text(top, "Джерело: JSON-лист ГОЛОВНОЇ МАВКИ (MAVKA_UNIT_ASSETS_V1).", 13);
+        Text(top,"Історія локальних підтверджень МВО. Поточні залишки з ПК відкриваються в основному розділі «Майно».",13);
         Text(top, "Оновити пошту й сервер можна на головному екрані.", 12);
         RenderAssets();
     }
@@ -1434,30 +1452,25 @@ public partial class MainActivity : Activity
             var password = _store.GetPassword();
             if (string.IsNullOrEmpty(password))
                 throw new InvalidOperationException("Пароль не збережений.");
-            var report=await ReceiveGmailUpdatesAsync(password,sender,cancellation,text=>status.Text=text);
+            var report=await ReceiveGmailUpdatesAsync(password,sender,cancellation,text=>ReportExchangeStatus(status,text));
             try{_archive.RecordSyncEvent("complete","Завершено порційне отримання Gmail");}catch{}
             cancellation.ThrowIfCancellationRequested();
             var syncReport = await Task.Run(()=>SendPendingReceiptsAsync(password, sender),cancellation);
             try { await SendPendingFilePartsAsync(maximum: 3,cancellation:cancellation); }
             catch { syncReport += " Частини файлів залишені в черзі надсилання."; }
-            if (_screen is "sync" or "home" or "inbox" or "assets")
-                status.Text = report+" "+syncReport+$" · Час: {syncWatch.Elapsed.TotalSeconds:0.0} с.";
+            ReportExchangeStatus(status,report+" "+syncReport+$" · Час: {syncWatch.Elapsed.TotalSeconds:0.0} с.",true);
         }
         catch (MailKit.Security.AuthenticationException)
         {
-            if (_screen is "sync" or "home" or "inbox")
-                status.Text = "Google відхилив авторизацію. Перевір пароль застосунку.";
+            ReportExchangeStatus(status,"Google відхилив авторизацію. Перевір пароль застосунку.",true);
         }
         catch (System.OperationCanceledException)
         {
-            if (_screen is "sync" or "home" or "inbox")
-                status.Text = "Обмін скасовано або вичерпано час очікування. Збережені дані залишено; можна продовжити оновлення." +
-                    CachedMailHint();
+            ReportExchangeStatus(status,"Обмін скасовано або вичерпано час очікування. Збережені дані залишено; можна продовжити оновлення."+CachedMailHint(),true);
         }
         catch (Exception ex)
         {
-            if (_screen is "sync" or "home" or "inbox")
-                status.Text = ExplainMailError(ex) + CachedMailHint();
+            ReportExchangeStatus(status,ExplainMailError(ex)+CachedMailHint(),true);
         }
         finally { _busy = false; }
     }
@@ -2060,7 +2073,9 @@ public partial class MainActivity : Activity
         }, initial.Year, initial.Month - 1, initial.Day).Show();
     }
 
-    private void ShowDocuments()
+    private void ShowDocuments() { _showDocumentArchive=false; ShowDocumentsView(); }
+    private void ShowDocumentArchive() { _showDocumentArchive=true; ShowDocumentsView(); }
+    private void ShowDocumentsView()
     {
         _viewingArchivedDocument = false;
         Begin("documents", "Історія документів");
@@ -2072,11 +2087,20 @@ public partial class MainActivity : Activity
             return;
         }
         var policyForView=new MobileAccessStore(this).Load();
+        if(policyForView?.canViewDocuments!=true || !policyForView.units.Any(u=>u.unit==profile.Unit))
+        { Text(_body,"Доступ до документів не надано.",15);return; }
+        var navigation=Card();
+        Text(navigation,"Підрозділ: "+(_allMobileUnits && !policyForView.isMvo?"Усі доступні підрозділи":profile.Unit),15,true);
+        Button(navigation,"Змінити підрозділ",()=>ChooseMobileUnit(ShowDocumentsView));
+        Button(navigation,_showDocumentArchive?"Актуальні документи":"Актуальні документи ✓",ShowDocuments);
+        Button(navigation,_showDocumentArchive?"Локальний архів ✓":"Локальний архів",ShowDocumentArchive);
+        if(!_showDocumentArchive)
+        {
+            DrawRootDocuments(_allMobileUnits && !policyForView.isMvo?null:policyForView.units.Single(u=>u.unit==profile.Unit).locationId);
+            DrawIncomingBatchAction();return;
+        }
         DrawIncomingBatchAction();
-        if(policyForView is not null)DrawRootDocuments(_allMobileUnits && !policyForView.isMvo?null:policyForView.units.Single(u=>u.unit==profile.Unit).locationId);
-        var card = Card();
-        if(!new MobileAccessStore(this).Allows(profile.Unit)){Text(card,"Доступ до документів не надано.",15);return;}
-        Button(card,"Змінити підрозділ",()=>ChooseMobileUnit(ShowDocuments));
+        var card=Card();
         Text(card, "Локальний архів · " + (_allMobileUnits?"усі доступні підрозділи":profile.Unit), 17, true);
         Text(card, "Документи доступні без Gmail. Збереження не означає проведення.", 13);
         Button(card, "Кошик документів (відновлення до 30 днів)", ShowArchiveTrash);
@@ -2086,17 +2110,28 @@ public partial class MainActivity : Activity
 
         // One read on entering the screen; changing pages and searching does not
         // requery SQLite or change any stored document.
+        var generation=_mirrorReadGeneration;
+        async void LoadArchive()
+        {
         try
         {
             var policy=new MobileAccessStore(this).Load()!;
-            var documents=(_allMobileUnits && !policy.isMvo?policy.units.SelectMany(u=>_archive.ListSummaries(u.unit)):_archive.ListSummaries(profile.Unit))
-                .DistinctBy(d=>d.DocumentId).OrderByDescending(d=>d.DocumentDate,StringComparer.Ordinal).ThenByDescending(d=>d.SavedUtc,StringComparer.Ordinal).ToList();
+            var token=_screenReads.Token;
+            var documents=await Task.Run(()=>(_allMobileUnits && !policy.isMvo?policy.units.SelectMany(u=>_archive.ListSummaries(u.unit)):_archive.ListSummaries(profile.Unit))
+                .DistinctBy(d=>d.DocumentId).OrderByDescending(d=>d.DocumentDate,StringComparer.Ordinal).ThenByDescending(d=>d.SavedUtc,StringComparer.Ordinal).ToList(),token);
+            if(generation!=_mirrorReadGeneration || _screen!="documents" || !_showDocumentArchive)return;
 
+            var filterSummary=Text(card,_archiveDocumentFilter.Summary,12);
+            Button(card,"Фільтри",()=>ShowDocumentFilters(_archiveDocumentFilter,documents.Select(d=>d.Kind),documents.Select(d=>d.Status),value=>
+            { _archiveDocumentFilter=value;_documentPage=0;filterSummary.Text=value.Summary;Render(); }));
+            card.RemoveView(rows);card.AddView(rows);
             void Render()
             {
                 rows.RemoveAllViews();
-                var filter = _documentQuery.Trim();
-                var visible = documents.Where(d => filter.Length == 0 ||
+                var filter = (search.Text??"").Trim();
+                var currentPolicy=new MobileAccessStore(this).Load();
+                var visible = documents.Where(d=>currentPolicy?.canViewDocuments==true && currentPolicy.units.Any(u=>u.unit.Equals(d.Unit,StringComparison.OrdinalIgnoreCase)))
+                    .Where(d=>_archiveDocumentFilter.Matches(d.Kind,d.Status,d.DocumentDate)).Where(d => filter.Length == 0 ||
                     d.Number.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                     d.Kind.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                     d.DocumentDate.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -2182,7 +2217,7 @@ public partial class MainActivity : Activity
                                     try
                                     {
                                         _archive.MoveToTrash(item.DocumentId, item.Unit);
-                                        ShowDocuments();
+                                        ShowDocumentArchive();
                                     }
                                     catch (Exception ex)
                                     {
@@ -2195,18 +2230,24 @@ public partial class MainActivity : Activity
                 AddNavigation(); // Also accessible at the end of the current page.
             }
 
-            search.TextChanged += (_, _) =>
+            var searchVersion=0;
+            search.TextChanged += async (_, _) =>
             {
                 _documentQuery = search.Text ?? "";
                 _documentPage = 0;
-                Render();
+                var version=++searchVersion;await Task.Delay(180);
+                if(version==searchVersion && generation==_mirrorReadGeneration && _screen=="documents")Render();
             };
             Render();
         }
+        catch (OperationCanceledException) {}
         catch (Exception)
         {
+            if(generation!=_mirrorReadGeneration || _screen!="documents")return;
             Text(rows, "Не вдалося прочитати архів. Спробуй відкрити історію ще раз.", 14);
         }
+        }
+        LoadArchive();
     }
 
     private void ShowArchiveTrash()
@@ -2223,7 +2264,7 @@ public partial class MainActivity : Activity
         Text(card, "Відновлення доступне протягом 30 днів. Проведені накладні " +
             "не можна видаляти через кошик. Очищення прострочених документів " +
             "не впливає на ключі чи Gmail.", 13);
-        Button(card, "Повернутися до архіву", ShowDocuments);
+        Button(card, "Повернутися до архіву", ShowDocumentArchive);
         var list = new LinearLayout(this) { Orientation = Orientation.Vertical };
         card.AddView(list);
         void Reload()

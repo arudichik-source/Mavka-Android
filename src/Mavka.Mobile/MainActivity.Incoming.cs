@@ -11,6 +11,11 @@ public partial class MainActivity
     {
         var policy=new MobileAccessStore(this).Load();
         if(policy is null || !policy.canViewAssets && !policy.canViewDocuments)return;
+        if(!policy.isMvo)
+        {
+            if(!string.IsNullOrWhiteSpace(_incomingPostingIssue)){var issue=Card();Text(issue,"Стан автоматичного зарахування",16,true);Text(issue,_incomingPostingIssue,13);}
+            return;
+        }
         var card=Card();
         Text(card,policy.isMvo?"Зарахування отриманого майна":"Надходження в доступних підрозділах",16,true);
         Text(card,policy.isMvo
@@ -61,10 +66,11 @@ public partial class MainActivity
             {
                 if(word.Text?.Trim() is not ("ОБНУЛИТИ" or "RESET")){status.Text="Контрольне слово не збігається. Облік не змінено.";return;}
                 if(_resetRequested)return;
-                if(_busy && _exchangeOperation is null){status.Text="Завершіть поточне збереження перед очищенням.";return;}
+                if(_localBusy && _exchangeOperation is null){status.Text="Завершіть поточне збереження перед очищенням.";return;}
                 _resetRequested=true;
                 StopForegroundRefresh();_screenReads.Cancel();_mirrorReadGeneration++;
                 status.Text="Скасування обміну перед очищенням…";
+                await WidgetSyncJob.CancelAndWait(this);
                 var active=_exchangeOperation;active?.Cancel();
                 if(active is not null)await active.Finished;
                 _busy=true;status.Text="Очищення всього локального обліку…";

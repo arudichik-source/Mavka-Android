@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../src/Mavka.Mobile/DocumentBrowseFilter.cs" Link="DocumentBrowseFilter.cs" />
     <Compile Include="../../src/Mavka.Mobile/PhoneNumberNormalizer.cs" Link="PhoneNumberNormalizer.cs" />
     <Compile Include="../../src/Mavka.Mobile/ArchiveDocumentClassifier.cs" Link="ArchiveDocumentClassifier.cs" />
     <Compile Include="../../src/Mavka.Mobile/DocumentPageWindow.cs" Link="DocumentPageWindow.cs" />

@@ -28,14 +28,16 @@ public partial class MainActivity
     }
     private bool DrawRootAssets(int? location)
     {
-        if(!System.IO.File.Exists(GetDatabasePath("mavka_root_mirror_v1.db")?.AbsolutePath))return false;
         IReadOnlyList<MobileMirrorRecord> records=[];
         var generation=++_mirrorReadGeneration;
-        var header=Card();Text(header,"Актуальний облік головної Мавки",18,true);
-        Text(header,location is null?(new MobileAccessStore(this).Load()?.allUnits==true?"Майно військової частини":"Майно доступних підрозділів"):"Обраний підрозділ",15,true);
-        Text(header,"Останні збережені зміни. Оновлення — на головному екрані.",12);
+        var header=Card();Text(header,"Поточні залишки",20,true);
+        Text(header,"Актуальний облік головної Мавки",14);
+        var access=new MobileAccessStore(this).Load();
+        Text(header,location is null?(access?.allUnits==true?"Майно військової частини":"Майно доступних підрозділів"):access?.units.FirstOrDefault(u=>u.locationId==location)?.unit??"Обраний підрозділ",15,true);
+        var loading=Text(header,"Завантаження захищених залишків…",13);
         Button(header,"Обрати підрозділ",()=>ChooseMobileUnit(ShowAssets));
-        Button(header,"Журнал зарахувань на телефоні",()=>{_showRootMirror=false;ShowAssets();});
+        if(access?.isMvo==true)Button(header,"Журнал зарахувань на телефоні",ShowLocalAssets);
+        Button(header,"Документи підрозділу",ShowDocuments);
         var search=ProfileInput(header,"Пошук за назвою або NSN",_assetQuery);var list=new Android.Widget.LinearLayout(this){Orientation=Orientation.Vertical};header.AddView(list);var page=0;var drawVersion=0;
         Button(header,"Скинути пошук",()=>search.Text="");
         async void Draw(bool debounce=false)
@@ -80,10 +82,19 @@ public partial class MainActivity
             foreach(var row in parsedRows)row.Payload.Dispose();
         }
         search.TextChanged+=(_,_)=>{_assetQuery=search.Text??"";page=0;Draw(true);};
-        var loading=Text(header,"Завантаження захищених залишків…",13);
         async void Load()
         {
-            try{var token=_screenReads.Token;records=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("asset",location,token);},token);if(generation!=_mirrorReadGeneration || _screen!="assets")return;if(records.Count==0){_showRootMirror=false;ShowAssets();return;}loading.Text="";Draw();}
+            try
+            {
+                var token=_screenReads.Token;
+                var result=await Task.Run(()=>{using var store=new MobileChangeStore(this);return (Rows:store.List("asset",location,token),State:store.AppliedState());},token);
+                if(generation!=_mirrorReadGeneration || _screen!="assets")return;
+                records=result.Rows;
+                loading.Text=result.State is null?"Повний пакет з ПК ще не застосовано. Оновіть пошту або сервер і перевірте стан отримання частин.":
+                    result.State.AsOf is {} date?"Перевірені дані ПК станом на "+date.ToString("dd.MM.yyyy")+". Оновлення — на головному екрані.":"Дату застосованих даних не вказано. Оновіть облік із ПК.";
+                if(result.State is null){list.RemoveAllViews();Button(list,"Стан оновлення бази",ShowQueueManagement);return;}
+                Draw();
+            }
             catch(Exception ex){if(generation==_mirrorReadGeneration)loading.Text=ExplainOperationError(ex);}
         }
         _refreshCurrentAssets=Load;Load();return true;
@@ -129,37 +140,66 @@ public partial class MainActivity
     }
     private void DrawRootDocuments(int? location)
     {
-        if(!System.IO.File.Exists(GetDatabasePath("mavka_root_mirror_v1.db")?.AbsolutePath))return;
-        IReadOnlyList<MobileMirrorRecord> records=[];var generation=++_mirrorReadGeneration;
-        var card=Card();Text(card,"Документи головної Мавки",18,true);Text(card,"Акти, накладні та інші зміни обліку. Нові накладні для МВО також з'являються нижче для ручного зарахування.",12);
-        var search=ProfileInput(card,"Пошук за номером або підрозділом","");var rows=new Android.Widget.LinearLayout(this){Orientation=Orientation.Vertical};card.AddView(rows);var page=0;var drawVersion=0;
+        DocumentBrowseRow[] records=[];var generation=++_mirrorReadGeneration;
+        var card=Card();Text(card,"Документи головної Мавки",18,true);
+        Text(card,"Акти, накладні та інші документи лише доступних підрозділів. Перегляд не змінює облік.",12);
+        var loading=Text(card,"Завантаження захищених документів…",13);
+        var search=ProfileInput(card,"Пошук за номером або підрозділом",_rootDocumentQuery);
+        var page=0;var drawVersion=0;
+        var rows=new LinearLayout(this){Orientation=Orientation.Vertical};
+        var summary=Text(card,_rootDocumentFilter.Summary,12);
+        Button(card,"Фільтри",()=>ShowDocumentFilters(_rootDocumentFilter,records.Select(d=>d.Type),records.Select(d=>d.Status),value=>
+        { _rootDocumentFilter=value;page=0;summary.Text=value.Summary;Draw(); }));
+        card.AddView(rows);
         async void Draw(bool debounce=false)
         {
-            var version=++drawVersion;var query=(search.Text??"").Trim();
+            var version=++drawVersion;var query=(search.Text??"").Trim();var criteria=_rootDocumentFilter;
             if(debounce)await Task.Delay(180);
             if(version!=drawVersion || generation!=_mirrorReadGeneration)return;
-            var rendered=await Task.Run(()=>
-            {
-            var parsedDocs=records.Select(r=>(Record:r,Doc:JsonDocument.Parse(r.Json))).ToArray();var currentPolicy=new MobileAccessStore(this).Load();var docs=parsedDocs.Where(r=>currentPolicy?.Allows(r.Record.LocationId)==true).Where(r=>(r.Doc.RootElement.GetProperty("number")+" "+r.Doc.RootElement.GetProperty("location")+" "+r.Doc.RootElement.GetProperty("type")).Contains(query,StringComparison.OrdinalIgnoreCase)).OrderByDescending(r=>r.Doc.RootElement.GetProperty("date").GetString(),StringComparer.Ordinal).ToArray();
-                return (parsedDocs,docs);
-            });
-            var parsedDocs=rendered.parsedDocs;var docs=rendered.docs;
-            if(version!=drawVersion || generation!=_mirrorReadGeneration || _screen!="documents"){foreach(var doc in parsedDocs)doc.Doc.Dispose();return;}
-            rows.RemoveAllViews();
-            page=Math.Min(page,Math.Max(0,(docs.Length-1)/50));Text(rows,$"Документів: {docs.Length} · сторінка {page+1}",13);
+            var currentPolicy=new MobileAccessStore(this).Load();
+            var docs=await Task.Run(()=>records.Where(r=>currentPolicy?.Allows(r.Record.LocationId)==true)
+                .Where(r=>criteria.Matches(r.Type,r.Status,r.Date))
+                .Where(r=>(r.Number+" "+r.Unit+" "+r.Type+" "+r.Date).Contains(query,StringComparison.OrdinalIgnoreCase)).ToArray());
+            if(version!=drawVersion || generation!=_mirrorReadGeneration || _screen!="documents")return;
+            rows.RemoveAllViews();page=Math.Min(page,Math.Max(0,(docs.Length-1)/50));
+            Text(rows,$"Документів: {docs.Length} · сторінка {page+1}",13);
+            if(docs.Length==0)Text(rows,"Документів за цим відбором немає.",14);
             foreach(var row in docs.Skip(page*50).Take(50))
             {
-                var p=row.Doc.RootElement;var selected=row.Record;
-                Text(rows,p.GetProperty("type")+" № "+p.GetProperty("number"),16,true);Text(rows,p.GetProperty("date")+" · "+p.GetProperty("location")+" · "+p.GetProperty("status"),13);Button(rows,"Переглянути зміни",()=>ShowRootDocument(selected));
+                Text(rows,row.Type+" № "+row.Number,16,true);
+                Text(rows,row.Date+" · "+row.Unit+" · "+row.Status,13);
+                Button(rows,"Переглянути зміни",()=>ShowRootDocument(row.Record));
             }
-            if(page>0)Button(rows,"← Попередні 50",()=>{page--;Draw();});if((page+1)*50<docs.Length)Button(rows,"Наступні 50 →",()=>{page++;Draw();});foreach(var doc in parsedDocs)doc.Doc.Dispose();
+            if(page>0)Button(rows,"← Попередні 50",()=>{page--;Draw();});
+            if((page+1)*50<docs.Length)Button(rows,"Наступні 50 →",()=>{page++;Draw();});
         }
-        search.TextChanged+=(_,_)=>{page=0;Draw(true);};
-        var loading=Text(card,"Завантаження захищених документів…",13);
+        search.TextChanged+=(_,_)=>{_rootDocumentQuery=search.Text??"";page=0;Draw(true);};
         async void Load()
         {
-            try{var token=_screenReads.Token;records=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("document",location,token);},token);if(generation!=_mirrorReadGeneration || _screen!="documents")return;loading.Text="";Draw();}
-            catch(Exception ex){if(generation==_mirrorReadGeneration)loading.Text=ExplainOperationError(ex);}
+            try
+            {
+                var token=_screenReads.Token;
+                // Decrypt and parse once per screen, not on every keystroke/page.
+                var result=await Task.Run(()=>
+                {
+                    using var store=new MobileChangeStore(this);var state=store.AppliedState();
+                    var docs=new List<DocumentBrowseRow>();
+                    foreach(var record in store.List("document",location,token))
+                    {
+                        token.ThrowIfCancellationRequested();using var json=JsonDocument.Parse(record.Json);var p=json.RootElement;
+                        docs.Add(new(record,p.GetProperty("type").GetString()!,p.GetProperty("number").GetString()!,
+                            p.GetProperty("date").GetString()!,p.GetProperty("location").GetString()!,p.GetProperty("status").GetString()!));
+                    }
+                    return (Rows:docs.OrderByDescending(d=>d.Date,StringComparer.Ordinal).ToArray(),State:state);
+                },token);
+                if(generation!=_mirrorReadGeneration || _screen!="documents")return;
+                records=result.Rows;
+                loading.Text=result.State is null?"Повний пакет з ПК ще не застосовано. Оновіть пошту або сервер.":
+                    result.State.AsOf is {} date?"Дані ПК станом на "+date.ToString("dd.MM.yyyy"):"Дату застосованих даних не вказано.";
+                Draw();
+            }
+            catch(OperationCanceledException) { }
+            catch(Exception ex){if(generation==_mirrorReadGeneration && _screen=="documents")loading.Text=ExplainOperationError(ex);}
         }
         Load();
     }
@@ -185,6 +225,6 @@ public partial class MainActivity
         Draw();
         if(p.TryGetProperty("chunkCount",out var chunks) && chunks.GetInt32()>1 && p.GetProperty("type").GetString()!.Contains("накладна",StringComparison.OrdinalIgnoreCase) && new MobileAccessStore(this).Load()?.isMvo==true)
             Text(card,"Для цієї великої накладної доступний повний перегляд; її локальне зарахування на телефоні поки недоступне.",13);
-        Text(card,"Збереження змін не означає ручного підтвердження МВО.",12);Button(card,"До документів",ShowDocuments);
+        if(new MobileAccessStore(this).Load()?.isMvo==true)Text(card,"Збереження змін не означає ручного підтвердження МВО.",12);Button(card,"До документів",ShowDocuments);
     }
 }

@@ -6,7 +6,7 @@ using Android.Widget;
 namespace Mavka.Mobile;
 
 /// <summary>
-/// Native 4x2 launcher widget. Only generic counters are displayed; decrypted
+/// Native resizable launcher widget. Only generic counters are displayed; decrypted
 /// notice titles, message bodies, names and inventory never leave the app UI.
 /// </summary>
 [BroadcastReceiver(Label = "Мавка — швидкий доступ", Exported = true)]
@@ -58,24 +58,34 @@ public sealed class MavkaHomeWidget : AppWidgetProvider
             // labels instead of confidential content or an app crash.
         }
 
-        // A compact 2x2 tile layout keeps every Ukrainian label on one line.
+        // Existing navigation plus two explicit one-shot exchange actions.
         // Re-read theme on refresh so the home widget follows the app palette.
-        bool blue = MavkaThemePalette.Load(context).IsBlue;
-        foreach (var id in ids)
-        {
-            var views = new RemoteViews(context.PackageName,
+        foreach(var id in ids) manager.UpdateAppWidget(id,CreateViews(context,id,unread,reminders));
+    }
+    internal static RemoteViews CreateViews(Context context,int id,int unread=0,int reminders=0)
+    {
+        var blue=MavkaThemePalette.Load(context).IsBlue;
+        var views = new RemoteViews(context.PackageName,
                 blue ? Resource.Layout.mavka_home_widget_blue
                      : Resource.Layout.mavka_home_widget);
-            views.SetTextViewText(Resource.Id.widget_status,
+        views.SetTextViewText(Resource.Id.widget_status,
                 $"Нові: {unread} · Нагад.: {reminders}");
-            views.SetOnClickPendingIntent(Resource.Id.widget_library, Open(context, "library", id * 10 + 1));
-            views.SetOnClickPendingIntent(Resource.Id.widget_notices, Open(context, "notices", id * 10 + 2));
-            views.SetOnClickPendingIntent(Resource.Id.widget_assets, Open(context, "assets", id * 10 + 3));
-            views.SetOnClickPendingIntent(Resource.Id.widget_inbox, Open(context, "inbox", id * 10 + 4));
-            manager.UpdateAppWidget(id, views);
-        }
+        views.SetOnClickPendingIntent(Resource.Id.widget_library, Open(context, "library", id * 10 + 1));
+        views.SetOnClickPendingIntent(Resource.Id.widget_notices, Open(context, "notices", id * 10 + 2));
+        views.SetOnClickPendingIntent(Resource.Id.widget_assets, Open(context, "assets", id * 10 + 3));
+        views.SetOnClickPendingIntent(Resource.Id.widget_inbox, Open(context, "inbox", id * 10 + 4));
+        views.SetTextViewText(Resource.Id.widget_sync_status,WidgetSyncJob.LastStatus(context));
+        views.SetOnClickPendingIntent(Resource.Id.widget_refresh_base,Sync(context,false,id*10+5));
+        views.SetOnClickPendingIntent(Resource.Id.widget_check_mail,Sync(context,true,id*10+6));
+        return views;
     }
 
+    private static PendingIntent Sync(Context context,bool mail,int requestCode)
+    {
+        var intent=new Intent(context,typeof(WidgetSyncReceiver));intent.PutExtra("mail",mail);
+        intent.SetAction(mail?"ua.mavka.mobile.WIDGET_CHECK_MAIL":"ua.mavka.mobile.WIDGET_UPDATE_BASE");
+        return PendingIntent.GetBroadcast(context,requestCode,intent,PendingIntentFlags.UpdateCurrent|PendingIntentFlags.Immutable)!;
+    }
     private static PendingIntent Open(Context context, string destination, int requestCode)
     {
         var intent = new Intent(context, typeof(MainActivity));

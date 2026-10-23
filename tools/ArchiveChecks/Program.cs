@@ -159,3 +159,12 @@ Check(!System.Text.Encoding.UTF8.GetString(encryptedBackup).Contains(
     "Portable backup never stores unencrypted unit name");
 Console.WriteLine("Archive UI pagination: 14/14 checks PASS");
 Console.WriteLine("Archive and profile regression checks: PASS (includes 200 long rows)");
+
+var filterDay=new DocumentBrowseFilter("Накладна","Проведено",new(2026,10,2),new(2026,10,2));
+Check(filterDay.Matches("Накладна","Проведено","2026-10-02"),"Document filter exact inclusive ISO date");
+Check(filterDay.Matches("НАКЛАДНА","проведено","02.10.2026"),"Document filter localized date and case");
+Check(!filterDay.Matches("Акт","Проведено","2026-10-02") && !filterDay.Matches("Накладна","Скасовано","2026-10-02"),"Document type and status intersection");
+Check(!filterDay.Matches("Накладна","Проведено","2026-10-03") && !filterDay.Matches("Накладна","Проведено","unknown"),"Document date excludes later/unknown dates");
+Check(new DocumentBrowseFilter().Matches("Акт","Скасовано","unknown"),"No date filter preserves unknown date document");
+Check(new DocumentBrowseFilter(From:new(2026,10,2)).Matches("Акт","","2026-10-03") && !new DocumentBrowseFilter(To:new(2026,10,2)).Matches("Акт","","2026-10-03"),"Open-ended document periods");
+Console.WriteLine("Document browse type/status/inclusive-period/reset checks PASS");
