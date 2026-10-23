@@ -279,6 +279,7 @@ test('configuration fails closed and never creates a database or private-key bin
   const config = await configuration(input);
   assert.equal(config.name, 'mavka-relay'); assert.equal(config.d1_databases[0].binding, 'DB');
   assert.equal(config.preview_urls, false); assert.deepEqual(config.triggers.crons, ['*/5 * * * *']);
+  assert.deepEqual(config.r2_buckets, [{ binding: 'FILES', bucket_name: 'mavka-private-files' }]);
   await assert.rejects(configuration({ ...input, MAVKA_ADMIN_SIGNING_JWK: JSON.stringify({ ...main.publicSigningKey, d: 'secret' }) }));
   assert.equal(Object.hasOwn(JSON.parse(config.vars.RELAY_ADMIN_SIGNING_KEY), 'd'), false);
 });

@@ -16,6 +16,7 @@ export async function configuration(env) {
     d1_databases: [{ binding: 'DB', database_name: 'mavka-messages',
       database_id: env.MAVKA_D1_DATABASE_ID, migrations_dir: 'migrations' }],
     vars: { RELAY_ADMIN_DEVICE_ID: env.MAVKA_ADMIN_DEVICE_ID, RELAY_ADMIN_SIGNING_KEY: root.json },
+    r2_buckets: [{ binding: 'FILES', bucket_name: 'mavka-private-files' }],
     triggers: { crons: ['*/5 * * * *'] },
   };
 }
