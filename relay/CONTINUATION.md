@@ -1,3 +1,16 @@
+# Relay: update 23.10.2026 — private R2 attachment integration (draft)
+
+- Cloudflare Dashboard screenshot confirms production Worker binding `FILES` → private bucket `mavka-private-files`; existing `DB` → `mavka-messages` preserved.
+- R2 bucket Standard, public access disabled; `cleanup-transfers` lifecycle `transfers/` 7 days enabled.
+- PR #37 merged to `main` as `5c90b64328c4ec58ccbe7ce9af2fca028933af76`; generated Wrangler config now preserves R2 binding on deployment.
+- Draft PR #38 (`feature/relay-r2-encrypted-parts-v1`) adds signed encrypted-parts R2 API, recipient-only reads, durable D1 ACK tombstones, R2 deletion, additive migration and Miniflare tests.
+- **PR #38 is NOT merged or deployed.** Before rollout, take D1 backup/Time Travel checkpoint, apply additive `relay/migrations/0002_r2_file_parts.sql` manually to production, verify schema, then deploy. Do not deploy code before migration: scheduled cleanup refers to the new table.
+- `relay/docs/R2_ENCRYPTED_PARTS_V1.md` records API, limits, trust boundary and rollout. Android/Windows file clients are not yet integrated and no real encrypted file transfer has been done.
+- `/health` was user-tested 23.10.2026 with version 1.0.0, and unsigned `/v1/status` returned `unauthorized`. D1 screenshot: one active main, one active mobile, four revoked mobiles.
+- Current CI: Relay check passing on draft branch; any later changes require fresh checks.
+
+---
+
 # Relay: стан на 19.10.2026
 
 ## Підтверджений стан
