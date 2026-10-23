@@ -211,7 +211,7 @@ export async function cleanup(db, now = nowSeconds()) {
     stmt(db, 'DELETE FROM relay_nonces WHERE expires_at <= ?', now),
     stmt(db, 'DELETE FROM relay_rate_windows WHERE window_start < ?', now - 600),
     stmt(db, 'DELETE FROM relay_message_ids WHERE retain_until <= ?', now),
-    stmt(db, 'DELETE FROM relay_file_parts WHERE expires_at <= ? OR (acked_at IS NOT NULL AND acked_at < ?)', now - 86400, now - 86400),
+    stmt(db, 'DELETE FROM relay_file_parts WHERE expires_at <= ?', now - RETENTION),
   ]);
 }
 export default {
