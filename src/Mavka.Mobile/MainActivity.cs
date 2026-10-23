@@ -2240,7 +2240,7 @@ public partial class MainActivity : Activity
             };
             Render();
         }
-        catch (OperationCanceledException) {}
+        catch (System.OperationCanceledException) {}
         catch (Exception)
         {
             if(generation!=_mirrorReadGeneration || _screen!="documents")return;
