@@ -43,8 +43,10 @@ public partial class MainActivity
         Dates(); Button(body, "Дата від…", () => Pick(true)); Button(body, "Дата до…", () => Pick(false));
         var error = Text(body, "", 13);
         var scroll = new ScrollView(this); scroll.AddView(body);
-        var dialog = new AlertDialog.Builder(this).SetTitle("Фільтри документів").SetView(scroll)
-            .SetNegativeButton("Скасувати", (_, _) => { }).Create() ?? throw new InvalidOperationException("Не вдалося відкрити фільтри.");
+        var builder = new AlertDialog.Builder(this);
+        builder.SetTitle("Фільтри документів"); builder.SetView(scroll);
+        builder.SetNegativeButton("Скасувати", (_, _) => { });
+        var dialog = builder.Create() ?? throw new InvalidOperationException("Не вдалося відкрити фільтри.");
         Button(body, "Застосувати", () => {
             if (from > to) { error.Text = "Дата початку має передувати даті завершення."; return; }
             apply(new(type.SelectedItemPosition == 0 ? "" : type.SelectedItem?.ToString() ?? "",

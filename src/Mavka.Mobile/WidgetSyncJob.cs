@@ -25,7 +25,8 @@ internal sealed class WidgetSyncJob : JobService
     internal const int JobId = 36123;
     private static CancellationTokenSource? _active;
     private static Task _finished = Task.CompletedTask;
-    internal static bool IsRunning => _active is not null;
+    internal static bool IsRunning => Volatile.Read(ref _active) is not null;
+    internal static bool IsScheduled(Context context) => IsRunning || (context.GetSystemService(JobSchedulerService) as JobScheduler)?.GetPendingJob(JobId) is not null;
     private bool _stopped;
     internal static void Status(Context context, string text)
     {

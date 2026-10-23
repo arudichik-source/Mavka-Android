@@ -54,7 +54,7 @@ public partial class MainActivity
     }
     private void CancelExchange(Android.Widget.TextView status)
     {
-        if(WidgetSyncJob.IsRunning){_=WidgetSyncJob.CancelAndWait(this);ReportExchangeStatus(status,"Скасування обміну віджета…");return;}
+        if(WidgetSyncJob.IsScheduled(this)){_=WidgetSyncJob.CancelAndWait(this);ReportExchangeStatus(status,"Скасування обміну віджета…");return;}
         if (_exchangeOperation is null) { status.Text = "Активного обміну немає."; return; }
         _exchangeOperation.Cancel();
         ReportExchangeStatus(status,"Скасування обміну… Збережені документи залишаться в обліку.");
