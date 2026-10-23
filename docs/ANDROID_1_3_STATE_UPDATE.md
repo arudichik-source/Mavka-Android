@@ -1,3 +1,9 @@
+## Verified release candidate — 23 October 2026
+
+Compiled source8b953f5525084a382e6542d3fb0d9a1571ca9d28. Workflow39922737956 APK and Android15 emulator SUCCESS. Existing package/signing certificate retained; native state-request suite15 PASS, foreground keep-awake/pause release, automatic refresh, all-unit search/distribution, documents,33000-row responsive navigation and busy-reset/credentials preservation PASS. Runtime errors log empty. No real accounts/mail operated.
+
+APK artifact12487194914, 23057248bytes; APK SHA2568ECC4B4FADCC83F1F6F9D8FAFBAEDF53094474CB7571A90DA375E589FECB6B1B. ZIP SHA256da1f216efba8c332266fbbca750c39ee5a8b50afdc184a90ae5d5f332b5cb644. Evidence artifact12488542723. Phone installation and live-channel acceptance are operator-driven. Matching desktop source0ac7cdf installed locally with586 program files verified and297 protected paths unchanged. Retained NuGet dependency advisories remain a separate maintenance item. Later docs-only commits do not change the tested APK source.
+
 # Android 1.3.0 — state request and queue maintenance
 
 Candidate dated 23 October 2026. Package `ua.mavka.mobile.registrationqa`,
