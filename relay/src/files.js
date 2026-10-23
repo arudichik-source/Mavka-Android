@@ -6,6 +6,7 @@ const MAX_PARTS = 4096;
 const MAX_FILE_TTL = 6 * 86400; // R2 lifecycle is 7 days; leave a safety margin.
 const PART_PATH = /^\/v1\/files\/parts\/([A-Za-z0-9][A-Za-z0-9_-]{15,79})\/([a-f0-9]{32})\/(0|[1-9][0-9]{0,3})(\/ack)?$/;
 const UPLOAD_PATH = '/v1/files/parts';
+const STATUS_PATH = '/v1/files/status';
 const stmt = (db, sql, ...args) => db.prepare(sql).bind(...args);
 const response = (value, status = 200) => new Response(JSON.stringify(value),
   { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
@@ -17,6 +18,7 @@ function parse(raw) { try { return JSON.parse(raw); } catch { throw new ApiError
 
 export function isFileRoute(method, pathname) {
   if (method === 'POST' && pathname === UPLOAD_PATH) return true;
+  if (method === 'GET' && pathname === STATUS_PATH) return true;
   const m = PART_PATH.exec(pathname);
   return !!m && (m[4] ? method === 'POST' : method === 'GET');
 }
@@ -44,9 +46,13 @@ async function upload(env, db, auth, raw, now) {
     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${active} AND ${active}
       AND (SELECT count(*) FROM relay_file_parts WHERE acked_at IS NULL AND expires_at > ?) < 10000
       AND (SELECT count(*) FROM relay_file_parts WHERE sender_device_id = ?
-        AND acked_at IS NULL AND expires_at > ?) < 2000`,
+        AND acked_at IS NULL AND expires_at > ?) < 2000
+      AND NOT EXISTS (SELECT 1 FROM relay_file_parts
+        WHERE recipient_device_id = ? AND sender_device_id = ? AND transfer_id = ?
+          AND (part_count != ? OR expires_at != ?))`,
     ...args, body.count, digest, size, body.expiresAt, now,
-    auth.deviceId, body.recipientDeviceId, now, auth.deviceId, now).run();
+    auth.deviceId, body.recipientDeviceId, now, auth.deviceId, now,
+    body.recipientDeviceId, auth.deviceId, body.transferId, body.count, body.expiresAt).run();
   const row = await stmt(db, `SELECT * FROM relay_file_parts WHERE
     recipient_device_id = ? AND sender_device_id = ? AND transfer_id = ? AND part_index = ?`, ...args).first();
   requireValue(row, 409, 'recipient_unavailable_or_file_capacity');
@@ -107,8 +113,24 @@ async function part(env, db, auth, raw, now, match) {
     expiresAt: row.expires_at, payloadSha256: row.payload_sha256, payload: JSON.parse(stored) });
 }
 
+async function storageStatus(db, auth, now) {
+  requireValue(auth.deviceId === auth.admin.id && auth.row?.device_type === 'main' &&
+    auth.row.status === 'active', 403, 'main_required');
+  const stats = await stmt(db, `SELECT count(*) AS pending_parts,
+    COALESCE(sum(size_bytes), 0) AS pending_ciphertext_bytes
+    FROM relay_file_parts WHERE acked_at IS NULL AND expires_at > ?`, now).first();
+  // Ledger bytes do not include R2 metadata, in-flight writes, stale objects
+  // or other bucket prefixes, and MUST NOT be presented as billing usage.
+  return response({ source: 'relay_file_parts', pendingParts: stats.pending_parts,
+    trackedPendingCiphertextBytes: stats.pending_ciphertext_bytes,
+    maxPendingParts: 10000, maxPerSenderPendingParts: 2000,
+    isR2BillingUsage: false });
+}
+
 export async function handleFileRoute(request, env, db, auth, raw, now) {
   requireValue(env.FILES?.put && env.FILES?.get && env.FILES?.delete, 503, 'file_storage_not_configured');
+  if (request.method === 'GET' && new URL(request.url).pathname === STATUS_PATH)
+    return storageStatus(db, auth, now);
   if (request.method === 'POST' && new URL(request.url).pathname === UPLOAD_PATH)
     return upload(env, db, auth, raw, now);
   const match = PART_PATH.exec(new URL(request.url).pathname);
