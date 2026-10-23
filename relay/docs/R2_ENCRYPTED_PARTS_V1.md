@@ -53,7 +53,23 @@ Illustrative schema only: use real valid Base64 and a future expiration.
 4096; index 0-based; expiration within **6 days**. Encrypted envelope is
 strictly checked; plaintext is rejected. Return 201 for created, 200 for
 matching idempotent replay with a new signed nonce. A conflicting part returns
-409; an already ACKed part cannot be resurrected.
+409; a transfer cannot mix different part counts or expiry timestamps;
+an already ACKed part cannot be resurrected.
+
+### GET /v1/files/status (main device only)
+
+Signed administrative status intended for the main MaVka control panel. No
+query string, no mobile access, no plaintext or identifiable file names.
+Returns `source: "relay_file_parts"`, `pendingParts`,
+`trackedPendingCiphertextBytes`, `maxPendingParts`,
+`maxPerSenderPendingParts`, and `isR2BillingUsage: false`.
+
+**This is NOT the actual R2 bucket size or monthly bill.** The ledger describes
+currently pending known encrypted parts and excludes in-flight objects, metadata,
+orphaned R2 objects, `documents/`, `backups/`, and operation costs. Check
+Cloudflare **R2 → Metrics** for the actual storage usage, Class A/B operations,
+and billing/free-tier information. Do not equate the counters to the 10 GB-month
+Standard-class quota or claim they prevent overage charges.
 
 ### GET /v1/files/parts/:senderDeviceId/:transferId/:index
 
