@@ -79,3 +79,20 @@ Check(!MobileStateRequest.MatchesResponse(repair,repairId,repairSource,2,new str
 Check(!MobileStateRequest.MatchesResponse(repair with{full=true},repairId,repairSource,2,repairHash),"Request reply never clears existing mirror");
 Check(!MobileStateRequest.MatchesResponse(repair,repairId,repairSource,6,repairHash),"Applied response cannot replay");
 Console.WriteLine("PASS Android state-report bridge, stale/duplicate/source/hash and non-reset guards");
+// The operator's 34-letter update drains in one session, including later UIDs
+// when an early ordinary mail is unsupported. Failed mail remains for retry.
+var refresh=new GmailRefreshSession();var mailbox=Enumerable.Range(1,34).Select(i=>(Validity:7u,Uid:(uint)i)).ToArray();
+var stored=new HashSet<uint>();
+while(true)
+{
+    var batch=mailbox.Where(m=>!refresh.Attempted.Contains(m)).Take(3).ToArray();
+    if(!refresh.Register(batch))break;
+    foreach(var mail in batch.Where(m=>m.Uid>2))stored.Add(mail.Uid);
+}
+Check(refresh.Passes==12 && refresh.Messages==34 && stored.Count==32,"One action drains34 messages; two blocked letters cannot starve later parts");
+Check(!refresh.Register(new[]{(7u,34u)}),"No-progress/repeated UID stops instead of spinning");
+Check(refresh.Register(new[]{(8u,1u)}),"UIDVALIDITY reset never skips reused UID");
+var freshSession=new GmailRefreshSession();Check(freshSession.Register(new[]{(7u,1u)}),"Unprocessed mail is eligible again next user refresh");
+var bounded=new GmailRefreshSession();for(uint i=1;i<=GmailRefreshSession.MaximumPasses;i++)Check(bounded.Register(new[]{(1u,i)}),"Bounded refresh accepts distinct pages");
+Check(bounded.AtLimit && !bounded.Register(new[]{(1u,999u)}),"One action has a finite page budget");
+Console.WriteLine("PASS automatic Gmail drain34 messages, blocked UID fairness, mailbox reset, resumable new pass and finite session limit");

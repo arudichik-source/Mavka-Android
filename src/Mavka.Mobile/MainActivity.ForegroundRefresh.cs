@@ -83,7 +83,7 @@ public partial class MainActivity
             {
                 await Task.Delay(TimeSpan.FromSeconds(5),token);
                 if(_resetRequested || _foregroundNext is not { } due || DateTimeOffset.UtcNow<due || !ForegroundPollingPolicy.CanRun(ForegroundSettings.GetBoolean("enabled",false),_activityResumed,_busy))continue;
-                using var operation=BeginExchange(token);
+                using var operation=BeginExchange(token,TimeSpan.FromMinutes(15));
                 var operationToken=operation.Token;
                 _busy=true;string result;
                 try
@@ -94,9 +94,7 @@ public partial class MainActivity
                     {
                         if(!_store.HasCredentials || string.IsNullOrWhiteSpace(_store.GetMainMavkaEmail()))throw new InvalidOperationException("Підключіть Gmail у налаштуваннях.");
                         var password=_store.GetPassword()!;var sender=_store.GetMainMavkaEmail();
-                        _messages=await Task.Run(()=>GmailConnectionService.ReadFromSenderAsync(_store.GetEmail(),password,sender,_exchangeKeys,_documentPasswords,LoadUserProfile()?.ClientId,
-                            validity=>_archive.ListMailProcessingStates(validity,MailProcessingScope()),cancellation:operationToken),operationToken);
-                        reports.Add(await ArchiveAndCleanupAsync(password,sender,operationToken));SaveInboxCacheSafe();
+                        reports.Add(await ReceiveGmailUpdatesAsync(password,sender,operationToken,text=>UpdateForegroundInfo(text)));
                     }
                     token.ThrowIfCancellationRequested();
                     if(channel is 1 or 2)

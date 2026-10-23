@@ -139,7 +139,8 @@ internal static class GmailConnectionService
         DocumentPasswordStore? documentPasswords = null,
         string? recipientClientId = null,
         Func<uint, IReadOnlyDictionary<uint, string>>? processedIndex = null,
-        bool noticesOnly = false,CancellationToken cancellation=default)
+        bool noticesOnly = false,CancellationToken cancellation=default,
+        IReadOnlySet<(uint Validity,uint Uid)>? attempted=null)
     {
         if (string.IsNullOrWhiteSpace(allowedSender) ||
             !System.Net.Mail.MailAddress.TryCreate(allowedSender.Trim(), out var parsed) ||
@@ -159,6 +160,7 @@ internal static class GmailConnectionService
             GmailProcessingSelectionPolicy.IsTrashed(processed, id);
         bool IsReady(uint id) =>
             GmailProcessingSelectionPolicy.IsReady(processed, id);
+        bool Attempted(UniqueId uid)=>attempted?.Contains((client.Inbox.UidValidity,uid.Id))==true;
 
         // Server-side search minimizes access to unrelated mail.
         var matched = await client.Inbox.SearchAsync(
@@ -190,19 +192,19 @@ internal static class GmailConnectionService
                 timeout.Token)).ToArray();
         var fileUids = fileMatches.Reverse().Take(150).Select(u => u.Id).ToHashSet();
         var changeMatches=noticesOnly?Array.Empty<UniqueId>():(await client.Inbox.SearchAsync(SearchQuery.FromContains(allowedSender.Trim()).And(SearchQuery.SubjectContains(MobileChangePart.Format)),timeout.Token)).ToArray();
-        var changeUids=changeMatches.Reverse().Take(100).Select(u=>u.Id).ToHashSet();
+        var changeUids=changeMatches.Select(u=>u.Id).ToHashSet();
         // A completed archive item is never fetched again merely to retry
         // Gmail Trash. The remote operation still revalidates the exact From
         // field and UIDVALIDITY before moving the UID.
         var readyForTrash = GmailProcessingSelectionPolicy.ReadyForTrash(
-            matched.Reverse().Select(u => u.Id), processed, 10);
+            matched.Reverse().Where(u=>!Attempted(u)).Select(u => u.Id), processed, 10);
         // Fetch ordinary message metadata in small batches rather than all
         // 300 candidates up front. The exact sender check still determines
         // when 15 actual authorized messages have been found; spoofed display
         // names never count toward that number.
         const MessageSummaryItems summaryItems =
             MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope |
-            MessageSummaryItems.BodyStructure;
+            MessageSummaryItems.BodyStructure | MessageSummaryItems.Size;
         bool ExactSender(IMessageSummary summary)
         {
             var from=summary.Envelope?.From?.Mailboxes.ToArray()??[];
@@ -211,7 +213,7 @@ internal static class GmailConnectionService
 
         var fetched = new Dictionary<uint, IMessageSummary>();
         var ordinaryUids = GmailProcessingSelectionPolicy.PendingPayloads(
-            matched.Reverse().Select(u => u.Id), processed, 300);
+            matched.Reverse().Where(u=>!Attempted(u)).Select(u => u.Id), processed, 300);
         foreach (var batch in ordinaryUids
                      .Select(id => new UniqueId(id)).Chunk(40))
         {
@@ -227,9 +229,9 @@ internal static class GmailConnectionService
         // provisioning messages, even when they are older than the 15 ordinary
         // display mails. Never skip multipart messages for speed.
         var special = keyMatches.Reverse().Take(10)
-            .Concat(fileMatches.Reverse().Take(150)).Concat(changeMatches.Reverse().Take(100))
+            .Concat(fileMatches.Reverse().Take(150)).Concat(changeMatches.Where(u=>!Attempted(u) && !IsReady(u.Id) && !IsTrashed(u.Id)).Take(100))
             .Distinct()
-            .Where(uid => !IsTrashed(uid.Id) && !IsReady(uid.Id) &&
+            .Where(uid => !Attempted(uid) && !IsTrashed(uid.Id) && !IsReady(uid.Id) &&
                 !fetched.ContainsKey(uid.Id))
             .ToList();
         if (special.Count > 0)
@@ -268,11 +270,15 @@ internal static class GmailConnectionService
                 PreviouslyArchived: true));
         foreach (var summary in selected)
         {
+            using var cached=GmailChangeMessageCache.Eligible(summary,changeUids.Contains(summary.UniqueId.Id))
+                ?await client.Inbox.GetMessageAsync(summary.UniqueId,timeout.Token):null;
+            if(cached is not null)GmailChangeMessageCache.Validate(cached,allowedSender.Trim(),summary.Envelope.Subject);
+            Task<MimeEntity> ReadPart(BodyPart part)=>GmailChangeMessageCache.Part(cached,part) is {} entity
+                ?Task.FromResult(entity):client.Inbox.GetBodyPartAsync(summary.UniqueId,part,timeout.Token);
             string body = "Повідомлення не містить текстової версії (text/plain).";
             if (summary.TextBody is not null)
             {
-                var entity = await client.Inbox.GetBodyPartAsync(
-                    summary.UniqueId, summary.TextBody, timeout.Token);
+                var entity = await ReadPart(summary.TextBody);
                 if (entity is TextPart textPart)
                 {
                     body = textPart.Text ?? "";
@@ -306,8 +312,7 @@ internal static class GmailConnectionService
                     {
                         try
                         {
-                            var binaryPart = await client.Inbox.GetBodyPartAsync(
-                                summary.UniqueId, attachment, timeout.Token);
+                            var binaryPart = await ReadPart(attachment);
                             if (binaryPart is MimePart securedPart)
                             {
                                 using var ciphertextStream = new BoundedWriteStream(5_000_000);
@@ -361,8 +366,7 @@ internal static class GmailConnectionService
                     {
                         try
                         {
-                            var item = await client.Inbox.GetBodyPartAsync(
-                                summary.UniqueId, attachment, timeout.Token);
+                            var item = await ReadPart(attachment);
                             if (item is MimePart chunk)
                             {
                                 using var chunkStream = new BoundedWriteStream(700_000);
@@ -409,8 +413,7 @@ internal static class GmailConnectionService
                     {
                         try
                         {
-                            var imageEntity = await client.Inbox.GetBodyPartAsync(
-                                summary.UniqueId, attachment, timeout.Token);
+                            var imageEntity = await ReadPart(attachment);
                             if (imageEntity is MimePart picture)
                             {
                                 using var imageStream = new BoundedWriteStream(
@@ -458,8 +461,7 @@ internal static class GmailConnectionService
                     continue;
                 }
 
-                var entity = await client.Inbox.GetBodyPartAsync(
-                    summary.UniqueId, attachment, timeout.Token);
+                var entity = await ReadPart(attachment);
                 if (entity is not MimePart part)
                 {
                     attachmentsComplete = false;

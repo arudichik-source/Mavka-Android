@@ -16,11 +16,11 @@ public partial class MainActivity
         private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public CancellationToken Token => _cancellation.Token;
         public Task Finished => _finished.Task;
-        public ExchangeOperation(MainActivity owner, CancellationToken parent)
+        public ExchangeOperation(MainActivity owner, CancellationToken parent,TimeSpan? timeout=null)
         {
             _owner = owner;
             _cancellation = CancellationTokenSource.CreateLinkedTokenSource(parent);
-            _cancellation.CancelAfter(TimeSpan.FromMinutes(5));
+            _cancellation.CancelAfter(timeout??TimeSpan.FromMinutes(5));
         }
         public void Cancel() => _cancellation.Cancel();
         public void Dispose()
@@ -35,11 +35,11 @@ public partial class MainActivity
             _finished.TrySetResult();
         }
     }
-    private ExchangeOperation BeginExchange(CancellationToken parent = default)
+    private ExchangeOperation BeginExchange(CancellationToken parent = default,TimeSpan? timeout=null)
     {
         if (_resetRequested || _exchangeOperation is not null)
             throw new InvalidOperationException("Попередній обмін ще завершується.");
-        return _exchangeOperation = new ExchangeOperation(this, parent);
+        return _exchangeOperation = new ExchangeOperation(this, parent,timeout);
     }
     private void CancelExchange(Android.Widget.TextView status)
     {

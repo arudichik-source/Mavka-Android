@@ -1420,13 +1420,13 @@ public partial class MainActivity : Activity
             status.Text = "У налаштуваннях не задана адреса ГОЛОВНОЇ МАВКИ.";
             return;
         }
-        using var operation=BeginExchange();
+        using var operation=BeginExchange(timeout:TimeSpan.FromMinutes(15));
         var cancellation=operation.Token;
         _busy = true;
         try { _archive.RecordSyncEvent("start", "Розпочато отримання листів"); }
         catch { /* Do not interrupt encrypted mail processing for diagnostics. */ }
         var syncWatch = System.Diagnostics.Stopwatch.StartNew();
-        long metadataMillis = 0, importMillis = 0, trashMillis = 0;
+
         status.Text = "Перевірка службових листів...";
         try
         {
@@ -1434,59 +1434,14 @@ public partial class MainActivity : Activity
             var password = _store.GetPassword();
             if (string.IsNullOrEmpty(password))
                 throw new InvalidOperationException("Пароль не збережений.");
-            _messages = await Task.Run(()=>GmailConnectionService.ReadFromSenderAsync(
-                _store.GetEmail(), password, sender, _exchangeKeys,
-                _documentPasswords, LoadUserProfile()?.ClientId,
-                validity => _archive.ListMailProcessingStates(validity, MailProcessingScope()),cancellation:cancellation),cancellation);
-            metadataMillis = syncWatch.ElapsedMilliseconds;
-            try
-            {
-                var pendingQr = _qrPairing.LoadPending();
-                var currentProfile = LoadUserProfile();
-                if (pendingQr is not null && currentProfile is not null)
-                {
-                    if (DateTimeOffset.UtcNow >= pendingQr.ExpiresUtc)
-                        _qrPairing.ClearPending();
-                    else foreach (var mail in _messages)
-                        if (!mail.PreviouslyArchived &&
-                            QrPairingProtocol.VerifyAck(mail.Body, pendingQr,
-                                currentProfile.ClientId, DateTimeOffset.UtcNow))
-                        {
-                            _qrPairing.MarkConfirmed(pendingQr.MainEmail);
-                            _archive.MarkMailReady(mail.UidValidity, mail.MessageUid,
-                                MailProcessingScope());
-                            _archive.RecordSyncEvent("pairing", "QR-зв'язок підтверджено");
-                            break;
-                        }
-                }
-            }
-            catch
-            {
-                // Pairing is optional. Never relax Gmail authentication or
-                // prevent existing encrypted transfers after a bad QR.
-            }
-            await ProcessFileTransfersAsync(password, sender,cancellation);
-            importMillis = syncWatch.ElapsedMilliseconds - metadataMillis;
-            var report = await ArchiveAndCleanupAsync(password, sender,cancellation);
-            trashMillis = syncWatch.ElapsedMilliseconds - metadataMillis - importMillis;
-            try
-            {
-                _archive.RecordSyncEvent("complete",
-                    "IMAP " + metadataMillis + " мс · вкладення " + importMillis +
-                    " мс · архів/кошик " + trashMillis + " мс");
-            }
-            catch { /* Privacy-safe logging must not affect synchronization. */ }
-            SaveInboxCacheSafe();
+            var report=await ReceiveGmailUpdatesAsync(password,sender,cancellation,text=>status.Text=text);
+            try{_archive.RecordSyncEvent("complete","Завершено порційне отримання Gmail");}catch{}
             cancellation.ThrowIfCancellationRequested();
             var syncReport = await Task.Run(()=>SendPendingReceiptsAsync(password, sender),cancellation);
             try { await SendPendingFilePartsAsync(maximum: 3,cancellation:cancellation); }
             catch { syncReport += " Частини файлів залишені в черзі надсилання."; }
             if (_screen is "sync" or "home" or "inbox" or "assets")
-                status.Text = $"Листів у вхідних: {_messages.Count}. " + report +
-                    " " + syncReport +
-                    $" · Час: {syncWatch.Elapsed.TotalSeconds:0.0} с " +
-                    $"(IMAP {metadataMillis / 1000.0:0.0}, файли {importMillis / 1000.0:0.0}, " +
-                    $"архів/Trash {trashMillis / 1000.0:0.0}).";
+                status.Text = report+" "+syncReport+$" · Час: {syncWatch.Elapsed.TotalSeconds:0.0} с.";
         }
         catch (MailKit.Security.AuthenticationException)
         {
@@ -1704,7 +1659,6 @@ public partial class MainActivity : Activity
     {
         var profile = LoadUserProfile();
         int moved = 0, saved = 0, kept = 0;
-        var portionFull=_messages.Count(m=>!m.PreviouslyArchived)>=3;
         var remaining = new List<MavkaMailItem>();
         foreach (var mail in _messages)
         {
@@ -1895,7 +1849,6 @@ public partial class MainActivity : Activity
         var posting=await Task.Run(()=>IncomingBatchPosting.Apply(this,cancellation:cancellation),cancellation);
         _incomingPostingIssue=posting.Issues.Count>0?posting.Summary:null;
         return $"Архівовано/перевірено вкладень: {saved}; у кошик: {moved}; залишено: {kept}."+
-            (portionFull?" Оброблено порцію листів. Решта — під час наступного оновлення пошти.":"")+
             (posting.OpeningUnits+posting.Invoices>0 || posting.Issues.Count>0?"\n"+posting.Summary:"");
     }
 

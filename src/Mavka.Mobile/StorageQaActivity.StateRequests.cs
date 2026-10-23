@@ -56,7 +56,23 @@ public sealed partial class StorageQaActivity
                 var backupState=mirror.CheckLatestQueueBackup(CancellationToken.None);Check(backupState.Contains("збігаються") && backupState.Contains("ще не підтверджено: 1"),"backup distinguishes unapplied parts from unchanged applied state");
                 Check(new UserProfileStore(this).Load()==profile && new MobileAccessStore(this).Load()!.clientId==client,"profile and access unchanged");
             }
-            var result="NATIVE STATE REQUEST QA PASS "+count+" · SQLite report, frozen predecessor, bridge, final hash, rollback, duplicate, queue backup/clear, retained records. NO NETWORK.";
+            using(var bulk=new MobileChangeStore(this,"qa_gmail_drain_"+Guid.NewGuid().ToString("N")+".db"))
+            {
+                var request=bulk.CreateStateRequest(CancellationToken.None).Single();
+                var ops=Enumerable.Range(1000,34).Select(Document).ToArray();
+                var target=ops.ToDictionary(o=>o.key,o=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(o.payload.GetRawText()))).ToLowerInvariant());
+                var first=Part(2,ops) with{count=34,initial=false,full=false,requestId=request.requestId,requestSequence=0,requestHash=request.reportHash,resultHash=MobileStateRequest.Hash(target)};
+                var session=new GmailRefreshSession();var mails=Enumerable.Range(1,34).Select(i=>(Validity:9u,Uid:(uint)i)).ToArray();
+                while(true)
+                {
+                    var batch=mails.Where(m=>!session.Attempted.Contains(m)).Take(3).ToArray();if(!session.Register(batch))break;
+                    foreach(var mail in batch)bulk.TryAccept(JsonSerializer.Serialize(first with{index=(int)mail.Uid-1,operations=[ops[(int)mail.Uid-1]]}));
+                    if(session.Passes==1)Check(bulk.List("document").Count==0 && bulk.SynchronizationProgress().Contains("3 із 34"),"partial progress is visible; incomplete package cannot change live mirror");
+                }
+                Check(session.Passes==12 && bulk.List("document").Count==34,"one drain session applies34 parts only after complete verified package");
+                Check(bulk.SynchronizationProgress().Contains("документів 34") && !bulk.SynchronizationProgress().Contains("із 34"),"final progress distinguishes applied records from staged parts");
+            }
+            var result="NATIVE STATE REQUEST QA PASS "+count+" · SQLite report, frozen predecessor, bridge, final hash, rollback, duplicate, queue backup/clear, retained records, Gmail34-part drain/progress. NO NETWORK.";
             File.WriteAllText(proofPath,JsonSerializer.Serialize(new{passed=count,allPassed=true,network=false,result}));return result;
         }
         catch(Exception error){File.WriteAllText(proofPath,JsonSerializer.Serialize(new{passed=count,allPassed=false,error=error.ToString()}));return "STATE REQUEST QA FAIL: "+error;}

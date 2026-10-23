@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../src/Mavka.Mobile/GmailChangeMessageCache.cs" Link="GmailChangeMessageCache.cs"/>
     <PackageReference Include="MailKit" Version="$(MavkaMailKitVersion)" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="$(MavkaPkcsVersion)" />
   </ItemGroup>
