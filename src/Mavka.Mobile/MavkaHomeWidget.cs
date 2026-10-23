@@ -62,9 +62,9 @@ public sealed class MavkaHomeWidget : AppWidgetProvider
         // Re-read theme on refresh so the home widget follows the app palette.
         foreach(var id in ids) manager.UpdateAppWidget(id,CreateViews(context,id,unread,reminders));
     }
-    internal static RemoteViews CreateViews(Context context,int id,int unread=0,int reminders=0)
+    internal static RemoteViews CreateViews(Context context,int id,int unread=0,int reminders=0,bool? blueTheme=null)
     {
-        var blue=MavkaThemePalette.Load(context).IsBlue;
+        var blue=blueTheme??MavkaThemePalette.Load(context).IsBlue;
         var views = new RemoteViews(context.PackageName,
                 blue ? Resource.Layout.mavka_home_widget_blue
                      : Resource.Layout.mavka_home_widget);

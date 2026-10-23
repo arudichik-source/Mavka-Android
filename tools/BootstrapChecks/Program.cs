@@ -97,3 +97,14 @@ var bounded=new GmailRefreshSession();for(uint i=1;i<=GmailRefreshSession.Maximu
 Check(bounded.AtLimit && !bounded.Register(new[]{(1u,999u)}),"One action has a finite page budget");
 Console.WriteLine("PASS automatic Gmail drain34 messages, blocked UID fairness, mailbox reset, resumable new pass and finite session limit");
 Check(ForegroundPollingPolicy.Minutes(60)==60 && ForegroundPollingPolicy.Delay(60,0)==TimeSpan.FromHours(1) && ForegroundPollingPolicy.Delay(240,4)==TimeSpan.FromDays(1),"Hourly foreground schedule and capped exponential backoff never speed up long intervals");
+
+// Platform RemoteViews contract: generic View is forbidden even though normal
+// Activity inflation accepts it. Both actual XML variants must remain usable.
+var repoRoot=Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(args[0]))))!;
+foreach(var layout in new[]{"mavka_home_widget.xml","mavka_home_widget_blue.xml"})
+{
+    var xml=System.Xml.Linq.XDocument.Load(Path.Combine(repoRoot,"src","Mavka.Mobile","Resources","layout",layout));
+    var allowedWidgetViews=new HashSet<string>{"LinearLayout","ImageView","TextView","Button"};
+    Check(xml.Root!.DescendantsAndSelf().All(e=>allowedWidgetViews.Contains(e.Name.LocalName)),"RemoteViews supported classes only: "+layout);
+}
+Console.WriteLine("PASS launcher widget XML supports actual Android RemoteViews inflation in both palettes");

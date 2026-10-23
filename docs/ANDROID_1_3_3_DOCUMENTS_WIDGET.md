@@ -17,3 +17,5 @@ Local validation: compile-only (no APK output/download), portable ArchiveChecks 
 Package remains ua.mavka.mobile.registrationqa, versionCode 2026102304 / 1.3.3-documents-widget-qa with retained CI certificate. Deliver through GitHub only. Do not download/store ready APK or APK ZIP on PC.
 
 Android contracts checked against primary documentation: https://developer.android.com/develop/ui/views/appwidgets/advanced and https://developer.android.com/reference/android/app/job/JobService .
+
+Native candidate4b5c167 run39959404093 passed current PC inventory, search/distribution, observer/MVO controls, document/filter scope and empty mirror UI. It then exposed an older widget XML defect: generic android.view.View dividers cannot be inflated by RemoteViews. Replaced the divider with supported TextView in both palettes. Added a portable whitelist regression and actual two-palette RemoteViews inflation; no test/gate removed. Final corrected-source full CI remains pending.

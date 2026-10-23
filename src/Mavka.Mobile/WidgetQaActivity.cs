@@ -18,9 +18,13 @@ public sealed class WidgetQaActivity : Activity
         using var job=WidgetSyncJob.CreateJob(this,true);
         if(job.IsPeriodic || job.IsPersisted)throw new Exception("Widget must be nonperiodic and nonpersistent");
         var body=new LinearLayout(this){Orientation=Orientation.Vertical};
+        body.SetPadding(8,32,8,16);
         var title=new TextView(this){Text="NATIVE WIDGET QA — NO CREDENTIALS",TextSize=18};body.AddView(title);
-        var view=MavkaHomeWidget.CreateViews(this,991).Apply(this,body) ?? throw new Exception("RemoteViews failed");
-        body.AddView(view,new LinearLayout.LayoutParams(-1,(int)(260*Resources!.DisplayMetrics!.Density)));
+        foreach(var blue in new[]{false,true})
+        {
+            var view=MavkaHomeWidget.CreateViews(this,blue?992:991,blueTheme:blue).Apply(this,body) ?? throw new Exception("RemoteViews failed");
+            body.AddView(view,new LinearLayout.LayoutParams(-1,(int)(260*Resources!.DisplayMetrics!.Density)));
+        }
         var check=new Button(this){Text="Перевірити завершення віджета"};body.AddView(check);
         check.Click+=(_,_)=>title.Text=WidgetSyncJob.IsRunning?"WIDGET STILL RUNNING":WidgetSyncJob.LastStatus(this);
         SetContentView(body);
