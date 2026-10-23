@@ -81,7 +81,7 @@ jobs:
             "$aapt" dump badging "$apk" | grep -F "package: name='ua.mavka.mobile.registrationqa'"
             "$aapt" dump permissions "$apk" | grep -F 'android.permission.ACCESS_NETWORK_STATE'
             "$signer" verify --print-certs "$apk"
-            cert="$($signer verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]')"
+            cert="$("$signer" verify --print-certs "$apk" | sed -n 's/^.*certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]' | sort -u)"
             test "$cert" = '2410279934353190b0a4eb60e80c9df5d79502856a2838b85c0b7c1b72b266bd'
           done
       - name: Upload isolated installer
