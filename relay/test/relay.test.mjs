@@ -21,13 +21,14 @@ async function fixture(t) {
   const main = await identity();
   const options = { cf: { country: 'UA' }, telemetry: { enabled: false }, workers: [{ name: 'relay',
     modulesRoot: fileURLToPath(new URL('../', import.meta.url)),
-    modules: ['worker.js', 'protocol.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
-    compatibilityDate: '2026-10-01', d1Databases: { DB: 'relay-tests' },
+    modules: ['worker.js', 'protocol.js', 'files.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
+    compatibilityDate: '2026-10-01', d1Databases: { DB: 'relay-tests' }, r2Buckets: { FILES: 'relay-test-files' },
     bindings: { RELAY_ADMIN_DEVICE_ID: main.deviceId, RELAY_ADMIN_SIGNING_KEY: JSON.stringify(main.publicSigningKey) } }] };
   const mf = new Miniflare(convertV4MiniflareOptions(options));
   t.after(() => mf.dispose());
   let db = await mf.getD1Database('DB');
-  const schema = await readFile(new URL('../migrations/0001_relay.sql', import.meta.url), 'utf8');
+  const schema = (await Promise.all(['0001_relay.sql', '0002_r2_file_parts.sql'].map(name =>
+    readFile(new URL('../migrations/' + name, import.meta.url), 'utf8')))).join('\n');
   const statements = schema.replace(/--[^\n]*/g, '').split(';').map(s => s.trim()).filter(Boolean);
   const migrate = () => db.batch(statements.map(sql => db.prepare(sql)));
   await migrate();
@@ -282,4 +283,64 @@ test('configuration fails closed and never creates a database or private-key bin
   assert.deepEqual(config.r2_buckets, [{ binding: 'FILES', bucket_name: 'mavka-private-files' }]);
   await assert.rejects(configuration({ ...input, MAVKA_ADMIN_SIGNING_JWK: JSON.stringify({ ...main.publicSigningKey, d: 'secret' }) }));
   assert.equal(Object.hasOwn(JSON.parse(config.vars.RELAY_ADMIN_SIGNING_KEY), 'd'), false);
+});
+
+test('R2 encrypted parts: sender routing, recipient-only read, durable ACK and no resurrection', async t => {
+  const f = await fixture(t); const phone = await identity(); const other = await identity();
+  await f.bootstrap(); await f.enroll(phone); await f.enroll(other);
+  const transferId = uuid().replaceAll('-', '');
+  const payload = (await encrypted('synthetic encrypted file part')).payload;
+  const expiresAt = seconds() + 3600;
+  const body = { recipientDeviceId: phone.deviceId, transferId, index: 0, count: 2, expiresAt, payload };
+  const path = '/v1/files/parts/' + f.main.deviceId + '/' + transferId + '/0';
+  const upload = await f.request(f.main, '/v1/files/parts', 'POST', body);
+  assert.equal(upload.status, 201, JSON.stringify(upload.body));
+  assert.equal(upload.body.status, 'stored');
+  assert.equal((await f.request(f.main, '/v1/files/parts', 'POST', body)).status, 200);
+  assert.equal((await f.request(other, path)).status, 404);
+  assert.equal((await f.request(f.main, path)).status, 404);
+  const received = await f.request(phone, path);
+  assert.equal(received.status, 200, JSON.stringify(received.body));
+  assert.deepEqual(received.body.payload, payload);
+  assert.equal(received.body.senderDeviceId, f.main.deviceId);
+  assert.equal(received.body.payloadSha256, upload.body.payloadSha256);
+  const conflict = await f.request(f.main, '/v1/files/parts', 'POST',
+    { ...body, payload: (await encrypted('different secret')).payload });
+  assert.equal(conflict.status, 409);
+  assert.equal((await f.request(phone, path + '/ack', 'POST', { payloadSha256: '0'.repeat(64) })).status, 409);
+  const ack = await f.request(phone, path + '/ack', 'POST', { payloadSha256: upload.body.payloadSha256 });
+  assert.equal(ack.status, 200, JSON.stringify(ack.body));
+  assert.equal((await f.request(phone, path)).status, 404);
+  assert.equal((await f.request(f.main, '/v1/files/parts', 'POST', body)).body.status, 'delivered');
+  assert.equal((await f.request(phone, path)).status, 404);
+  assert.equal((await f.request(phone, path + '/ack', 'POST', { payloadSha256: upload.body.payloadSha256 })).status, 200);
+  const row = await f.db.prepare('SELECT acked_at FROM relay_file_parts WHERE transfer_id = ?').bind(transferId).first();
+  assert.ok(row.acked_at !== null);
+  const r2 = await f.mf.getR2Bucket('FILES');
+  assert.equal(await r2.head('transfers/' + phone.deviceId + '/' + f.main.deviceId + '/' + transferId + '/0000'), null);
+});
+
+test('R2 file API rejects missing signatures, plaintext, unauthorized routing and expired parts', async t => {
+  const f = await fixture(t); const phone = await identity(); const phone2 = await identity();
+  await f.bootstrap(); await f.enroll(phone); await f.enroll(phone2);
+  const transferId = uuid().replaceAll('-', '');
+  const payload = (await encrypted('test file')).payload;
+  const valid = { recipientDeviceId: f.main.deviceId, transferId, index: 0, count: 1,
+    expiresAt: seconds() + 3600, payload };
+  assert.equal((await f.dispatch(new Request(origin + '/v1/files/parts', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(valid) }))).status, 401);
+  assert.equal((await f.request(phone, '/v1/files/parts', 'POST',
+    { ...valid, recipientDeviceId: phone2.deviceId })).status, 403);
+  assert.equal((await f.request(phone, '/v1/files/parts', 'POST',
+    { ...valid, payload: 'plaintext' })).status, 400);
+  assert.equal((await f.request(phone, '/v1/files/parts', 'POST',
+    { ...valid, expiresAt: seconds() + 7 * 86400 })).status, 400);
+  assert.equal((await f.request(phone, '/v1/files/parts', 'POST',
+    { ...valid, transferId: '../escape' })).status, 400);
+  assert.equal((await f.request(phone, '/v1/files/parts', 'POST', valid)).status, 201);
+  const url = '/v1/files/parts/' + phone.deviceId + '/' + transferId + '/0';
+  assert.equal((await f.request(phone2, url)).status, 404);
+  assert.equal((await f.request(f.main, url)).status, 200);
+  await f.request(f.main, '/v1/devices/' + phone.deviceId + '/revoke', 'POST', {});
+  assert.equal((await f.request(f.main, url)).status, 403);
 });
