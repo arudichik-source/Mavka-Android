@@ -379,5 +379,5 @@ test('R2 rejects inconsistent transfer part count and TTL', async t => {
   const forbidden = await f.dispatch(new Request(origin + '/v1/files/status'));
   assert.equal(forbidden.status, 401);
   const query = await f.request(f.main, '/v1/files/status?readSensitive=true');
-  assert.equal(query.status, 404); // unknown query parameters are never accepted.
+  assert.equal(query.status, 400); // unknown query parameters are never accepted.
 });
