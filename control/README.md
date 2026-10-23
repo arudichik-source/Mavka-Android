@@ -35,6 +35,11 @@ Without configuration it returns HTTP 503; without JWT it returns HTTP 403.
 
 Runtime variables/secrets (Workers > Settings > Variables and Secrets):
 
+The generated Wrangler config uses `keep_vars: true` so runtime variables
+entered in the Cloudflare dashboard are retained on subsequent GitHub builds.
+Never put API tokens in GitHub/build environment variables or in Wrangler
+`vars`. The API token must be configured as a **runtime secret**.
+
 | Name | Type | Source |
 | --- | --- | --- |
 | `ACCESS_TEAM_DOMAIN` | text | `https://your-team.cloudflareaccess.com` |
