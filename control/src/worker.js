@@ -59,7 +59,7 @@ async function history(db) {
 export default {
   async fetch(request, env, ctx) {
     // Deny unauthenticated access to HTML, JSON, robots, and unknown routes.
-    const who = await verifyAccess(request, env);
+    const who = await verifyAccess(request, env, ctx);
     if (who.error) return json({ error: who.error }, who.status);
     const url = new URL(request.url);
     if (url.protocol !== 'https:') return json({ error: 'https_required' }, 426);

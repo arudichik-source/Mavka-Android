@@ -27,10 +27,14 @@ Cloudflare Workers > `mavka-server-control` > Access >
 allow only the designated administrator email. Do not use
 "Protect all Workers", which would block Android / PC native Relay traffic.
 
-The Worker additionally requires `Cf-Access-Jwt-Assertion` with valid
-RS256 signature, issuer, application audience, expiry, and matching
-`ADMIN_EMAIL`. It fetches keys from the pinned Access team domain.
-Without configuration it returns HTTP 503; without JWT it returns HTTP 403.
+The Worker uses the **Cloudflare-authenticated platform context**
+`ctx.access` for Worker-level Access, checking the **exact configured AUD**
+and `ADMIN_EMAIL`. With no platform context, it can accept only a valid
+`Cf-Access-Jwt-Assertion` verified by RS256 signature, issuer, application
+audience, expiry and administrator email (for compatible Access integrations).
+Neither raw request headers nor user-supplied identities are trusted.
+Without configuration it returns HTTP 503; without a verified Access identity
+it returns HTTP 403. No bypass is provided for debug or health routes.
 **Cloudflare Access must also be enabled at the edge** to provide its login UI.
 
 Runtime variables/secrets (Workers > Settings > Variables and Secrets):

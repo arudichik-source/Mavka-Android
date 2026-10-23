@@ -69,6 +69,34 @@ test('unconfigured and unauthenticated control Worker never exposes HTML or APIs
   assert.equal((await readAnalytics({})).state, 'unconfigured');
 });
 
+test('Worker-level Access ctx.access identity works without JWT and never bypasses checks', async () => {
+  const makeCtx = (aud, identity) => ({
+    access: { aud, getIdentity: async () => identity },
+  });
+  const valid = makeCtx(audience, { email: email.toUpperCase() });
+  assert.deepEqual(await verifyAccess(request(null), env, valid), { email });
+  const home = await control.fetch(request(null), env, valid);
+  assert.equal(home.status, 200);
+  assert.match(await home.text(), /MaVka Server Control/);
+  const status = await control.fetch(request(null, '/api/about'), env, valid);
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).mode, 'read_only');
+
+  const unknown = makeCtx(audience, { email: 'attacker@example.invalid' });
+  const foreign = makeCtx('f'.repeat(32), { email });
+  const invalid = { access: { aud: audience, getIdentity: async () => { throw Error('failed'); } } };
+  const noIdentity = { access: { aud: audience } };
+  for (const ctx of [unknown, foreign, invalid, noIdentity, { access: {} }]) {
+    assert.equal((await verifyAccess(request(null), env, ctx)).status, 403);
+    assert.equal((await control.fetch(request(null), env, ctx)).status, 403);
+  }
+  assert.equal((await control.fetch(request(null), env)).status, 403);
+  assert.equal((await control.fetch(request(null), {}, valid)).status, 503);
+  // The verified Access context is not enough to bypass strict URL routing.
+  const withQuery = await control.fetch(request(null, '/?utm_source=chatgpt.com'), env, valid);
+  assert.equal(withQuery.status, 404);
+});
+
 test('Access signature, audience, email, expiry and allowed method enforced', async () => {
   const { token, jwk } = await signedToken();
   const undo = stubWebFetch(jwk);
