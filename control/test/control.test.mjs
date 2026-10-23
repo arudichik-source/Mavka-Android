@@ -50,6 +50,7 @@ test('configuration isolates D1 and fails closed without a real database ID', ()
   assert.deepEqual(cfg.d1_databases.map(d => d.database_name), ['mavka-control']);
   assert.equal(cfg.d1_databases[0].binding, 'CONTROL_DB');
   assert.equal(cfg.preview_urls, false);
+  assert.equal(cfg.keep_vars, true);
   assert.equal(cfg.observability.redact_query_string, true);
   assert.equal(cfg.triggers, undefined);
   assert.equal(Object.hasOwn(cfg, 'vars'), false);

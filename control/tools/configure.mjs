@@ -13,6 +13,9 @@ export function configuration(env) {
     name: 'mavka-server-control', main: 'src/worker.js',
     compatibility_date: '2026-10-23',
     workers_dev: true, preview_urls: false,
+    // Preserve runtime text variables added securely in the Cloudflare dashboard.
+    // Build-only MAVKA_CONTROL_D1_DATABASE_ID remains separate.
+    keep_vars: true,
     observability: {
       enabled: true,
       redact_query_string: true,
