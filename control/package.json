@@ -1,0 +1,18 @@
+{
+  "name": "mavka-server-control",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/worker.js && node --check src/access.js && node --check src/analytics.js && node --check src/ui.js && npm test",
+    "configure": "node tools/configure.mjs",
+    "check-bundle": "node tools/check-bundle.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.1"
+  }
+}
