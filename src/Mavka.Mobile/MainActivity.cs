@@ -75,7 +75,7 @@ public partial class MainActivity : Activity
         Window?.SetStatusBarColor(_theme.Header);
         Window?.SetNavigationBarColor(_theme.Surface);
         _store = new GmailCredentialsStore(this);
-        try{RelayBackground.SetEnabled(this,false);}catch{ /* Foreground auto-refresh never creates a persistent job. */ }
+        try{RelayBackground.SetEnabled(this,false);MavkaNoticeBackground.SetEnabled(this,false);}catch{ /* Foreground auto-refresh never creates a persistent job. */ }
         _qrPairing = new QrPairingStore(this);
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
@@ -1884,38 +1884,8 @@ public partial class MainActivity : Activity
             !MavkaNoticeAlerts.Allowed(this))
             Button(header, "Увімкнути сповіщення Android", () =>
                 RequestPermissions(new[] { Android.Manifest.Permission.PostNotifications }, 1917));
-        Text(header, MavkaNoticeBackground.Enabled(this)
-            ? "Автоматична перевірка пошти увімкнена (приблизно кожні 15 хвилин)."
-            : "Автоматична перевірка вимкнена. Нові повідомлення з'являються після ручної синхронізації.", 12);
-        Button(header, MavkaNoticeBackground.Enabled(this)
-            ? "Вимкнути фонову перевірку сповіщень"
-            : "Увімкнути фонову перевірку (15 хв)", () =>
-        {
-            try
-            {
-                if (!MavkaNoticeBackground.Enabled(this) &&
-                    (!_store.HasCredentials || LoadUserProfile() is null))
-                    throw new InvalidOperationException(
-                        "Для автоматичної перевірки потрібні Gmail та профіль.");
-                MavkaNoticeBackground.SetEnabled(this,
-                    !MavkaNoticeBackground.Enabled(this));
-                ShowNotices();
-            }
-            catch (Exception ex)
-            {
-                // JobScheduler can reject a task due to a missing OS permission,
-                // a disabled component or device background restrictions.
-                // Display only a safe diagnostic; never log credentials or mail.
-                var hint = ex switch
-                {
-                    Java.Lang.SecurityException =>
-                        "Android відхилив запуск фонової перевірки через системний дозвіл.",
-                    InvalidOperationException => ex.Message,
-                    _ => ExplainOperationError(ex)
-                };
-                Toast.MakeText(this, hint, ToastLength.Long)?.Show();
-            }
-        });
+        Text(header,"Пошта оновлюється у відкритій Мавці або разовою кнопкою віджета. Постійна фонова перевірка вимкнена. Нагадування на заданий час збережені.",12);
+        Button(header,"Налаштувати оновлення",ShowHome);
 
         Button(header,"Налаштування сповіщень і перевірка нагадування",ShowNoticeDiagnostics);
 

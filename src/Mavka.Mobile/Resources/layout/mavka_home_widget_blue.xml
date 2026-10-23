@@ -111,8 +111,8 @@
         </LinearLayout>
     </LinearLayout>
     <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:orientation="horizontal">
-        <Button android:id="@+id/widget_refresh_base" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Оновити базу" android:textAllCaps="false" android:textSize="12sp" android:textColor="#FFFDF3" android:background="@drawable/mavka_widget_tile"/>
-        <Button android:id="@+id/widget_check_mail" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="6dp" android:text="Перевірити пошту" android:textAllCaps="false" android:textSize="12sp" android:textColor="#FFFDF3" android:background="@drawable/mavka_widget_tile"/>
+        <Button android:id="@+id/widget_refresh_base" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Оновити базу" android:textAllCaps="false" android:textSize="12sp" android:textColor="#FFFDF3" android:background="@drawable/mavka_widget_tile_blue"/>
+        <Button android:id="@+id/widget_check_mail" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="6dp" android:text="Перевірити пошту" android:textAllCaps="false" android:textSize="12sp" android:textColor="#FFFDF3" android:background="@drawable/mavka_widget_tile_blue"/>
     </LinearLayout>
     <TextView android:id="@+id/widget_sync_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Оновлення лише за натисканням" android:textColor="#FFFDF3" android:textSize="11sp" android:maxLines="2" android:ellipsize="end"/>
 </LinearLayout>

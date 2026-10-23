@@ -15,6 +15,12 @@ public sealed class WidgetQaActivity : Activity
             throw new InvalidOperationException("Emulator only");
         if(new UserProfileStore(this).Load()?.FullName!="SYNTHETIC-QA-USER" || new GmailCredentialsStore(this).HasCredentials ||
             new RelayIdentity(this).Enabled || new ExchangeKeyStore(this).HasKeyPair)throw new InvalidOperationException("Offline synthetic widget QA only");
+        using(var editor=GetSharedPreferences("mavka_notice_preferences",Android.Content.FileCreationMode.Private)!.Edit()!)
+            if(!editor.PutBoolean("background_notice_check",true)!.Commit())throw new Exception("Upgrade fixture failed");
+        if(MavkaNoticeBackground.Enabled(this))throw new Exception("Legacy background check can still run");
+        MavkaNoticeBackground.SetEnabled(this,false);
+        if((GetSystemService(JobSchedulerService) as Android.App.Job.JobScheduler)?.GetPendingJob(MavkaNoticeBackground.JobId) is not null)
+            throw new Exception("Legacy periodic notice job retained");
         using var job=WidgetSyncJob.CreateJob(this,true);
         if(job.IsPeriodic || job.IsPersisted)throw new Exception("Widget must be nonperiodic and nonpersistent");
         var body=new LinearLayout(this){Orientation=Orientation.Vertical};

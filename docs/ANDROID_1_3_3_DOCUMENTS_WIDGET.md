@@ -19,3 +19,5 @@ Package remains ua.mavka.mobile.registrationqa, versionCode 2026102304 / 1.3.3-d
 Android contracts checked against primary documentation: https://developer.android.com/develop/ui/views/appwidgets/advanced and https://developer.android.com/reference/android/app/job/JobService .
 
 Native candidate4b5c167 run39959404093 passed current PC inventory, search/distribution, observer/MVO controls, document/filter scope and empty mirror UI. It then exposed an older widget XML defect: generic android.view.View dividers cannot be inflated by RemoteViews. Replaced the divider with supported TextView in both palettes. Added a portable whitelist regression and actual two-palette RemoteViews inflation; no test/gate removed. Final corrected-source full CI remains pending.
+
+Persistent-background audit also found the historical opt-in 15-minute notice job. It is now an inert compatibility service; startup cancels it and migrates its flag to false. The obsolete toggle is replaced with foreground/widget guidance. Local dated reminder alarms/boot rescheduling are retained. Native widget QA simulates an old true flag and verifies it cannot enable mail polling.

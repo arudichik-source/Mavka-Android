@@ -39,7 +39,7 @@ internal sealed class WidgetSyncJob : JobService
         var prefs = context.GetSharedPreferences("mavka_widget_sync_v1", FileCreationMode.Private)!;
         var text = prefs.GetString("status", "Оновлення лише за натисканням")!;
         var at = prefs.GetLong("at", 0);
-        if (at > 0 && !IsRunning && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - at > 360 && text.StartsWith("Оновлення…"))
+        if (at > 0 && !IsScheduled(context) && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - at > 360 && text.StartsWith("Оновлення…"))
             return "Оновлення перервано. Натисніть ще раз.";
         return text;
     }
