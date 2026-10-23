@@ -1,5 +1,6 @@
 import { ApiError, VERSION, MAX_BODY, MAX_TTL, requireValue, object, id, publicKey,
   decodeUrl, messageBody, fingerprint, signingInput, encoder } from './protocol.js';
+import { isFileRoute, handleFileRoute } from './files.js';
 
 const SKEW = 300;
 const MAX_DEVICES = 500;
@@ -210,6 +211,7 @@ export async function cleanup(db, now = nowSeconds()) {
     stmt(db, 'DELETE FROM relay_nonces WHERE expires_at <= ?', now),
     stmt(db, 'DELETE FROM relay_rate_windows WHERE window_start < ?', now - 600),
     stmt(db, 'DELETE FROM relay_message_ids WHERE retain_until <= ?', now),
+    stmt(db, 'DELETE FROM relay_file_parts WHERE expires_at <= ?', now - RETENTION),
   ]);
 }
 export default {
@@ -225,7 +227,8 @@ export default {
       const isActivate = request.method === 'POST' && url.pathname === '/v1/devices/activate';
       const revokeMatch = /^\/v1\/devices\/([A-Za-z0-9_-]+)\/revoke$/.exec(url.pathname);
       const ackMatch = /^\/v1\/messages\/([A-Za-z0-9_-]+)\/ack$/.exec(url.pathname);
-      const known = (request.method === 'GET' && ['/v1/status', '/v1/devices', '/v1/messages'].includes(url.pathname)) ||
+      const known = isFileRoute(request.method, url.pathname) ||
+        (request.method === 'GET' && ['/v1/status', '/v1/devices', '/v1/messages'].includes(url.pathname)) ||
         (request.method === 'POST' && (isBootstrap || isActivate || ['/v1/devices', '/v1/messages'].includes(url.pathname) || revokeMatch || ackMatch));
       requireValue(known, 404, 'not_found');
       if (!(request.method === 'GET' && ['/v1/messages', '/v1/devices'].includes(url.pathname))) noQuery(url);
@@ -235,6 +238,7 @@ export default {
       const db = env.DB;
       const raw = await readBody(request); const now = nowSeconds();
       const auth = await authenticate(request, env, db, raw, isBootstrap, isActivate, now);
+      if (isFileRoute(request.method, url.pathname)) return await handleFileRoute(request, env, db, auth, raw, now);
       if (isBootstrap) return await bootstrap(db, auth, parse(raw), now);
       if (isActivate) return await activate(db, auth, parse(raw), now);
       if (revokeMatch) return await revoke(db, auth, revokeMatch[1], parse(raw), now);
