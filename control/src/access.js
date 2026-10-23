@@ -37,9 +37,32 @@ async function fetchKeys(domain, force = false) {
   return keys;
 }
 
-export async function verifyAccess(request, env) {
+export async function verifyAccess(request, env, ctx) {
   const config = accessSettings(env);
   if (!config) return { error: 'access_not_configured', status: 503 };
+
+  // Cloudflare's Worker-level Access integration exposes the identity via
+  // ctx.access even when no Cf-Access-Jwt-Assertion header reaches the Worker.
+  // This is a trusted runtime context, not a request header. Verify both the
+  // application audience and the specific administrator email; fail closed.
+  if (ctx?.access !== undefined) {
+    try {
+      const authorizedAudience = ctx.access.aud === config.audience ||
+        (Array.isArray(ctx.access.aud) && ctx.access.aud.includes(config.audience));
+      if (!authorizedAudience || typeof ctx.access.getIdentity !== 'function')
+        return { error: 'access_denied', status: 403 };
+      const identity = await ctx.access.getIdentity();
+      if (typeof identity?.email !== 'string' ||
+          identity.email.toLowerCase() !== config.adminEmail)
+        return { error: 'access_denied', status: 403 };
+      return { email: config.adminEmail };
+    } catch {
+      return { error: 'access_denied', status: 403 };
+    }
+  }
+
+  // Fallback for other Access integrations that forward a signed JWT.
+  // The signature, Access domain, audience, expiry and email are validated.
   const token = request.headers.get('Cf-Access-Jwt-Assertion');
   if (!token || token.length > 8192) return { error: 'access_denied', status: 403 };
   try {
