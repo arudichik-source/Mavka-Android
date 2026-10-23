@@ -33,13 +33,17 @@ function storeSnapshot(db, data) {
   if (!db?.prepare || !['ready', 'partial'].includes(data.state)) return Promise.resolve();
   const bucket = Math.floor(Date.parse(data.at) / 900000) * 900;
   // INSERT OR IGNORE stops duplicate samples across isolates and users.
-  return db.prepare(`INSERT OR IGNORE INTO usage_snapshots
+  const insertion = db.prepare(`INSERT OR IGNORE INTO usage_snapshots
     (bucket_start, workers_requests, workers_errors, d1_rows_read, d1_rows_written,
       r2_payload_bytes, r2_objects)
     VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(bucket,
       data.workers?.requestsToday ?? null, data.workers?.errorsToday ?? null,
       data.d1?.rowsReadToday ?? null, data.d1?.rowsWrittenToday ?? null,
-      data.r2?.storage?.bytes ?? null, data.r2?.storage?.objects ?? null).run();
+      data.r2?.storage?.bytes ?? null, data.r2?.storage?.objects ?? null);
+  // Compact rolling history. No schedule, no raw logs, no sensitive data.
+  const pruning = db.prepare('DELETE FROM usage_snapshots WHERE bucket_start < ?')
+    .bind(bucket - 30 * 86400);
+  return db.batch([insertion, pruning]);
 }
 async function history(db) {
   if (!db?.prepare) return { state: 'not_bound', entries: [] };
