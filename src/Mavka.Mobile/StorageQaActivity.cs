@@ -18,7 +18,7 @@ public sealed partial class StorageQaActivity:Activity
         base.OnCreate(state);var text=new TextView(this){TextSize=16};SetContentView(text);
         text.Text="Перевірка синтетичного локального обліку…";
         var resetOnly=Intent?.GetBooleanExtra("reset_only",false)==true;
-        text.Text=await Task.Run(()=>Intent?.GetBooleanExtra("state_requests",false)==true?RunStateRequestChecks():Intent?.GetBooleanExtra("large_ui",false)==true?PrepareLargeUi():resetOnly?RunResetChecks():RunChecks());
+        text.Text=await Task.Run(()=>Intent?.GetBooleanExtra("protected_files",false)==true?RunProtectedFileChecks():Intent?.GetBooleanExtra("state_requests",false)==true?RunStateRequestChecks():Intent?.GetBooleanExtra("large_ui",false)==true?PrepareLargeUi():resetOnly?RunResetChecks():RunChecks());
     }
     private string PrepareLargeUi()
     {

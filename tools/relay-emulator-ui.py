@@ -185,6 +185,10 @@ adb("shell","am","start","-n",PACKAGE+"/ua.mavka.mobile.StorageQaActivity","--ez
 assert_screen("NATIVE STATE REQUEST QA PASS")
 OUT.joinpath("native-state-request-qa.png").write_bytes(adb("exec-out","screencap","-p"))
 print("NATIVE STATE REPORT, BRIDGE/FINAL HASH, STALE QUEUE BACKUP/CLEAR AND RETAINED RECORDS: PASS; NO NETWORK")
+adb("shell","am","start","-n",PACKAGE+"/ua.mavka.mobile.StorageQaActivity","--ez","protected_files","true")
+assert_screen("NATIVE PROTECTED FILE QA PASS")
+OUT.joinpath("native-protected-files-qa.png").write_bytes(adb("exec-out","screencap","-p"))
+print("NATIVE ANDROID ENCRYPTED XLSX/PDF CORRECT/INCORRECT PASSWORD AND BYTE ROUNDTRIP: PASS; NO NETWORK")
 
 adb("shell","am","force-stop",PACKAGE)
 adb("shell","monkey","-p",PACKAGE,"-c","android.intent.category.LAUNCHER","1")

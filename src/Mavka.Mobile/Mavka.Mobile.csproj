@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../DependencyVersions.props" />
 
   <PropertyGroup>
     <TargetFramework>net10.0-android</TargetFramework>
@@ -8,8 +9,8 @@
     <ApplicationTitle>Mavka Mobile</ApplicationTitle>
     <!-- Monotonically increasing Android versionCode for in-place upgrades.
          The installed APK must also have the same signing certificate. -->
-    <ApplicationVersion>2026102301</ApplicationVersion>
-    <ApplicationDisplayVersion>1.3.0</ApplicationDisplayVersion>
+    <ApplicationVersion>2026102302</ApplicationVersion>
+    <ApplicationDisplayVersion>1.3.1</ApplicationDisplayVersion>
 
     <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
     <TargetSdkVersion>35</TargetSdkVersion>
@@ -26,7 +27,9 @@
   </PropertyGroup>
 
 <ItemGroup>
-  <PackageReference Include="MailKit" Version="4.14.1" />
+  <PackageReference Include="MailKit" Version="$(MavkaMailKitVersion)" />
+  <PackageReference Include="OpenMcdf" Version="$(MavkaOpenMcdfVersion)" />
+  <PackageReference Include="System.Security.Cryptography.Pkcs" Version="$(MavkaPkcsVersion)" />
   <PackageReference Include="PDFsharp" Version="6.2.4" />
   <PackageReference Include="ExcelEncryptor" Version="2.0.5.1" />
   <PackageReference Include="ZXing.Net" Version="0.16.11" />

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../DependencyVersions.props" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MailKit" Version="$(MavkaMailKitVersion)" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="$(MavkaPkcsVersion)" />
+  </ItemGroup>
+</Project>

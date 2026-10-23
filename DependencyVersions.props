@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <MavkaMailKitVersion>4.18.1</MavkaMailKitVersion>
+    <MavkaOpenMcdfVersion>3.1.4</MavkaOpenMcdfVersion>
+    <MavkaPkcsVersion>10.0.13</MavkaPkcsVersion>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1900;NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
+</Project>
