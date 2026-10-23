@@ -293,8 +293,16 @@ test('R2 encrypted parts: sender routing, recipient-only read, durable ACK and n
   const expiresAt = seconds() + 3600;
   const body = { recipientDeviceId: phone.deviceId, transferId, index: 0, count: 2, expiresAt, payload };
   const path = '/v1/files/parts/' + f.main.deviceId + '/' + transferId + '/0';
+  const initialStatus = await f.request(f.main, '/v1/files/status');
+  assert.equal(initialStatus.status, 200);
+  assert.equal(initialStatus.body.pendingParts, 0);
+  assert.equal(initialStatus.body.isR2BillingUsage, false);
+  assert.equal((await f.request(phone, '/v1/files/status')).status, 403);
   const upload = await f.request(f.main, '/v1/files/parts', 'POST', body);
   assert.equal(upload.status, 201, JSON.stringify(upload.body));
+  const pendingStatus = await f.request(f.main, '/v1/files/status');
+  assert.equal(pendingStatus.body.pendingParts, 1);
+  assert.ok(pendingStatus.body.trackedPendingCiphertextBytes > 0);
   assert.equal(upload.body.status, 'stored');
   assert.equal((await f.request(f.main, '/v1/files/parts', 'POST', body)).status, 200);
   assert.equal((await f.request(other, path)).status, 404);
@@ -311,6 +319,9 @@ test('R2 encrypted parts: sender routing, recipient-only read, durable ACK and n
   const ack = await f.request(phone, path + '/ack', 'POST', { payloadSha256: upload.body.payloadSha256 });
   assert.equal(ack.status, 200, JSON.stringify(ack.body));
   assert.equal((await f.request(phone, path)).status, 404);
+  const deliveredStatus = await f.request(f.main, '/v1/files/status');
+  assert.equal(deliveredStatus.body.pendingParts, 0);
+  assert.equal(deliveredStatus.body.trackedPendingCiphertextBytes, 0);
   assert.equal((await f.request(f.main, '/v1/files/parts', 'POST', body)).body.status, 'delivered');
   assert.equal((await f.request(phone, path)).status, 404);
   assert.equal((await f.request(phone, path + '/ack', 'POST', { payloadSha256: upload.body.payloadSha256 })).status, 200);
@@ -343,4 +354,30 @@ test('R2 file API rejects missing signatures, plaintext, unauthorized routing an
   assert.equal((await f.request(f.main, url)).status, 200);
   await f.request(f.main, '/v1/devices/' + phone.deviceId + '/revoke', 'POST', {});
   assert.equal((await f.request(f.main, url)).status, 403);
+});
+
+
+test('R2 rejects inconsistent transfer part count and TTL', async t => {
+  const f = await fixture(t); const phone = await identity();
+  await f.bootstrap(); await f.enroll(phone);
+  const transferId = uuid().replaceAll('-', '');
+  const payload = (await encrypted('synthetic valid part')).payload;
+  const body = { recipientDeviceId: phone.deviceId, transferId, index: 0, count: 2,
+    expiresAt: seconds() + 3600, payload };
+  assert.equal((await f.request(f.main, '/v1/files/parts', 'POST', body)).status, 201);
+  const differentCount = await f.request(f.main, '/v1/files/parts', 'POST',
+    { ...body, index: 1, count: 3 });
+  assert.equal(differentCount.status, 409, JSON.stringify(differentCount.body));
+  const differentTTL = await f.request(f.main, '/v1/files/parts', 'POST',
+    { ...body, index: 1, expiresAt: body.expiresAt + 30 });
+  assert.equal(differentTTL.status, 409, JSON.stringify(differentTTL.body));
+  const validSecond = await f.request(f.main, '/v1/files/parts', 'POST',
+    { ...body, index: 1 });
+  assert.equal(validSecond.status, 201, JSON.stringify(validSecond.body));
+  const stats = await f.request(f.main, '/v1/files/status');
+  assert.equal(stats.body.pendingParts, 2);
+  const forbidden = await f.dispatch(new Request(origin + '/v1/files/status'));
+  assert.equal(forbidden.status, 401);
+  const query = await f.request(f.main, '/v1/files/status?readSensitive=true');
+  assert.equal(query.status, 404); // unknown query parameters are never accepted.
 });
