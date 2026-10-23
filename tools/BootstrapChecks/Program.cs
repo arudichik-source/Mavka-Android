@@ -65,3 +65,17 @@ while(remainingMail.Count>0)
 }
 Check(completedMail.Count==300,"Every queued multipart mail remains eligible across successive completed cycles");
 Console.WriteLine($"PASS {checks} PC → Android V2 bootstrap, shared password, expiry, tamper, roles and foreground polling checks (synthetic)");
+
+// Repair responses must remain bound to the report actually requested on this phone.
+var repairClient=Guid.NewGuid().ToString("N");var repairSource=new string('a',64);var repairId=Guid.NewGuid().ToString("N");var repairHash=MobileStateRequest.Hash(new());
+var repairPolicy=new MobileAccessPolicy(MobileAccessPolicy.Format,repairClient,1,false,new[]{new MobileUnitGrant(1,"One")},true,true,false,true,false);
+var repair=new MobileChangePart(MobileChangePart.Format,repairClient,repairSource,Guid.NewGuid().ToString("N"),6,5,false,"2026-10-23",repairPolicy,0,1,MobileChangePart.Hash(Array.Empty<MobileChangeOperation>()),Array.Empty<MobileChangeOperation>(),false,repairId,2,repairHash,repairHash);
+repair.Validate(repairClient);
+Check(MobileStateRequest.MatchesResponse(repair,repairId,repairSource,2,repairHash),"Requested incremental bridge skips missing sequences without resetting records");
+Check(!MobileStateRequest.MatchesResponse(repair,repairId,repairSource,3,repairHash),"Changed applied state rejects stale report response");
+Check(!MobileStateRequest.MatchesResponse(repair,Guid.NewGuid().ToString("N"),repairSource,2,repairHash),"Superseded request cannot apply");
+Check(!MobileStateRequest.MatchesResponse(repair,repairId,new string('b',64),2,repairHash),"Another accounting source cannot apply");
+Check(!MobileStateRequest.MatchesResponse(repair,repairId,repairSource,2,new string('c',64)),"Changed report hash cannot apply");
+Check(!MobileStateRequest.MatchesResponse(repair with{full=true},repairId,repairSource,2,repairHash),"Request reply never clears existing mirror");
+Check(!MobileStateRequest.MatchesResponse(repair,repairId,repairSource,6,repairHash),"Applied response cannot replay");
+Console.WriteLine("PASS Android state-report bridge, stale/duplicate/source/hash and non-reset guards");

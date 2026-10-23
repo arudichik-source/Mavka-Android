@@ -13,11 +13,11 @@ public partial class MainActivity
 
     protected override void OnResume()
     {
-        base.OnResume();_activityResumed=true;StartForegroundRefresh();
+        base.OnResume();Window?.AddFlags(Android.Views.WindowManagerFlags.KeepScreenOn);_activityResumed=true;StartForegroundRefresh();
     }
     protected override void OnPause()
     {
-        _activityResumed=false;StopForegroundRefresh();base.OnPause();
+        Window?.ClearFlags(Android.Views.WindowManagerFlags.KeepScreenOn);_activityResumed=false;StopForegroundRefresh();base.OnPause();
     }
     protected override void OnDestroy()
     {

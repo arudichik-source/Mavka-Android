@@ -6,23 +6,24 @@ using System.Security.Cryptography;
 
 namespace Mavka.Mobile;
 internal sealed record MobileMirrorRecord(string Key,string Kind,int LocationId,string Json);
-internal sealed class MobileChangeStore:SQLiteOpenHelper
+internal sealed partial class MobileChangeStore:SQLiteOpenHelper
 {
     private readonly Context context;
-    public MobileChangeStore(Context context,string databaseName="mavka_root_mirror_v1.db"):base(context,databaseName,null,1)
+    public MobileChangeStore(Context context,string databaseName="mavka_root_mirror_v1.db"):base(context,databaseName,null,3)
     {this.context=context;SetWriteAheadLoggingEnabled(true);}
     private string? _client;
     private string Client=>_client??=new UserProfileStore(context).Load()?.ClientId??throw new InvalidOperationException("Немає профілю.");
     public override void OnCreate(SQLiteDatabase db)
     {
-        db.ExecSQL("CREATE TABLE parts(client TEXT,source TEXT,batch TEXT,part INTEGER,hash TEXT,sealed TEXT,PRIMARY KEY(client,source,batch,part))");
+        CreateRequests(db);
+        db.ExecSQL("CREATE TABLE parts(client TEXT,source TEXT,batch TEXT,part INTEGER,hash TEXT,sealed TEXT,sequence INTEGER NOT NULL DEFAULT -1,PRIMARY KEY(client,source,batch,part))");
         db.ExecSQL("CREATE TABLE heads(client TEXT,source TEXT,sequence INTEGER,revision INTEGER,asof TEXT,PRIMARY KEY(client,source))");
         db.ExecSQL("CREATE TABLE records(client TEXT,source TEXT,key TEXT,kind TEXT,location INTEGER,sealed TEXT,PRIMARY KEY(client,source,key))");
         db.ExecSQL("CREATE TABLE receipts(client TEXT,id TEXT,sealed TEXT,done INTEGER DEFAULT 0,PRIMARY KEY(client,id))");
     }
-    public override void OnUpgrade(SQLiteDatabase db,int oldVersion,int newVersion)=>throw new InvalidOperationException("Непідтримувана версія дзеркала обліку.");
+    public override void OnUpgrade(SQLiteDatabase db,int oldVersion,int newVersion){if(oldVersion is 1 or 2 && newVersion==3){CreateRequests(db);db.ExecSQL("ALTER TABLE parts ADD COLUMN sequence INTEGER NOT NULL DEFAULT -1");}else throw new InvalidOperationException("Непідтримувана версія дзеркала обліку.");}
     internal void ClearAllForAccountReset() => LocalAccountReset.ClearTables(WritableDatabase,
-        "receipts","records","parts","heads");
+        "receipts","records","parts","heads","state_requests");
     private static string Seal(string value)
     {
         var bytes=Encoding.UTF8.GetBytes(value);try{return Convert.ToBase64String(TransferKeystoreCipher.Seal(bytes));}finally{CryptographicOperations.ZeroMemory(bytes);}
@@ -65,11 +66,12 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
                         duplicate=true;
                     }
                 }
+                if(!duplicate && part.sequence<=Head(db,client,part.sourceId)){db.SetTransactionSuccessful();return true;}
                 if(!duplicate)
                 {
                 using(var quota=db.RawQuery("SELECT COALESCE(SUM(LENGTH(sealed)),0),COUNT(*) FROM parts WHERE client=?",new[]{client}))
                     if(quota.MoveToFirst() && (quota.GetLong(0)>80000000 || quota.GetLong(1)>100000))throw new IOException("Черга змін переповнена.");
-                var values=new ContentValues();values.Put("client",client);values.Put("source",part.sourceId);values.Put("batch",part.batchId);values.Put("part",part.index);values.Put("hash",Hash(authenticatedJson));values.Put("sealed",obsolete?"":Seal(authenticatedJson));db.InsertOrThrow("parts",null,values);
+                var values=new ContentValues();values.Put("client",client);values.Put("source",part.sourceId);values.Put("batch",part.batchId);values.Put("part",part.index);values.Put("sequence",part.sequence);values.Put("hash",Hash(authenticatedJson));values.Put("sealed",obsolete?"":Seal(authenticatedJson));db.InsertOrThrow("parts",null,values);
                 using(var verify=db.RawQuery("SELECT hash,sealed FROM parts WHERE client=? AND source=? AND batch=? AND part=?",new[]{client,part.sourceId,part.batchId,part.index.ToString()}))
                     if(!verify.MoveToFirst() || verify.GetString(0)!=Hash(authenticatedJson) || !obsolete && Open(verify.GetString(1))!=authenticatedJson)throw new IOException("Зміни не збережено.");
                 }
@@ -77,7 +79,10 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             }
             finally{db.EndTransaction();}
         }
+        long previousHead;using(var before=ReadableDatabase)previousHead=Head(before,client,part.sourceId);
         if(!obsolete)ApplyReady(part.sourceId,cancellation,progress);
+        long appliedHead;using(var after=ReadableDatabase)appliedHead=Head(after,client,part.sourceId);
+        if(appliedHead>previousHead)try{var notice=CleanQueue(false,cancellation);SaveQueueNotice(notice);}catch(Exception error)when(error is not OperationCanceledException){SaveQueueNotice("Очищення черги відкладено: "+error.Message);}
         DrainReceipts(cancellation);return true; // authenticated readback/staging is durable even while other parts are missing
     }
     private void ApplyReady(string source,CancellationToken cancellation,IProgress<int>? progress=null)
@@ -92,7 +97,8 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
                 while(rows.MoveToNext())candidates.Add(JsonSerializer.Deserialize<MobileChangePart>(Open(rows.GetString(0)))!);
             long revision;using(var headRow=db.RawQuery("SELECT revision FROM heads WHERE client=? AND source=?",new[]{client,source}))revision=headRow.MoveToFirst()?headRow.GetLong(0):0;
             var latestPolicy=new MobileAccessStore(context).Load()?.revision??0;
-            var first=candidates.Where(p=>p.access.revision>=latestPolicy && (p.baseSequence==current || p.full && p.access.revision>revision)).OrderByDescending(p=>p.access.revision).ThenBy(p=>p.sequence).FirstOrDefault();
+            bool waiting;using(var request=db.RawQuery("SELECT 1 FROM state_requests WHERE client=? AND status='pending' LIMIT 1",new[]{client}))waiting=request.MoveToFirst();
+            var first=candidates.Where(p=>p.access.revision>=latestPolicy && (p.requestId.Length>0?RequestedResponse(db,p,current):(!waiting && (p.baseSequence==current || p.full && p.access.revision>revision)))).OrderByDescending(p=>p.access.revision).ThenBy(p=>p.sequence).FirstOrDefault();
             if(first is null)return;
             // Do not decrypt an incomplete batch on every arriving part.
             using(var count=db.RawQuery("SELECT COUNT(*) FROM parts WHERE client=? AND source=? AND batch=? AND sealed<>''",new[]{client,source,first.batchId}))
@@ -120,8 +126,10 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
             cancellation.ThrowIfCancellationRequested();
             db.BeginTransaction();try
             {
-                var reset=(first.full || first.initial) && first.access.revision>revision;
-                if(!reset && Head(db,client,source)!=first.baseSequence)throw new IOException("Послідовність змін оновилась.");
+                var requested=first.requestId.Length>0;
+                if(requested && (!RequestedResponse(db,first,Head(db,client,source)) || MobileStateRequest.Hash(RecordHashes(db,source,cancellation))!=first.requestHash))throw new IOException("Стан телефона змінився після запиту. Надішліть новий звіт.");
+                var reset=!requested && (first.full || first.initial) && first.access.revision>revision;
+                if(!reset && !requested && Head(db,client,source)!=first.baseSequence)throw new IOException("Послідовність змін оновилась.");
                 if(reset)db.Delete("records","client=? AND source=?",new[]{client,source});
                 var applied=0;
                 foreach(var op in operations)
@@ -130,11 +138,13 @@ internal sealed class MobileChangeStore:SQLiteOpenHelper
                     bool existed;using(var row=db.RawQuery("SELECT 1 FROM records WHERE client=? AND source=? AND key=?",new[]{client,source,op.key}))existed=row.MoveToFirst();
                     if(op.remove){db.Delete("records","client=? AND source=? AND key=?",new[]{client,source,op.key});continue;}
                     var values=new ContentValues();values.Put("client",client);values.Put("source",source);values.Put("key",op.key);values.Put("kind",op.kind);values.Put("location",op.locationId);values.Put("sealed",writer.SealText(op.payload.GetRawText()));db.InsertWithOnConflict("records",null,values,Conflict.Replace);
-                    if(!first.initial && !reset && op.kind=="document")QueueReceipt(db,first,op,existed);
+                    if(!requested && !first.initial && !reset && op.kind=="document")QueueReceipt(db,first,op,existed);
                     progress?.Report(++applied);
                 }
                 cancellation.ThrowIfCancellationRequested();
+                if(requested && MobileStateRequest.Hash(RecordHashes(db,source,cancellation,first.access))!=first.resultHash)throw new CryptographicException("Підсумок оновлення не відповідає очікуваному стану ПК. Зміни відкочено.");
                 var head=new ContentValues();head.Put("client",client);head.Put("source",source);head.Put("sequence",first.sequence);head.Put("revision",first.access.revision);head.Put("asof",first.asOf);db.InsertWithOnConflict("heads",null,head,Conflict.Replace);
+                if(requested){var done=new ContentValues();done.Put("status","applied");db.Update("state_requests",done,"client=? AND id=?",new[]{client,first.requestId});}
                 var clear=new ContentValues();clear.Put("sealed","");db.Update("parts",clear,"client=? AND source=? AND batch=?",new[]{client,source,first.batchId});
                 db.SetTransactionSuccessful();
             }

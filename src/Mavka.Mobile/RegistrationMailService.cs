@@ -6,7 +6,7 @@ using MimeKit;
 
 namespace Mavka.Mobile;
 
-internal static class RegistrationMailService
+internal static partial class RegistrationMailService
 {
     public static string BuildBody(UserProfile profile, string email)
     {

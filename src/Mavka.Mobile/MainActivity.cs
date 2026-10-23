@@ -164,6 +164,7 @@ public partial class MainActivity : Activity
         rightPanel.SetPadding(Dp(14), Dp(50), Dp(14), Dp(30));
         Text(rightPanel, "Команди і налаштування", 21, true);
         Button(rightPanel, "Синхронізація Gmail", () => { CloseDrawer(); ShowSynchronization(); });
+        Button(rightPanel,"Оновлення бази та черга",()=>{CloseDrawer();ShowQueueManagement();});
         Button(rightPanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
         Button(rightPanel, "Налаштування", () => { CloseDrawer(); ShowSettings(); });
         Button(rightPanel, "Ключ обміну", () => { CloseDrawer(); try{ShowExchangeKey();}catch(Exception ex){ShowSafeFailure("Ключ обміну",ex);} });
@@ -306,6 +307,7 @@ public partial class MainActivity : Activity
         Button(overview,"Оновити сервер",async()=>await RefreshRelayAsync(syncStatus));
         Button(overview,"Скасувати обмін",()=>CancelExchange(syncStatus));
         DrawForegroundRefresh(overview);
+        Button(overview,"Оновлення бази та черга",ShowQueueManagement);
         var profile = LoadUserProfile();
         var card = Card();
         Text(card, "Майно та документи", 19, true);

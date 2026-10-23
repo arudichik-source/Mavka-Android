@@ -51,16 +51,13 @@ jobs:
         with:
           path: ~/.mavka-qa-signing/registrationqa.jks
           key: mavka-registrationqa-test-signing-v1
-      - name: Prepare QA-only signing key
+      - name: Require the retained QA signing key
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/.mavka-qa-signing"
           if [[ ! -f "$HOME/.mavka-qa-signing/registrationqa.jks" ]]; then
-            keytool -genkeypair -keystore "$HOME/.mavka-qa-signing/registrationqa.jks" \
-              -storepass android -keypass android -alias mavka-test-only \
-              -keyalg RSA -keysize 3072 -validity 3650 \
-              -dname "CN=MaVka Registration QA Only, O=Not Production"
+            echo 'Retained signing key is unavailable. Refusing an incompatible replacement installer.' >&2
+            exit 1
           fi
       - name: Build isolated Relay QA APK
         run: |
@@ -68,8 +65,8 @@ jobs:
             -f net10.0-android -c Release \
             -p:ApplicationId=ua.mavka.mobile.registrationqa \
             -p:ApplicationTitle="Mavka Registration Test" \
-            -p:ApplicationVersion=20261027 \
-            -p:ApplicationDisplayVersion=1.2.6-registration-v2-qa \
+            -p:ApplicationVersion=2026102301 \
+            -p:ApplicationDisplayVersion=1.3.0-state-query-qa \
             -p:AndroidKeyStore=true \
             "-p:AndroidSigningKeyStore=$HOME/.mavka-qa-signing/registrationqa.jks" \
             -p:AndroidSigningKeyAlias=mavka-test-only \
@@ -84,6 +81,8 @@ jobs:
             "$aapt" dump badging "$apk" | grep -F "package: name='ua.mavka.mobile.registrationqa'"
             "$aapt" dump permissions "$apk" | grep -F 'android.permission.ACCESS_NETWORK_STATE'
             "$signer" verify --print-certs "$apk"
+            cert="$($signer verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]')"
+            test "$cert" = '2410279934353190b0a4eb60e80c9df5d79502856a2838b85c0b7c1b72b266bd'
           done
       - name: Upload isolated installer
         uses: actions/upload-artifact@v4
