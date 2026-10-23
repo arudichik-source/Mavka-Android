@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import worker, { cleanup } from '../src/worker.js';
+import { SECURITY_EVENT, securityEvent } from '../src/security-audit.js';
+import { ApiError } from '../src/protocol.js';
 import { signedRequest, verifyDelivery, base64url, MAX_TTL } from '../src/protocol.js';
 import { configuration } from '../tools/configure.mjs';
 
@@ -21,7 +23,7 @@ async function fixture(t) {
   const main = await identity();
   const options = { cf: { country: 'UA' }, telemetry: { enabled: false }, workers: [{ name: 'relay',
     modulesRoot: fileURLToPath(new URL('../', import.meta.url)),
-    modules: ['worker.js', 'protocol.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
+    modules: ['worker.js', 'protocol.js', 'security-audit.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
     compatibilityDate: '2026-10-01', d1Databases: { DB: 'relay-tests' },
     bindings: { RELAY_ADMIN_DEVICE_ID: main.deviceId, RELAY_ADMIN_SIGNING_KEY: JSON.stringify(main.publicSigningKey) } }] };
   const mf = new Miniflare(convertV4MiniflareOptions(options));
@@ -289,4 +291,50 @@ test('configuration fails closed and never creates a database or private-key bin
   assert.deepEqual(config.r2_buckets, [{ binding: 'FILES', bucket_name: 'mavka-private-files' }]);
   await assert.rejects(configuration({ ...input, MAVKA_ADMIN_SIGNING_JWK: JSON.stringify({ ...main.publicSigningKey, d: 'secret' }) }));
   assert.equal(Object.hasOwn(JSON.parse(config.vars.RELAY_ADMIN_SIGNING_KEY), 'd'), false);
+});
+
+test('security telemetry is allowlisted, anonymous, and does not change HTTP denials', async () => {
+  const secretId = 'SENSITIVE_DEVICE_0123456789';
+  const secretQuery = 'QUERY_SECRET_NEVER_LOG';
+  const secretIp = '198.51.100.42';
+  const req = Object.assign(new Request(origin + '/v1/devices/' + secretId +
+    '/revoke?token=' + secretQuery, { method: 'POST', headers: {
+      'CF-Connecting-IP': secretIp, 'X-Mavka-Device': secretId,
+      'X-Mavka-Signature': 'SECRET_SIGNATURE_NEVER_LOG' } }), { cf: { country: 'US' } });
+  const denied = new ApiError(401, 'unauthorized');
+  denied.auditReason = 'auth_signature_invalid';
+  const event = securityEvent(req, denied, 'verified_main');
+  assert.deepEqual(event, {
+    event: SECURITY_EVENT, outcome: 'rejected', category: 'authentication',
+    reason: 'auth_signature_invalid', status: 401, route: 'revocation',
+    method: 'POST', countryScope: 'non_UA', principal: 'verified_main',
+  });
+  const output = JSON.stringify(event);
+  for (const sensitive of [secretId, secretQuery, secretIp, 'SECRET_SIGNATURE_NEVER_LOG', 'US'])
+    assert.equal(output.includes('"' + sensitive + '"'), false);
+  assert.equal(output.includes(secretId), false);
+  assert.equal(output.includes(secretQuery), false);
+  const rawError = new ApiError(400, 'attacker-controlled-secret');
+  assert.equal(securityEvent(req, rawError).reason, 'request_rejected');
+  assert.equal(securityEvent(req, new Error('secret stack trace')).reason, 'service_unavailable');
+
+  const emitted = []; const previous = console.info;
+  console.info = (...args) => emitted.push(args.join(' '));
+  try {
+    const foreign = Object.assign(new Request(origin + '/health?token=' + secretQuery), { cf: { country: 'US' } });
+    const response = await worker.fetch(foreign, {});
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'country_not_allowed' });
+    const valid = Object.assign(new Request(origin + '/health'), { cf: { country: 'UA' } });
+    assert.equal((await worker.fetch(valid, {})).status, 200);
+  } finally {
+    console.info = previous;
+  }
+  assert.equal(emitted.length, 1);
+  const parsed = JSON.parse(emitted[0]);
+  assert.equal(parsed.event, SECURITY_EVENT);
+  assert.equal(parsed.reason, 'country_not_allowed');
+  assert.equal(parsed.route, 'health');
+  assert.equal(parsed.principal, 'unverified');
+  assert.equal(emitted[0].includes(secretQuery), false);
 });
