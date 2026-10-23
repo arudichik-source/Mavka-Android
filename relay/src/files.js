@@ -14,6 +14,7 @@ const response = (value, status = 200) => new Response(JSON.stringify(value),
 const keyFor = (recipient, sender, transfer, index) =>
   `transfers/${recipient}/${sender}/${transfer}/${String(index).padStart(4, '0')}`;
 const active = "EXISTS (SELECT 1 FROM devices WHERE device_id = ? AND status = 'active')";
+function parse(raw) { try { return JSON.parse(raw); } catch { throw new ApiError(400, 'invalid_json'); } }
 
 export function isFileRoute(method, pathname) {
   if (method === 'POST' && pathname === UPLOAD_PATH) return true;
@@ -22,7 +23,7 @@ export function isFileRoute(method, pathname) {
 }
 
 async function upload(env, db, auth, raw, now) {
-  const body = JSON.parse(raw);
+  const body = parse(raw);
   object(body, ['recipientDeviceId', 'transferId', 'index', 'count', 'expiresAt', 'payload']);
   id(body.recipientDeviceId);
   requireValue(body.recipientDeviceId !== auth.deviceId, 400, 'self_transfer_forbidden');
@@ -85,7 +86,7 @@ async function part(env, db, auth, raw, now, match) {
   requireValue(row, 404, 'file_part_not_found');
   const key = keyFor(...args);
   if (ackSuffix) {
-    const input = JSON.parse(raw);
+    const input = parse(raw);
     object(input, ['payloadSha256']);
     requireValue(input.payloadSha256 === row.payload_sha256, 409, 'file_hash_mismatch');
     await stmt(db, `UPDATE relay_file_parts SET acked_at = COALESCE(acked_at, ?)
