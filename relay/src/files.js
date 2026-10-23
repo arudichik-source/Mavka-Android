@@ -4,7 +4,6 @@ import { ApiError, requireValue, object, id, encryptedEnvelope, sha256, encoder 
 // AES keys, or private signing keys reach R2.
 const MAX_PARTS = 4096;
 const MAX_FILE_TTL = 6 * 86400; // R2 lifecycle is 7 days; leave a safety margin.
-const TOMBSTONE_TTL = 86400;
 const PART_PATH = /^\/v1\/files\/parts\/([A-Za-z0-9][A-Za-z0-9_-]{15,79})\/([a-f0-9]{32})\/(0|[1-9][0-9]{0,3})(\/ack)?$/;
 const UPLOAD_PATH = '/v1/files/parts';
 const stmt = (db, sql, ...args) => db.prepare(sql).bind(...args);
