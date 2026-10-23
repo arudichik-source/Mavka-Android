@@ -1,5 +1,6 @@
 import { ApiError, VERSION, MAX_BODY, MAX_TTL, requireValue, object, id, publicKey,
   decodeUrl, messageBody, fingerprint, signingInput, encoder } from './protocol.js';
+import { reportSecurityEvent } from './security-audit.js';
 
 const SKEW = 300;
 const MAX_DEVICES = 500;
@@ -41,6 +42,13 @@ async function adminConfig(env) {
     return { id: env.RELAY_ADMIN_DEVICE_ID, ...key };
   } catch { throw new ApiError(503, 'relay_not_configured'); }
 }
+function authReject(auditReason) {
+  // Keep the public response deliberately generic; only the sanitized security
+  // event can distinguish authentication failures for operators.
+  const error = new ApiError(401, 'unauthorized');
+  error.auditReason = auditReason;
+  throw error;
+}
 async function authenticate(request, env, db, raw, bootstrap, activate, now) {
   const admin = await adminConfig(env);
   const deviceId = request.headers.get('X-Mavka-Device');
@@ -50,24 +58,26 @@ async function authenticate(request, env, db, raw, bootstrap, activate, now) {
   let signatureBytes;
   try {
     id(deviceId); requireValue(/^\d{10}$/.test(time ?? ''));
-    requireValue(Math.abs(now - Number(time)) <= SKEW);
     decodeUrl(nonce, 16); signatureBytes = decodeUrl(signature, 64);
-  } catch { throw new ApiError(401, 'unauthorized'); }
+  } catch { authReject('auth_headers_invalid'); }
+  if (Math.abs(now - Number(time)) > SKEW) authReject('auth_timestamp_invalid');
   const row = await stmt(db, 'SELECT * FROM devices WHERE device_id = ?', deviceId).first();
   let signer;
   if (bootstrap) {
-    requireValue(deviceId === admin.id, 401, 'unauthorized');
+    if (deviceId !== admin.id) authReject('auth_main_binding_invalid');
     if (row) requireValue(row.status === 'active' && row.device_type === 'main' && row.public_signing_key === admin.json, 403, 'device_unavailable');
     signer = admin;
   } else {
-    requireValue(row && (row.status === 'active' || (activate && row.status === 'pending')), 401, 'unauthorized');
-    requireValue(row.device_type !== 'main' || (deviceId === admin.id && row.public_signing_key === admin.json), 401, 'unauthorized');
+    if (!(row && (row.status === 'active' || (activate && row.status === 'pending'))))
+      authReject('auth_device_unavailable');
+    if (row.device_type === 'main' && (deviceId !== admin.id || row.public_signing_key !== admin.json))
+      authReject('auth_main_binding_invalid');
     try { signer = await publicKey(JSON.parse(row.public_signing_key)); }
-    catch { throw new ApiError(401, 'unauthorized'); }
+    catch { authReject('auth_public_key_invalid'); }
   }
   const valid = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, signer.key,
     signatureBytes, await signingInput(request.method, request.url, deviceId, time, nonce, raw));
-  requireValue(valid, 401, 'unauthorized');
+  if (!valid) authReject('auth_signature_invalid');
   const window = now - now % 60;
   const rateSql = `INSERT INTO relay_rate_windows (device_id, window_start, requests) VALUES (?, ?, 1)
     ON CONFLICT(device_id, window_start) DO UPDATE SET requests = requests + 1 WHERE requests < ? RETURNING requests`;
@@ -214,6 +224,7 @@ export async function cleanup(db, now = nowSeconds()) {
 }
 export default {
   async fetch(request, env) {
+    let verifiedPrincipal = 'unverified';
     try {
       // cf is trusted runtime metadata. Never use CF-IPCountry/X-Forwarded-* headers.
       requireValue(request.cf?.country === 'UA', 403, 'country_not_allowed');
@@ -235,6 +246,7 @@ export default {
       const db = env.DB;
       const raw = await readBody(request); const now = nowSeconds();
       const auth = await authenticate(request, env, db, raw, isBootstrap, isActivate, now);
+      verifiedPrincipal = auth.row?.device_type === 'mobile' ? 'verified_mobile' : 'verified_main';
       if (isBootstrap) return await bootstrap(db, auth, parse(raw), now);
       if (isActivate) return await activate(db, auth, parse(raw), now);
       if (revokeMatch) return await revoke(db, auth, revokeMatch[1], parse(raw), now);
@@ -255,7 +267,9 @@ export default {
       return json({ service: 'mavka-relay', version: VERSION, database: 'ready',
         devices: devices.results[0].count, queuedMessages: messages.results[0].count });
     } catch (error) {
-      // Never log request bodies, keys, signatures, SQL errors or exception stacks.
+      // Never log request bodies, headers, keys, signatures, SQL errors or stacks.
+      // This log intentionally omits client-supplied IDs, IPs and raw URLs.
+      reportSecurityEvent(request, error, verifiedPrincipal);
       const status = error instanceof ApiError ? error.status : 503;
       return json({ error: error instanceof ApiError ? error.code : 'service_unavailable' }, status);
     }
