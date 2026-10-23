@@ -67,8 +67,9 @@ Check the signed transfer announcement and digest before decryption.
 Recipient-only, signed JSON body `{"payloadSha256":"<64 lowercase hex>"}`.
 After local checksum/decryption/storage succeeds, client ACKs. Server retains a
 D1 tombstone, deletes the R2 encrypted part, and returns `delivered`.
-Repeated ACK is idempotent. A scheduled cleanup removes receipts 24h after
-expiration/ACK.
+Repeated ACK is idempotent. A scheduled cleanup retains durable ACK receipts
+until 24h **after original transfer expiration**, preventing resurrection while
+the transfer remains valid.
 
 ## Storage, limits and lifecycle
 
