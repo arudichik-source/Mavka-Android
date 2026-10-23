@@ -53,7 +53,7 @@ public sealed partial class StorageQaActivity
                 var failed=false;try{mirror.TryAccept(JsonSerializer.Serialize(wrong));}catch(System.Security.Cryptography.CryptographicException){failed=true;}
                 Check(failed && JsonDocument.Parse(mirror.List("asset",1).Single().Json).RootElement.GetProperty("quantity").GetInt32()==9,"incorrect resulting state rolls entire update back");
                 var clean=mirror.CleanQueue(true,CancellationToken.None);Check(clean.Contains("Очищено частин") && mirror.List("document").Count==2,"manual queue clear backs up parts without touching applied documents");
-                Check(mirror.CheckLatestQueueBackup(CancellationToken.None).Contains("збігаються"),"backup compares current applied state at cleanup time");
+                var backupState=mirror.CheckLatestQueueBackup(CancellationToken.None);Check(backupState.Contains("збігаються") && backupState.Contains("ще не підтверджено: 1"),"backup distinguishes unapplied parts from unchanged applied state");
                 Check(new UserProfileStore(this).Load()==profile && new MobileAccessStore(this).Load()!.clientId==client,"profile and access unchanged");
             }
             var result="NATIVE STATE REQUEST QA PASS "+count+" · SQLite report, frozen predecessor, bridge, final hash, rollback, duplicate, queue backup/clear, retained records. NO NETWORK.";

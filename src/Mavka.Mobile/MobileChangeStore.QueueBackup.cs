@@ -9,6 +9,7 @@ internal sealed partial class MobileChangeStore
 {
     private sealed record QueueHead(string Source,long Sequence,string Hash);
     private sealed record QueueProof(string Client,DateTimeOffset At,string Sha256,int Parts,QueueHead[] Heads);
+    private sealed record QueuePartStatus(string source,long sequence);
     internal string QueueNotice=>context.GetSharedPreferences("mavka_queue_maintenance_v1",FileCreationMode.Private)!.GetString("notice","")??"";
     private void SaveQueueNotice(string value){using var editor=context.GetSharedPreferences("mavka_queue_maintenance_v1",FileCreationMode.Private)!.Edit()!;if(!editor.PutString("notice",value)!.Commit())throw new IOException("Не збережено стан черги.");}
     private string QueueBackupFolder=>Path.Combine(context.FilesDir!.AbsolutePath,"queue_backups_v1");
@@ -86,6 +87,15 @@ internal sealed partial class MobileChangeStore
         var proof=JsonSerializer.Deserialize<QueueProof>(Open(File.ReadAllText(file)))!;if(proof.Client!=Client)throw new IOException("Копія іншого профілю.");
         using(var input=File.OpenRead(Path.ChangeExtension(file,".zip")))if(Convert.ToHexString(SHA256.HashData(input))!=proof.Sha256)throw new IOException("Резервна копія черги пошкоджена.");
         using var db=ReadableDatabase;var current=QueueHeads(db,token);var unchanged=JsonSerializer.Serialize(current)==JsonSerializer.Serialize(proof.Heads);
-        return $"Копія від {proof.At.ToLocalTime():dd.MM.yyyy HH:mm}: {proof.Parts} частин, цілісність підтверджено. "+(unchanged?"Застосовані дані телефона збігаються зі станом на час очищення.":"Облік телефона змінився після копії.")+" Для перевірки актуальності щодо ПК надішліть запит оновлення бази.";
+        var heads=current.ToDictionary(h=>h.Source,h=>h.Sequence);var covered=0;var unresolved=0;
+        using(var zip=ZipFile.OpenRead(Path.ChangeExtension(file,".zip")))
+        using(var stream=(zip.GetEntry("queue.json")??throw new IOException("У копії немає частин черги.")).Open())
+        {
+            var entries=JsonSerializer.DeserializeAsyncEnumerable<QueuePartStatus>(stream,cancellationToken:token).GetAsyncEnumerator(token);
+            try{while(entries.MoveNextAsync().AsTask().GetAwaiter().GetResult()){token.ThrowIfCancellationRequested();var part=entries.Current??throw new IOException("Порожня частина копії.");if(part.sequence>=0 && heads.TryGetValue(part.source,out var sequence) && sequence>=part.sequence)covered++;else unresolved++;}}
+            finally{entries.DisposeAsync().AsTask().GetAwaiter().GetResult();}
+        }
+        if(covered+unresolved!=proof.Parts)throw new IOException("Кількість частин копії не збігається з перевіреним описом.");
+        return $"Копія від {proof.At.ToLocalTime():dd.MM.yyyy HH:mm}: {proof.Parts} частин, цілісність підтверджено. Покрито застосованим станом: {covered}; ще не підтверджено: {unresolved}. "+(unchanged?"Застосовані дані телефона збігаються зі станом на час очищення.":"Облік телефона змінився після копії.")+" Для перевірки актуальності щодо ПК надішліть запит оновлення бази.";
     }
 }
