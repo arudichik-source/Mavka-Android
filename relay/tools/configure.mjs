@@ -12,7 +12,15 @@ export async function configuration(env) {
     $schema: './node_modules/wrangler/config-schema.json', name: 'mavka-relay',
     main: 'src/worker.js', compatibility_date: '2026-10-01',
     workers_dev: true, preview_urls: false,
-    observability: { enabled: false },
+    // Keep Cloudflare Workers Logs enabled across GitHub-triggered deployments.
+    // Capture invocations, not payloads; never log headers, signatures or keys.
+    observability: {
+      enabled: true,
+      redact_query_string: true,
+      logs: { enabled: true, invocation_logs: true, persist: true, head_sampling_rate: 1 },
+      traces: { enabled: false },
+      issues: { enabled: false },
+    },
     d1_databases: [{ binding: 'DB', database_name: 'mavka-messages',
       database_id: env.MAVKA_D1_DATABASE_ID, migrations_dir: 'migrations' }],
     vars: { RELAY_ADMIN_DEVICE_ID: env.MAVKA_ADMIN_DEVICE_ID, RELAY_ADMIN_SIGNING_KEY: root.json },
