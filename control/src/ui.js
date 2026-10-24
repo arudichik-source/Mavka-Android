@@ -125,13 +125,13 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <section class="panel section">
 <div class="topline" style="margin-bottom:12px"><div><h2 style="margin:0">Історія спостережень</h2><p class="dim">Посторінковий перегляд збережених даних за вибраний період — до 30 днів.</p></div><span class="status" id="history-state">База: перевіряємо…</span></div>
 <div class="table-scroll"><table><thead><tr><th>Час (UTC)</th><th>Relay запити</th><th>D1 читання</th><th>D1 запис</th><th>R2 байти</th></tr></thead><tbody id="rows"><tr><td colspan="5">Записів ще немає</td></tr></tbody></table></div>
-<div style="margin-top:14px;display:flex;justify-content:flex-end"><button class="small-btn" id="more-history" type="button" hidden>Показати ще 50 записів</button></div>
+<div style="margin-top:14px;display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap"><span id="history-export-status" class="dim" role="status" aria-live="polite"></span><button class="small-btn" id="export-history" type="button">Експорт історії CSV</button><button class="small-btn" id="more-history" type="button" hidden>Показати ще 50 записів</button></div>
 </section>
 <section class="section columns" aria-label="Контроль безпеки">
 <div class="read-only"><h3>Журнал безпеки Relay</h3><p id="security-status">Джерело агрегованих подій ще не підключене. Наявні записи MAVKA_RELAY_SECURITY_V1 можна переглядати в Cloudflare Observability. Тут не відображаємо IP, ключі, підписи або вміст повідомлень.</p></div>
 <div class="read-only"><h3>Стан пристроїв</h3><p>Безпечний канал статистики пристроїв поки не підключено. Консоль не отримує доступу до приватних таблиць або вмісту повідомлень Relay.</p></div>
 </section>
-<div class="footer">MaVka Server Control 0.2.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.2.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -204,9 +204,22 @@ function drawTrends(t){
    div.textContent='Немає достовірних значень цього показника.';parent.appendChild(div);
    q('chart-coverage').textContent='Знімків: '+list.length;return;
  }
- const domainStart=Number.isFinite(t.from)?t.from:values[0].t;
- const domainEnd=Number.isFinite(t.to)?t.to:values.at(-1).t+1;
- const max=Math.max(1,...valid.map(x=>x.v))*1.08;
+ // When history has only just begun, display the ACTUAL sampled time span
+ // instead of compressing three observations into a 24-hour right corner.
+ // The selected retention period stays unchanged and is labeled explicitly.
+ const periodFrom=Number.isFinite(t.from)?t.from:values[0].t;
+ const periodTo=Number.isFinite(t.to)?t.to:values.at(-1).t+1;
+ const first=values[0].t,last=values.at(-1).t;
+ const span=Math.max(0,last-first);
+ const availableSpan=Math.max(1,periodTo-periodFrom);
+ const zoomToSamples=span<availableSpan*0.5;
+ const pad=Math.max(900,span*0.12);
+ const domainStart=zoomToSamples?Math.max(periodFrom,first-pad):periodFrom;
+ const domainEnd=zoomToSamples?Math.min(periodTo,last+pad):periodTo;
+ const largest=Math.max(1,...valid.map(x=>x.v));
+ const wholeNumber=activeMetric!=='r2_payload_bytes';
+ const unit=wholeNumber?Math.max(1,Math.ceil(largest*1.06/4)):largest*1.06/4;
+ const max=unit*4;
  const X=p=>L+(p-domainStart)/Math.max(1,domainEnd-domainStart)*w;
  const Y=v=>T+(1-v/max)*h;
  const svg=node('svg',{viewBox:'0 0 '+W+' '+H,'aria-hidden':'true'},parent);
@@ -241,7 +254,7 @@ function drawTrends(t){
      title.textContent=new Date(data.t*1000).toISOString().slice(0,16).replace('T',' ')+' UTC: '+(activeMetric==='r2_payload_bytes'?size(data.v):fmt(data.v));
    }
  }
- const cap='Знімків: '+list.length+' · із реальними значеннями: '+valid.length;
+ const cap='Знімків: '+list.length+' · із реальними значеннями: '+valid.length+(zoomToSamples?' · вісь X наближено до наявних знімків (UTC)':'');
  q('chart-coverage').textContent=cap;
  parent.setAttribute('aria-label',cap+' за '+activePeriod);
 }
@@ -308,6 +321,52 @@ let lastTrends={state:'ready',entries:[]};
 const originalDraw=drawTrends;
 // Store raw observations for metric switching without additional server calls.
 drawTrends=function(t){lastTrends=t;originalDraw(t)};
+// Export only bounded, non-sensitive aggregated usage counters from this
+// same-origin authenticated session. No Relay messages, IDs, keys or logs.
+async function exportHistoryCsv(){
+ const button=q('export-history'),status=q('history-export-status');
+ if(button.disabled)return;
+ button.disabled=true;status.textContent='Читаємо історію…';
+ try{
+  const data=[];let cursor=null,previous=Infinity,complete=false;
+  for(let page=0;page<65;page++){
+   const path='/api/history?period='+activePeriod+
+    (cursor===null?'':'&before='+encodeURIComponent(cursor));
+   const result=await get(path);
+   if(result.state!=='ready'||!Array.isArray(result.entries))throw Error('unavailable');
+   for(const row of result.entries){
+    if(!Number.isFinite(row.bucket_start))throw Error('invalid');
+    data.push(row);
+   }
+   if(result.nextBefore===null){complete=true;break}
+   if(!Number.isSafeInteger(result.nextBefore)||result.nextBefore>=previous)
+    throw Error('cursor');
+   previous=result.nextBefore;cursor=result.nextBefore;
+  }
+  if(!complete)throw Error('limit');
+  // Semicolon delimiter and Excel-compatible UTF-8 BOM; all cells are
+  // generated ISO timestamps or safe numeric values, never user-supplied text.
+  const cells=(row)=>[
+   new Date(row.bucket_start*1000).toISOString().slice(0,16).replace('T',' '),
+   row.workers_requests,row.workers_errors,row.d1_rows_read,
+   row.d1_rows_written,row.r2_payload_bytes,row.r2_objects
+  ].map(v=>Number.isFinite(v)?String(v):typeof v==='string'?v:'');
+  const lines=['sep=;',
+   'Час (UTC);Relay запити;Relay помилки;D1 читання;D1 запис;R2 байти;R2 об’єкти'];
+  for(const row of data)lines.push(cells(row).join(';'));
+  const blob=new Blob(['\\uFEFF'+lines.join('\\r\\n')+'\\r\\n'],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download='mavka-usage-'+activePeriod+'-'+
+    new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(link);link.click();link.remove();
+  // Revoke on the next user action rather than during the click dispatch.
+  q('refresh').addEventListener('click',()=>URL.revokeObjectURL(url),{once:true});
+  status.textContent='CSV сформовано: '+data.length+' записів.';
+ }catch{
+  status.textContent='Експорт недоступний. Перевір підключення та повтори спробу.';
+ }finally{button.disabled=false}
+}
+q('export-history').addEventListener('click',exportHistoryCsv);
 q('more-history').addEventListener('click',async ()=>{
  if(!historyCursor)return;
  const button=q('more-history');button.disabled=true;
