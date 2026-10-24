@@ -1,6 +1,6 @@
-# MaVka Server Control 0.1 — separate, read-only Cloudflare console
+# MaVka Server Control 0.2 — separate, read-only Cloudflare console
 
-This is the **initial implementable source**, not an already deployed site.
+The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 adds real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
 does **not** modify, proxy or call the MaVka message API.
 
@@ -10,7 +10,7 @@ does **not** modify, proxy or call the MaVka message API.
   telemetry, 15-minute browser/isolate refresh, quota guides and compact
   30-day snapshots (at most one per quarter hour).
 - **Read-only** API: `GET /`, `GET /api/summary`,
-  `GET /api/history`, `GET /api/about`.
+  `GET /api/history`, `GET /api/trends`, `GET /api/security`, `GET /api/about`.
 - No cron, no automatic polling after the tab closes, no relay device access,
   no R2 object listing, no relay D1 bindings, and no mutation endpoint.
 - Workers usage is **mavka-relay only**, not account-wide billable requests;
@@ -25,6 +25,18 @@ does **not** modify, proxy or call the MaVka message API.
   runtime TypeError, and network-related failures without leaking API tokens
   or remote response bodies. Failed datasets are never displayed as 0.
 - Only auth-approved administrators may access any HTML or API endpoint.
+- **0.2**: `GET /api/trends?period=24h|7d|30d` returns only real
+  sampled observations (15 minutes / hourly / daily), never interpolated.
+  `GET /api/history?period=30d&before=<unix_seconds>` pages 50 stored
+  records at a time with a bounded cursor, allowing review of up to 30 days.
+  Charts only exist for times when the dashboard actually stored samples.
+- The read-only dashboard also displays a security/device integration state.
+  `GET /api/security` explicitly returns `not_connected` until a
+  **dedicated least-privilege, privacy-safe telemetry channel** is built.
+  No fake security events or device counts are displayed; **do not** give
+  the control Worker a binding to the private `mavka-messages` D1.
+- 0.2 retains the 5 GB owner-defined R2 monitoring threshold and no
+  external scripts, CDNs, databases or cryptographic key access.
 
 ## Security (configure BEFORE using the console)
 
