@@ -112,7 +112,7 @@ test('Access signature, audience, email, expiry and allowed method enforced', as
     const summary = await control.fetch(request(token, '/api/summary'), env);
     assert.equal((await summary.json()).state, 'unconfigured');
     assert.equal((await control.fetch(new Request(url, {method:'POST',
-      headers:{'Cf-Access-Jwt-Assertion':token} }),env)).status, 404);
+      headers:{'Cf-Access-Jwt-Assertion':token} }),env)).status, 405);
     const altered = token.slice(0, -3) + 'ABC';
     assert.equal((await verifyAccess(request(altered), env)).status, 403);
     assert.equal((await verifyAccess(request(token), { ...env, ADMIN_EMAIL:'other@example.invalid' })).status, 403);
