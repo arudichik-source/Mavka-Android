@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import worker, { cleanup } from '../src/worker.js';
 import { SECURITY_EVENT, securityEvent } from '../src/security-audit.js';
+import { readDeviceTelemetry } from '../src/device-telemetry.js';
 import { ApiError } from '../src/protocol.js';
 import { signedRequest, verifyDelivery, base64url, MAX_TTL } from '../src/protocol.js';
 import { configuration } from '../tools/configure.mjs';
@@ -337,4 +338,33 @@ test('security telemetry is allowlisted, anonymous, and does not change HTTP den
   assert.equal(parsed.route, 'health');
   assert.equal(parsed.principal, 'unverified');
   assert.equal(emitted[0].includes(secretQuery), false);
+});
+
+test('named RPC device telemetry returns aggregates without device records or keys', async t => {
+  const f = await fixture(t);
+  await f.bootstrap();
+  const mob1 = await identity(), mob2 = await identity();
+  await f.enroll(mob1);
+  await f.enroll(mob2, false);
+  const snapshot = await readDeviceTelemetry(f.db);
+  assert.equal(snapshot.state, 'ready');
+  assert.equal(snapshot.total, 3);
+  assert.equal(snapshot.mainActive, 1);
+  assert.equal(snapshot.mobileActive, 1);
+  assert.equal(snapshot.mobilePending, 1);
+  assert.equal(snapshot.mobileRevoked, 0);
+  assert.equal(snapshot.mobileSeenRecently, 1);
+  assert.ok(snapshot.mobileSeenRecently <= snapshot.mobileActive);
+  assert.equal(JSON.stringify(snapshot).includes(mob1.deviceId), false);
+  assert.equal(JSON.stringify(snapshot).includes(mob2.deviceId), false);
+  assert.equal(JSON.stringify(snapshot).includes('public_signing_key'), false);
+  assert.equal(JSON.stringify(snapshot).includes('public_encryption_key'), false);
+  // Metadata-only read does not mutate Relay's authorization state.
+  assert.equal((await f.request(f.main, '/v1/status')).status, 200);
+});
+test('device aggregation returns unavailable instead of inventing zeros if D1 fails', async () => {
+  const bad = { prepare(){throw new Error('private SQL connection details') } };
+  const result = await readDeviceTelemetry(bad);
+  assert.deepEqual(result, {state:'unavailable',reason:'database_unavailable'});
+  assert.equal(JSON.stringify(result).includes('private SQL'), false);
 });
