@@ -38,9 +38,9 @@ test('incomplete or malicious Relay telemetry never reaches admin console',async
    {...base,coverage:'exact'},
    {...base,byReason:Array.from({length:13},()=>base.byReason[0])},
  ];
- for(const sample of scenarios){
+ for(const [i,sample] of scenarios.entries()){
    // No cache is created for invalid results.
-   const result=await securitySummary({RELAY_TELEMETRY:{getSecurityOverview:async()=>sample}});
+   const result=await securitySummary({RELAY_TELEMETRY:{getSecurityOverview:async()=>sample}},Date.now()+(i+1)*600000);
    assert.equal(result.state,'not_connected');
    assert.equal(result.data,null);
  }
@@ -49,12 +49,12 @@ test('missing optional D1 table and network/RPC errors cannot fabricate zeros',a
  assert.equal((await securitySummary({})).state,'not_connected');
  const response=await securitySummary({RELAY_TELEMETRY:{getSecurityOverview:async()=>({
    state:'not_connected',reason:'migration_or_database_unavailable'
- })}});
+ })}},Date.now()+3600000);
  assert.equal(response.total24h,undefined);
  assert.equal(response.state,'not_connected');
  const failure=await securitySummary({RELAY_TELEMETRY:{getSecurityOverview:async()=>{
    throw Error('sensitive Cloudflare internal error')
- }}});
+ }}},Date.now()+3600000);
  assert.equal(failure.state,'not_connected');
  assert.equal(JSON.stringify(failure).includes('sensitive'),false);
 });
