@@ -64,7 +64,7 @@ test('trends query selects existing per-hour/day snapshots, does not fabricate m
   const rows=[makeRow(END-250000),makeRow(END-95000),
     makeRow(END-81000),makeRow(END-80000),
     makeRow(END-3400),makeRow(END-1000)];
-  rows[2].d1_rows_read=null;
+  rows[3].d1_rows_read=null; // Latest genuine sample in that hour is unknown.
   const {db,calls}=makeDB(rows);
   const d=await readTrends(db,'7d',NOW);
   assert.equal(d.state,'ready');
