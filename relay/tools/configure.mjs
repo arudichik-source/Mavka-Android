@@ -10,7 +10,7 @@ export async function configuration(env) {
   const root = await publicKey(JSON.parse(env.MAVKA_ADMIN_SIGNING_JWK ?? '{}'));
   return {
     $schema: './node_modules/wrangler/config-schema.json', name: 'mavka-relay',
-    main: 'src/worker.js', compatibility_date: '2026-10-01',
+    main: 'src/entrypoint.js', compatibility_date: '2026-10-01',
     workers_dev: true, preview_urls: false,
     // Keep Cloudflare Workers Logs enabled across GitHub-triggered deployments.
     // Capture invocations, not payloads; never log headers, signatures or keys.
