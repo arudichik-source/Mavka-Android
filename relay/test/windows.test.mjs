@@ -38,7 +38,7 @@ test('Windows PowerShell 5.1 CNG keys: non-exportable, stable identity, Web Cryp
       const origin = 'https://mavka-relay.arudichik.workers.dev';
       const mf = new Miniflare(convertV4MiniflareOptions({ cf: { country: 'UA' }, telemetry: { enabled: false },
         workers: [{ name: 'relay', modulesRoot: fileURLToPath(new URL('../', import.meta.url)),
-          modules: ['worker.js', 'protocol.js', 'security-audit.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
+          modules: ['worker.js', 'protocol.js', 'security-audit.js', 'security-rollups.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
           compatibilityDate: '2026-10-01', d1Databases: { DB: 'windows-relay-tests' },
           bindings: { RELAY_ADMIN_DEVICE_ID: fixture.deviceId, RELAY_ADMIN_SIGNING_KEY: JSON.stringify(fixture.publicSigningKey) } }] }));
       try {

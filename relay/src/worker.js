@@ -1,6 +1,7 @@
 import { ApiError, VERSION, MAX_BODY, MAX_TTL, requireValue, object, id, publicKey,
   decodeUrl, messageBody, fingerprint, signingInput, encoder } from './protocol.js';
 import { reportSecurityEvent } from './security-audit.js';
+import { queueSecurityRollup, pruneSecurityRollups } from './security-rollups.js';
 
 const SKEW = 300;
 const MAX_DEVICES = 500;
@@ -223,7 +224,7 @@ export async function cleanup(db, now = nowSeconds()) {
   ]);
 }
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     let verifiedPrincipal = 'unverified';
     try {
       // cf is trusted runtime metadata. Never use CF-IPCountry/X-Forwarded-* headers.
@@ -269,10 +270,16 @@ export default {
     } catch (error) {
       // Never log request bodies, headers, keys, signatures, SQL errors or stacks.
       // This log intentionally omits client-supplied IDs, IPs and raw URLs.
-      reportSecurityEvent(request, error, verifiedPrincipal);
+      const security = reportSecurityEvent(request, error, verifiedPrincipal);
+      // Best-effort, batch-coalesced audit: storage is never allowed to affect
+      // the HTTP denial or leak additional information to its caller.
+      try { queueSecurityRollup(security, env, ctx); } catch { /* fail closed */ }
       const status = error instanceof ApiError ? error.status : 503;
       return json({ error: error instanceof ApiError ? error.code : 'service_unavailable' }, status);
     }
   },
-  async scheduled(_event, env, ctx) { ctx.waitUntil(cleanup(env.DB)); },
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(cleanup(env.DB));
+    ctx.waitUntil(pruneSecurityRollups(env.DB));
+  },
 };
