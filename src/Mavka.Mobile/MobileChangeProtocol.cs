@@ -18,6 +18,8 @@ public sealed record MobileChangePart(string format,string recipientClientId,str
         {
             if(op.kind is not ("asset" or "document") || op.key.Length is <1 or >120 || !access.Allows(op.locationId,op.kind=="asset") || !op.key.StartsWith(op.kind+":"+op.locationId+":",StringComparison.Ordinal) || !op.remove && (op.payload.ValueKind!=JsonValueKind.Object || op.payload.GetProperty("locationId").GetInt32()!=op.locationId))
                 throw new InvalidDataException("Зміни виходять за межі дозволених підрозділів.");
+            if(op.kind=="asset" && !op.remove && op.payload.TryGetProperty("history",out _))
+                _=AssetBalanceTimeline.Quantity(op.payload,DateOnly.ParseExact(asOf,"yyyy-MM-dd"),DateOnly.ParseExact(asOf,"yyyy-MM-dd"));
         }
         if(operations.Select(o=>o.key).Distinct(StringComparer.Ordinal).Count()!=operations.Length)throw new InvalidDataException("Повторення позиції змін.");
     }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Security.Cryptography;
 using Mavka.Mobile;
 var checks=0;
+TimelineChecks.Run();
 void Check(bool ok,string message){if(!ok)throw new Exception(message);checks++;}
 void Reject(Action action,string message){try{action();}catch(Exception){checks++;return;}throw new Exception(message);}
 using var fixture=JsonDocument.Parse(File.ReadAllText(args[0]));var f=fixture.RootElement;

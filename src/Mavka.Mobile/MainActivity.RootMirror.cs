@@ -7,6 +7,7 @@ public partial class MainActivity
 {
     private bool _showRootMirror=true;
     private long _mirrorReadGeneration;
+    private DateOnly? _rootAssetsDate;
     private async Task RecoverMirrorAsync()
     {
         if(_busy || _resetRequested)return;
@@ -30,11 +31,20 @@ public partial class MainActivity
     {
         IReadOnlyList<MobileMirrorRecord> records=[];
         var generation=++_mirrorReadGeneration;
-        var header=Card();Text(header,"Поточні залишки",20,true);
+        var header=Card();var title=Text(header,"Поточні залишки",20,true);
         Text(header,"Актуальний облік головної Мавки",14);
         var access=new MobileAccessStore(this).Load();
         Text(header,location is null?(access?.allUnits==true?"Майно військової частини":"Майно доступних підрозділів"):access?.units.FirstOrDefault(u=>u.locationId==location)?.unit??"Обраний підрозділ",15,true);
         var loading=Text(header,"Завантаження захищених залишків…",13);
+        DateOnly? appliedDate=null;
+        var dateLabel=Text(header,"Станом на: завантаження…",15,true);
+        Button(header,"Станом на…",()=>
+        {
+            var selected=_rootAssetsDate??appliedDate??DateOnly.FromDateTime(DateTime.Today);
+            var picker=new DatePickerDialog(this,(_,date)=>{_rootAssetsDate=new(date.Year,date.Month+1,date.DayOfMonth);ShowAssets();},selected.Year,selected.Month-1,selected.Day);
+            picker.DatePicker!.MaxDate=new DateTimeOffset(DateTime.Today).ToUnixTimeMilliseconds();picker.Show();
+        });
+        Button(header,"Останні дані ПК",()=>{_rootAssetsDate=null;ShowAssets();});
         Button(header,"Обрати підрозділ",()=>ChooseMobileUnit(ShowAssets));
         if(access?.isMvo==true)Button(header,"Журнал зарахувань на телефоні",ShowLocalAssets);
         Button(header,"Документи підрозділу",ShowDocuments);
@@ -43,18 +53,28 @@ public partial class MainActivity
         async void Draw(bool debounce=false)
         {
             var version=++drawVersion;var query=(search.Text??"").Trim();
+            var selectedDate=_rootAssetsDate??appliedDate;if(selectedDate is null)return;
+            dateLabel.Text="Станом на: "+selectedDate.Value.ToString("dd.MM.yyyy");title.Text=_rootAssetsDate is null?"Поточні залишки":"Залишки за датою";
+            try
+            {
+            if(appliedDate is null || selectedDate>appliedDate)throw new InvalidDataException(appliedDate is {} known?$"Дані ПК отримано лише станом на {known:dd.MM.yyyy}. Оновіть облік для пізнішої дати.":"Дату даних ПК не вказано. Оновіть базу.");
             if(debounce)await Task.Delay(180);
             if(version!=drawVersion || generation!=_mirrorReadGeneration)return;
             var rendered=await Task.Run(()=>
             {
             var parsedRows=records.Select(r=>(Record:r,Payload:JsonDocument.Parse(r.Json))).ToArray();var currentPolicy=new MobileAccessStore(this).Load();
+            try
+            {
             var rows=InventorySearchSummary.Filter(parsedRows.Where(r=>currentPolicy?.Allows(r.Record.LocationId,true)==true),query,
                 r=>r.Payload.RootElement.GetProperty("name").GetString()!,r=>r.Payload.RootElement.TryGetProperty("nsn",out var nsn)?nsn.GetString():null)
-                .Where(r=>r.Payload.RootElement.GetProperty("quantity").GetDecimal()!=0).OrderBy(r=>r.Payload.RootElement.GetProperty("name").GetString(),StringComparer.CurrentCulture).ThenBy(r=>r.Record.LocationId).ToArray();
+                .Select(r=>(r.Record,r.Payload,Quantity:AssetBalanceTimeline.Quantity(r.Payload.RootElement,selectedDate.Value,appliedDate)))
+                .Where(r=>r.Quantity!=0).OrderBy(r=>r.Payload.RootElement.GetProperty("name").GetString(),StringComparer.CurrentCulture).ThenBy(r=>r.Record.LocationId).ToArray();
             var groups=rows.GroupBy(r=>location is null?
                 r.Payload.RootElement.GetProperty("itemId")+"|"+r.Payload.RootElement.GetProperty("unit")+"|"+r.Payload.RootElement.GetProperty("price")+"|"+r.Payload.RootElement.GetProperty("category"):
                 r.Record.Key).ToArray();
                 return (parsedRows,groups);
+            }
+            catch{foreach(var row in parsedRows)row.Payload.Dispose();throw;}
             });
             var parsedRows=rendered.parsedRows;var groups=rendered.groups;
             if(version!=drawVersion || generation!=_mirrorReadGeneration || _screen!="assets"){foreach(var row in parsedRows)row.Payload.Dispose();return;}
@@ -64,15 +84,15 @@ public partial class MainActivity
             foreach(var group in groups.Skip(page*50).Take(50))
             {
                 var entries=group.ToArray();var payload=entries[0].Payload.RootElement;var selected=entries.Select(e=>e.Record).ToArray();
-                var quantity=entries.Sum(e=>e.Payload.RootElement.GetProperty("quantity").GetDecimal());
+                var quantity=entries.Sum(e=>e.Quantity);
                 var detail=(location is null?"Разом у підрозділах: "+entries.Select(e=>e.Record.LocationId).Distinct().Count():payload.GetProperty("location").GetString())+" · кат. "+payload.GetProperty("category")+" · ціна "+payload.GetProperty("price");
                 AddAssetRow(list,payload.GetProperty("name").GetString()!,detail,quantity.ToString("0.############################")+" "+payload.GetProperty("unit"),()=>
                 {
-                    if(location is not null){ShowRootAsset(selected[0]);return;}
-                    var distribution=selected.Select(e=>
+                    if(location is not null){ShowRootAsset(selected[0],selectedDate,entries[0].Quantity);return;}
+                    var distribution=entries.Select(e=>
                     {
-                        using var json=JsonDocument.Parse(e.Json);var root=json.RootElement;
-                        return (root.GetProperty("location").GetString()!,root.GetProperty("quantity").GetDecimal(),"",(Action?)(()=>ShowRootAsset(e)));
+                        using var json=JsonDocument.Parse(e.Record.Json);var root=json.RootElement;
+                        return (root.GetProperty("location").GetString()!,e.Quantity,selectedDate.Value.ToString("dd.MM.yyyy"),(Action?)(()=>ShowRootAsset(e.Record,selectedDate,e.Quantity)));
                     }).ToArray();
                     using var first=JsonDocument.Parse(selected[0].Json);
                     ShowUnitDistribution(first.RootElement.GetProperty("name").GetString()!,first.RootElement.GetProperty("unit").GetString()!,distribution);
@@ -80,6 +100,8 @@ public partial class MainActivity
             }
             if(page>0)Button(list,"← Попередні 50",()=>{page--;Draw();});if((page+1)*50<groups.Length)Button(list,"Наступні 50 →",()=>{page++;Draw();});
             foreach(var row in parsedRows)row.Payload.Dispose();
+            }
+            catch(Exception error){if(version==drawVersion && generation==_mirrorReadGeneration && _screen=="assets"){list.RemoveAllViews();Text(list,ExplainOperationError(error),14);}}
         }
         search.TextChanged+=(_,_)=>{_assetQuery=search.Text??"";page=0;Draw(true);};
         async void Load()
@@ -90,6 +112,7 @@ public partial class MainActivity
                 var result=await Task.Run(()=>{using var store=new MobileChangeStore(this);return (Rows:store.List("asset",location,token),State:store.AppliedState());},token);
                 if(generation!=_mirrorReadGeneration || _screen!="assets")return;
                 records=result.Rows;
+                appliedDate=result.State?.AsOf;
                 loading.Text=result.State is null?"Повний пакет з ПК ще не застосовано. Оновіть пошту або сервер і перевірте стан отримання частин.":
                     result.State.AsOf is {} date?"Перевірені дані ПК станом на "+date.ToString("dd.MM.yyyy")+". Оновлення — на головному екрані.":"Дату застосованих даних не вказано. Оновіть облік із ПК.";
                 if(result.State is null){list.RemoveAllViews();Button(list,"Стан оновлення бази",ShowQueueManagement);return;}
@@ -99,15 +122,15 @@ public partial class MainActivity
         }
         _refreshCurrentAssets=Load;Load();return true;
     }
-    private async void ShowRootAsset(MobileMirrorRecord record)
+    private async void ShowRootAsset(MobileMirrorRecord record,DateOnly? asOf=null,decimal? quantity=null)
     {
         Begin("root-asset","Картка майна");
         if(new MobileAccessStore(this).Load()?.Allows(record.LocationId,true)!=true){Text(_body,"Доступ відкликано.",15);return;}
         using var json=JsonDocument.Parse(record.Json);var p=json.RootElement;
         var card=Card();Text(card,p.GetProperty("name").GetString()!,19,true);Text(card,p.GetProperty("location").GetString()!,15);
-        Text(card,"Залишок: "+p.GetProperty("quantity")+" "+p.GetProperty("unit")+" · ціна "+p.GetProperty("price"),15);
+        Text(card,(asOf is {} day?"Станом на "+day.ToString("dd.MM.yyyy")+": ":"Залишок: ")+(quantity?.ToString("0.############################")??p.GetProperty("quantity").ToString())+" "+p.GetProperty("unit")+" · ціна "+p.GetProperty("price"),15);
         var item=p.GetProperty("itemId").GetInt32();var generation=_mirrorReadGeneration;
-        var loading=Text(card,"Завантаження історії…",13);
+        var loading=Text(card,"Завантаження документів за весь отриманий період…",13);
         IReadOnlyList<MobileMirrorRecord> history;
         try{var token=_screenReads.Token;history=await Task.Run(()=>{using var store=new MobileChangeStore(this);return store.List("document",record.LocationId,token);},token);}
         catch(Exception ex){loading.Text=ExplainOperationError(ex);return;}

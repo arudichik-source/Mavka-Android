@@ -20,7 +20,7 @@ internal enum AssetIconKind
 internal static class AssetIconClassifier
 {
     private static readonly Regex Gauge12 = new(
-        @"(?<![\p{L}\p{N}])12\s*(?:(?:[xх×]\s*70)(?!\d)|(?:[-\s]*калібр\p{L}*)|(?:[-\s]*мм)(?![\p{L}\p{N}]))",
+        @"(?<![\p{L}\p{N}])12\s*(?:(?:[xх×/]\s*70)(?!\d)|(?:[-\s]*калібр\p{L}*)|(?:[-\s]*мм)(?![\p{L}\p{N}]))",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly (Regex Rule, AssetIconKind Category)[] Rules =
