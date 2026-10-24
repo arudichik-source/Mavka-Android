@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/worker.js && node --check src/access.js && node --check src/analytics.js && node --check src/ui.js && npm test",
+    "check": "node --check src/worker.js && node --check src/access.js && node --check src/analytics.js && node --check src/ui.js && node --check src/history.js && npm test",
     "configure": "node tools/configure.mjs",
     "check-bundle": "node tools/check-bundle.mjs"
   },

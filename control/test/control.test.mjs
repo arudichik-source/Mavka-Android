@@ -61,7 +61,7 @@ test('configuration isolates D1 and fails closed without a real database ID', ()
 test('unconfigured and unauthenticated control Worker never exposes HTML or APIs', async () => {
   assert.equal(accessSettings({}), null);
   assert.equal((await control.fetch(request(null), {})).status, 503);
-  for (const path of ['/', '/api/summary', '/api/history', '/api/about']) {
+  for (const path of ['/', '/api/summary', '/api/history', '/api/about', '/api/trends?period=30d', '/api/security']) {
     const res = await control.fetch(request(null, path), env);
     assert.equal(res.status, 403);
     assert.equal((await res.json()).error, 'access_denied');
@@ -82,6 +82,12 @@ test('Worker-level Access ctx.access identity works without JWT and never bypass
   const status = await control.fetch(request(null, '/api/about'), env, valid);
   assert.equal(status.status, 200);
   assert.equal((await status.json()).mode, 'read_only');
+  const security=await control.fetch(request(null,'/api/security'),env,valid);
+  assert.equal(security.status,200);
+  assert.deepEqual((await security.json()).data,null);
+  assert.equal((await control.fetch(request(null,'/api/trends?period=garbage'),env,valid)).status,400);
+  assert.equal((await control.fetch(request(null,'/api/history?period=7d&bad=1'),env,valid)).status,400);
+  assert.equal((await control.fetch(request(null,'/api/history?period=7d&period=30d'),env,valid)).status,400);
 
   const unknown = makeCtx(audience, { email: 'attacker@example.invalid' });
   const foreign = makeCtx('f'.repeat(32), { email });
@@ -112,7 +118,7 @@ test('Access signature, audience, email, expiry and allowed method enforced', as
     const summary = await control.fetch(request(token, '/api/summary'), env);
     assert.equal((await summary.json()).state, 'unconfigured');
     assert.equal((await control.fetch(new Request(url, {method:'POST',
-      headers:{'Cf-Access-Jwt-Assertion':token} }),env)).status, 404);
+      headers:{'Cf-Access-Jwt-Assertion':token} }),env)).status, 405);
     const altered = token.slice(0, -3) + 'ABC';
     assert.equal((await verifyAccess(request(altered), env)).status, 403);
     assert.equal((await verifyAccess(request(token), { ...env, ADMIN_EMAIL:'other@example.invalid' })).status, 403);

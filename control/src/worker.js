@@ -1,5 +1,6 @@
 import { verifyAccess } from './access.js';
 import { readAnalytics } from './analytics.js';
+import { parsePeriod, parseBefore, readHistoryPage, readTrends } from './history.js';
 import { html } from './ui.js';
 
 const headers = {
@@ -48,17 +49,6 @@ function storeSnapshot(db, data) {
     .bind(bucket - 30 * 86400);
   return db.batch([insertion, pruning]);
 }
-async function history(db) {
-  if (!db?.prepare) return { state: 'not_bound', entries: [] };
-  try {
-    const results = await db.prepare(`SELECT bucket_start, workers_requests, workers_errors,
-      d1_rows_read, d1_rows_written, r2_payload_bytes, r2_objects
-      FROM usage_snapshots ORDER BY bucket_start DESC LIMIT 96`).all();
-    return { state: 'ready', entries: results.results.reverse() };
-  } catch {
-    return { state: 'migration_required', entries: [] };
-  }
-}
 export default {
   async fetch(request, env, ctx) {
     // Deny unauthenticated access to HTML, JSON, robots, and unknown routes.
@@ -66,9 +56,8 @@ export default {
     if (who.error) return json({ error: who.error }, who.status);
     const url = new URL(request.url);
     if (url.protocol !== 'https:') return json({ error: 'https_required' }, 426);
-    if (request.method !== 'GET' || url.search)
-      return json({ error: 'not_found' }, 404);
-    if (url.pathname === '/' || url.pathname === '/index.html') {
+    if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405);
+    if ((url.pathname === '/' || url.pathname === '/index.html') && !url.search) {
       const nonce = crypto.randomUUID().replaceAll('-', '');
       const policy = `default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; connect-src 'self'; img-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'`;
       return new Response(html.replaceAll('__CSP_NONCE__', nonce), {
@@ -76,17 +65,41 @@ export default {
           'Content-Security-Policy': policy },
       });
     }
-    if (url.pathname === '/api/summary') {
+    if (url.pathname === '/api/summary' && !url.search) {
       try {
         const data = await metrics(env);
         if (env.CONTROL_DB?.prepare && data.state !== 'unconfigured' &&
-            data.state !== 'unavailable') ctx?.waitUntil?.(storeSnapshot(env.CONTROL_DB, data).catch(() => {}));
+            data.state !== 'unavailable') {
+          // Complete the tiny D1 snapshot before sending the summary; the UI
+          // can then request history without racing a waitUntil background write.
+          // History failure never prevents an authorized read-only dashboard.
+          await storeSnapshot(env.CONTROL_DB, data).catch(() => {});
+        }
         return json(data);
       } catch { return json({ state: 'unavailable', error: 'analytics_unavailable' }, 503); }
     }
-    if (url.pathname === '/api/history') return json(await history(env.CONTROL_DB));
-    if (url.pathname === '/api/about') return json({
-      application: 'MaVka Server Control', version: '0.1.0',
+    if (url.pathname === '/api/history' || url.pathname === '/api/trends') {
+      const allowed = url.pathname === '/api/history' ? ['period', 'before'] : ['period'];
+      const names = [...url.searchParams.keys()];
+      if (names.some(k => !allowed.includes(k)) ||
+          new Set(names).size !== names.length || names.length > allowed.length)
+        return json({ error: 'invalid_query' }, 400);
+      const period = parsePeriod(url.searchParams.get('period') ?? '24h');
+      const before = parseBefore(url.searchParams.get('before'));
+      if (!period || before === undefined) return json({ error: 'invalid_query' }, 400);
+      if (url.pathname === '/api/trends') return json(await readTrends(env.CONTROL_DB, period));
+      return json(await readHistoryPage(env.CONTROL_DB, period, before));
+    }
+    if (url.pathname === '/api/security') {
+      if (url.search) return json({ error: 'invalid_query' }, 400);
+      // No unaudited access to Relay logs, devices, signatures, or databases.
+      // A future dedicated sanitized telemetry source can be enabled here.
+      return json({ state: 'not_connected', source: 'mavka-relay',
+        data: null, required: 'privacy_preserving_security_telemetry',
+        logsLink: 'https://dash.cloudflare.com/' });
+    }
+    if (url.pathname === '/api/about' && !url.search) return json({
+      application: 'MaVka Server Control', version: '0.2.0',
       mode: 'read_only', refreshSeconds: 900,
       storage: env.CONTROL_DB?.prepare ? 'bound' : 'not_bound',
       analyticsConfigured: Boolean(env.CF_ACCOUNT_ID && env.CF_ANALYTICS_TOKEN),
