@@ -209,13 +209,13 @@ function drawTrends(t){
  // The selected retention period stays unchanged and is labeled explicitly.
  const periodFrom=Number.isFinite(t.from)?t.from:values[0].t;
  const periodTo=Number.isFinite(t.to)?t.to:values.at(-1).t+1;
- const first=values[0].t,last=values.at(-1).t;
- const span=Math.max(0,last-first);
+ const first=values[0].t,lastObservation=values.at(-1).t;
+ const span=Math.max(0,lastObservation-first);
  const availableSpan=Math.max(1,periodTo-periodFrom);
  const zoomToSamples=span<availableSpan*0.5;
  const pad=Math.max(900,span*0.12);
  const domainStart=zoomToSamples?Math.max(periodFrom,first-pad):periodFrom;
- const domainEnd=zoomToSamples?Math.min(periodTo,last+pad):periodTo;
+ const domainEnd=zoomToSamples?Math.min(periodTo,lastObservation+pad):periodTo;
  const largest=Math.max(1,...valid.map(x=>x.v));
  const wholeNumber=activeMetric!=='r2_payload_bytes';
  const unit=wholeNumber?Math.max(1,Math.ceil(largest*1.06/4)):largest*1.06/4;
