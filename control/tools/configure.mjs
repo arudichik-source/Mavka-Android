@@ -23,6 +23,8 @@ export function configuration(env) {
       traces: { enabled: false },
       issues: { enabled: false },
     },
+    services: [{ binding: 'RELAY_TELEMETRY', service: 'mavka-relay',
+      entrypoint: 'RelayTelemetry' }],
     d1_databases: [{
       binding: 'CONTROL_DB',
       database_name: 'mavka-control',
