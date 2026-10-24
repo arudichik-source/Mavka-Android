@@ -1,4 +1,4 @@
-# MaVka Server Control 0.3.0 — separate, read-only Cloudflare console
+# MaVka Server Control 0.4.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -53,6 +53,23 @@ does **not** modify, proxy or call the MaVka message API.
   `RelayTelemetry` entrypoint; **then** deploy `mavka-server-control` with
   its new service binding. Both reuse current Cloudflare bindings, secrets,
   Access and GitHub build pipelines; no D1 migration is required for counts.
+- **0.4 security journal:** authenticated `GET /api/security` reads only
+  sanitized aggregate counts via `RELAY_TELEMETRY.getSecurityOverview()`
+  (same existing named private RPC). Data includes observed rejected requests
+  over the last 24 hours and 7 days, top allowlisted reasons, UA/non-UA/
+  unknown counts, and hourly UTC summaries. No new Control secrets, no
+  additional Analytics token permissions, and NO direct Relay D1 binding.
+- The **optional** Relay migration `relay/migrations/0003_security_rollups.sql`
+  must be applied manually to `mavka-messages` **only after the owner
+  verifies a D1 Time Travel bookmark or database export**. Deployment of
+  the Worker does not migrate D1. The SQL only adds one table plus index.
+  Until this migration is applied, security metrics show
+  `not_connected`, never fabricated zero.
+- The rollup is **best effort**, not an exact forensic log. Per-isolate
+  coalescing flushes on first event, after 32 events, or on a later event
+  after 60 seconds. Unsaved entries may be lost on isolate eviction.
+  The authoritative source for individual attempts remains Workers Logs.
+  The retention cleanup is 30 days; R2 and all encryption remain unchanged.
 - `MAVKA_RELAY_SECURITY_V1` rejection logs still live in Cloudflare
   Observability. We do not authorize the monitoring panel to read raw logs or
   add a new Observability Write permission. A separate sanitized, strictly

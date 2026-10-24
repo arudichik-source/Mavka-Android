@@ -1,6 +1,7 @@
 import { verifyAccess } from './access.js';
 import { readAnalytics } from './analytics.js';
 import { devicesSummary } from './devices.js';
+import { securitySummary } from './security.js';
 import { parsePeriod, parseBefore, readHistoryPage, readTrends } from './history.js';
 import { html } from './ui.js';
 
@@ -94,14 +95,12 @@ export default {
     if (url.pathname === '/api/devices' && !url.search) return json(await devicesSummary(env));
     if (url.pathname === '/api/security') {
       if (url.search) return json({ error: 'invalid_query' }, 400);
-      // No unaudited access to Relay logs, devices, signatures, or databases.
-      // A future dedicated sanitized telemetry source can be enabled here.
-      return json({ state: 'not_connected', source: 'mavka-relay',
-        data: null, required: 'privacy_preserving_security_telemetry',
-        logsLink: 'https://dash.cloudflare.com/' });
+      // Private named Relay RPC returns bounded aggregate counters only.
+      // No direct binding to private mavka-messages or raw Cloudflare logs.
+      return json(await securitySummary(env));
     }
     if (url.pathname === '/api/about' && !url.search) return json({
-      application: 'MaVka Server Control', version: '0.3.0',
+      application: 'MaVka Server Control', version: '0.4.0',
       mode: 'read_only', refreshSeconds: 900,
       storage: env.CONTROL_DB?.prepare ? 'bound' : 'not_bound',
       analyticsConfigured: Boolean(env.CF_ACCOUNT_ID && env.CF_ANALYTICS_TOKEN),

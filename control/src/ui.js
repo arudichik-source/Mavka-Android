@@ -69,6 +69,13 @@ a{color:#9cdfe0;text-decoration:none}a:hover{text-decoration:underline}
 .small-btn{padding:8px 13px;font-size:12px}
 .read-only{border:1px solid var(--edge);padding:13px 16px;border-radius:11px;background:#0e1724}
 .read-only h3{margin:0 0 8px;font-size:15px}.read-only p{margin:0;color:var(--muted);font-size:12px}
+.security-hours{display:flex;align-items:end;gap:3px;height:55px;min-height:55px;
+ border-bottom:1px solid var(--edge);margin-top:8px}
+.security-hours>div{flex:1;min-width:3px;background:#57c8ad;border-radius:3px 3px 0 0}
+.security-line{display:flex;gap:8px;align-items:center;justify-content:space-between;
+ border-bottom:1px solid var(--edge);padding:5px 0;font-size:12px}
+.security-line span{overflow-wrap:anywhere}.security-line b{flex-shrink:0;font-variant-numeric:tabular-nums}
+
 @media(max-width:540px){.selector{width:100%;min-width:0}.chart-head{align-items:stretch}.tabs{width:100%}.tabs button{flex:1}}
 </style>
 </head>
@@ -128,7 +135,20 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div style="margin-top:14px;display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap"><span id="history-export-status" class="dim" role="status" aria-live="polite"></span><button class="small-btn" id="export-history" type="button">Експорт історії CSV</button><button class="small-btn" id="more-history" type="button" hidden>Показати ще 50 записів</button></div>
 </section>
 <section class="section columns" aria-label="Контроль безпеки">
-<div class="read-only"><h3>Журнал безпеки Relay</h3><p id="security-status">Джерело агрегованих подій ще не підключене. Наявні записи MAVKA_RELAY_SECURITY_V1 можна переглядати в Cloudflare Observability. Тут не відображаємо IP, ключі, підписи або вміст повідомлень.</p></div>
+<div class="read-only"><h3>Журнал безпеки Relay</h3>
+<p id="security-status" role="status" aria-live="polite">Завантаження захищеної статистики…</p>
+<div class="stats" style="margin-top:13px">
+<div class="small-card"><b id="security-day">—</b><div>Спостережено відхилень за 24 год</div></div>
+<div class="small-card"><b id="security-week">—</b><div>Спостережено відхилень за 7 днів</div></div>
+</div>
+<div id="security-warning" class="dim" style="margin-top:10px" role="status">Очікуємо перевірку.</div>
+<div style="margin-top:14px"><h3 style="font-size:13px">Основні причини відхилень за 24 год</h3>
+<div id="security-reasons" class="dim">Ще немає статистики.</div></div>
+<div style="margin-top:13px"><h3 style="font-size:13px">Географія звернень</h3>
+<div id="security-countries" class="dim">Ще немає статистики.</div></div>
+<div style="margin-top:13px"><h3 style="font-size:13px">Активність за годинами UTC</h3>
+<div id="security-hours" class="security-hours" aria-label="Погодинна статистика відхилень"></div></div>
+<p style="margin-top:12px">Це приблизні агрегати з окремої таблиці D1 Relay, вони можуть занижувати кількість подій. Детальний журнал залишається у Cloudflare Observability. IP, ключі, ID, заголовки, підписи й повідомлення сюди не передаються.</p></div>
 <div class="read-only"><h3>Стан пристроїв Relay</h3>
 <p id="devices-status">Перевіряємо приватний канал статистики…</p>
 <div class="stats" style="margin-top:14px">
@@ -138,7 +158,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="small-card"><b id="device-revoked">—</b><div>Відкликані</div></div>
 </div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p></div>
 </section>
-<div class="footer">MaVka Server Control 0.3.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.4.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -312,6 +332,70 @@ function showDevices(result){
  setMetric('device-pending',d.mobilePending);
  setMetric('device-revoked',d.mobileRevoked);
 }
+function showSecurity(result){
+ const status=q('security-status'), warning=q('security-warning');
+ const reasons=q('security-reasons'),countries=q('security-countries'),hours=q('security-hours');
+ const markUnavailable=()=>{
+  q('security-day').textContent='—';q('security-week').textContent='—';
+  reasons.textContent='Немає підключеної історії.';countries.textContent='—';hours.replaceChildren();
+ };
+ if(result?.state!=='ready'||result.coverage!=='best_effort'){
+  status.textContent='Захищена телеметрія недоступна. Перевір, чи додано таблицю relay_security_rollups до D1 mavka-messages. Замість відсутніх даних нулі не показуються.';
+  warning.textContent='Накопичення історії ще не підтверджено.';
+  markUnavailable();return;
+ }
+ setMetric('security-day',result.total24h);
+ setMetric('security-week',result.total7d);
+ status.textContent='Внутрішній RPC · зведення на '+new Date(result.observedAt*1000).toLocaleString('uk-UA')+
+  ' · приблизний облік, можливі пропущені події';
+ const alertReasons=new Set(['auth_signature_invalid','request_replayed','auth_main_binding_invalid']);
+ const suspect=result.byReason.filter(x=>alertReasons.has(x.reason)).reduce((n,x)=>n+x.count,0);
+ warning.textContent=suspect>0
+  ? 'Потребує перевірки: у зведенні є '+fmt(suspect)+' відхилень за підписом, прив’язкою або повтором. Це не доказ атаки.'
+  : result.total24h>0?'Є відхилені запити. Перевірте причини нижче; частина подій могла не потрапити до агрегатів.'
+  : 'У накопичених агрегатах немає відхилень за 24 год. Це не підтверджує відсутності сторонніх звернень.';
+ reasons.replaceChildren();
+ const titles={
+  auth_headers_invalid:'Неправильні заголовки підпису',
+  auth_signature_invalid:'Недійсний цифровий підпис',
+  auth_timestamp_invalid:'Недійсний час підпису',
+  auth_device_unavailable:'Невідомий або неактивний пристрій',
+  country_not_allowed:'Країна поза дозволеною зоною',
+  request_replayed:'Повторне використання запиту',
+  rate_limited:'Обмеження частоти запитів',
+  unauthorized:'Відмова автентифікації',
+  native_clients_only:'Стороннє браузерне звернення',
+  not_found:'Невідомий маршрут або ресурс',
+  request_rejected:'Відхилений запит',
+  service_unavailable:'Помилка сервісу',
+ };
+ for(const item of result.byReason){
+  const line=document.createElement('div');line.className='security-line';
+  const a=document.createElement('span'),b=document.createElement('b');
+  a.textContent=titles[item.reason]||item.reason;
+  b.textContent=fmt(item.count);line.append(a,b);reasons.append(line);
+ }
+ if(!result.byReason.length)reasons.textContent='За вибраний період агрегатів немає.';
+ countries.replaceChildren();
+ for(const item of result.byCountry){
+  const line=document.createElement('div');line.className='security-line';
+  const a=document.createElement('span'),b=document.createElement('b');
+  a.textContent=item.scope==='UA'?'Україна':item.scope==='non_UA'?'Інші країни':'Країна невідома';
+  b.textContent=fmt(item.count);line.append(a,b);countries.append(line);
+ }
+ if(!result.byCountry.length)countries.textContent='Немає збережених зведень.';
+ hours.replaceChildren();
+ const labels=new Map(result.byHour.map(x=>[x.hourStart,x.count]));
+ const currentHour=Math.floor(result.observedAt/3600)*3600;
+ const numbers=Array.from({length:24},(_,i)=>labels.get(currentHour-(23-i)*3600)||0);
+ const maximum=Math.max(1,...numbers);
+ for(let i=0;i<numbers.length;i++){
+  const bar=document.createElement('div');bar.style.height=(numbers[i]/maximum*100)+'%';
+  const stamp=new Date((currentHour-(23-i)*3600)*1000).toISOString().slice(0,16);
+  bar.title=stamp+' UTC: '+fmt(numbers[i])+' збережених відхилень';
+  hours.appendChild(bar);
+ }
+}
 async function refresh(){
  if(loading)return;loading=true;q('refresh').disabled=true;state('Читаємо Cloudflare…');
  try {
@@ -319,8 +403,7 @@ async function refresh(){
   if(results[0].status==='fulfilled')show(results[0].value);
   else {state('Не вдалося отримати аналітику',true);q('notice').className='notice warn';
     q('notice').textContent='Аналітика тимчасово недоступна. Авторизуйся знову через Cloudflare Access за потреби.'}
-  if(results[3].status==='fulfilled'&&results[3].value.state==='not_connected')
-    q('security-status').textContent='Не підключено. Події MAVKA_RELAY_SECURITY_V1 зберігаються в Cloudflare Observability; панель не читає приватні логи, IP-адреси, ключі й повідомлення. Для підключення потрібен окремий обмежений канал телеметрії.';
+  showSecurity(results[3].status==='fulfilled'?results[3].value:null);
   showDevices(results[4].status==='fulfilled'?results[4].value:null);
  } finally {loading=false;q('refresh').disabled=false}
 }
