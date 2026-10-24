@@ -128,11 +128,13 @@ function show(m){
  progress('bar-r2',st.bytes,10e9);
  q('updated').textContent='Отримано: '+new Date(m.at).toLocaleString('uk-UA')+' · дані можуть надходити із затримкою';
  const missing=(m.errors||[]).join(', ');
+ const detail=m.diagnostics?Object.entries(m.diagnostics)
+   .filter(([key,v])=>v!=='ok').map(([key,v])=>key+': '+v).join('; '):'';
  q('notice').className='notice'+(m.state!=='ready'?' warn':'');
  q('notice').textContent=m.state==='unconfigured'?
  'Аналітику не підключено: для справжніх показників потрібні CF_ACCOUNT_ID і захищений CF_ANALYTICS_TOKEN.':
  m.state==='ready'?'Аналітику підключено. Пам’ятайте: Workers — лише Relay; R2 — не фактичне споживання ГБ-місяців; перевіряйте Billing.':
- 'Частина показників недоступна ('+missing+'). Це не нульове споживання; перевірте права API-токена та доступність датасетів.';
+ 'Частина показників недоступна ('+missing+'). '+(detail?'Причини: '+detail+'. ':'')+'Це не нульове споживання; не розширюйте дозволи токена без перевірки.';
  state(m.state==='ready'?'Готово · API Cloudflare':m.state==='partial'?'Часткові дані':'Потрібне підключення',m.state==='unavailable');
 }
 function fillHistory(h){
