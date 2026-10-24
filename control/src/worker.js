@@ -69,7 +69,12 @@ export default {
       try {
         const data = await metrics(env);
         if (env.CONTROL_DB?.prepare && data.state !== 'unconfigured' &&
-            data.state !== 'unavailable') ctx?.waitUntil?.(storeSnapshot(env.CONTROL_DB, data).catch(() => {}));
+            data.state !== 'unavailable') {
+          // Complete the tiny D1 snapshot before sending the summary; the UI
+          // can then request history without racing a waitUntil background write.
+          // History failure never prevents an authorized read-only dashboard.
+          await storeSnapshot(env.CONTROL_DB, data).catch(() => {});
+        }
         return json(data);
       } catch { return json({ state: 'unavailable', error: 'analytics_unavailable' }, 503); }
     }
