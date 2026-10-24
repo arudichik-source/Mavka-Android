@@ -129,9 +129,16 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </section>
 <section class="section columns" aria-label="Контроль безпеки">
 <div class="read-only"><h3>Журнал безпеки Relay</h3><p id="security-status">Джерело агрегованих подій ще не підключене. Наявні записи MAVKA_RELAY_SECURITY_V1 можна переглядати в Cloudflare Observability. Тут не відображаємо IP, ключі, підписи або вміст повідомлень.</p></div>
-<div class="read-only"><h3>Стан пристроїв</h3><p>Безпечний канал статистики пристроїв поки не підключено. Консоль не отримує доступу до приватних таблиць або вмісту повідомлень Relay.</p></div>
+<div class="read-only"><h3>Стан пристроїв Relay</h3>
+<p id="devices-status">Перевіряємо приватний канал статистики…</p>
+<div class="stats" style="margin-top:14px">
+<div class="small-card"><b id="device-active">—</b><div>Підключені мобільні (активний статус)</div></div>
+<div class="small-card"><b id="device-online">—</b><div>Зверталися протягом 30 хвилин</div></div>
+<div class="small-card"><b id="device-pending">—</b><div>Очікують активації</div></div>
+<div class="small-card"><b id="device-revoked">—</b><div>Відкликані</div></div>
+</div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p></div>
 </section>
-<div class="footer">MaVka Server Control 0.2.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.3.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -290,15 +297,31 @@ async function loadTrends(){
  drawTrends(t);
 }
 let loading=false;
+function showDevices(result){
+ const status=q('devices-status');
+ if(result?.state!=='ready'||!result.data){
+  status.textContent='Джерело поки недоступне. Необхідний внутрішній Cloudflare Service Binding; статистика не замінюється нулями.';
+  for(const id of ['device-active','device-online','device-pending','device-revoked'])q(id).textContent='—';
+  return;
+ }
+ status.textContent='Внутрішній захищений RPC · стан на '+new Date(result.observedAt*1000).toLocaleString('uk-UA')+
+ ' · активність за останні 30 хвилин';
+ const d=result.data;
+ setMetric('device-active',d.mobileActive);
+ setMetric('device-online',d.mobileSeenRecently);
+ setMetric('device-pending',d.mobilePending);
+ setMetric('device-revoked',d.mobileRevoked);
+}
 async function refresh(){
  if(loading)return;loading=true;q('refresh').disabled=true;state('Читаємо Cloudflare…');
  try {
-  const results=await Promise.allSettled([get('/api/summary'),loadHistory(),loadTrends(),get('/api/security')]);
+  const results=await Promise.allSettled([get('/api/summary'),loadHistory(),loadTrends(),get('/api/security'),get('/api/devices')]);
   if(results[0].status==='fulfilled')show(results[0].value);
   else {state('Не вдалося отримати аналітику',true);q('notice').className='notice warn';
     q('notice').textContent='Аналітика тимчасово недоступна. Авторизуйся знову через Cloudflare Access за потреби.'}
   if(results[3].status==='fulfilled'&&results[3].value.state==='not_connected')
     q('security-status').textContent='Не підключено. Події MAVKA_RELAY_SECURITY_V1 зберігаються в Cloudflare Observability; панель не читає приватні логи, IP-адреси, ключі й повідомлення. Для підключення потрібен окремий обмежений канал телеметрії.';
+  showDevices(results[4].status==='fulfilled'?results[4].value:null);
  } finally {loading=false;q('refresh').disabled=false}
 }
 async function setPeriod(period){
