@@ -74,8 +74,8 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="line"><span class="name">Workers · лише Relay</span><span class="info" id="wr-limit">— / 100 000</span></div><div class="bar"><div class="fill" id="bar-wr"></div></div>
 <div class="line"><span class="name">D1 · читання</span><span class="info" id="dr-limit">— / 5 млн</span></div><div class="bar"><div class="fill" id="bar-dr"></div></div>
 <div class="line"><span class="name">D1 · запис</span><span class="info" id="dw-limit">— / 100 000</span></div><div class="bar"><div class="fill" id="bar-dw"></div></div>
-<div class="line"><span class="name">R2 · поточні байти / 10 ГБ (орієнтир)</span><span class="info" id="r2-limit">—</span></div><div class="bar"><div class="fill" id="bar-r2"></div></div>
-<p class="dim" style="margin-top:17px">R2 оплачується за ГБ-місяці, а не за поточний обсяг. Ця шкала не є залишком платіжної квоти. Workers показує лише один застосунок.</p>
+<div class="line"><span class="name">R2 · зайнято / 5 ГБ (контрольний поріг)</span><span class="info" id="r2-limit">—</span></div><div class="bar"><div class="fill" id="bar-r2"></div></div>
+<p class="dim" style="margin-top:17px">Власний поріг R2 — 5 ГБ: попередження при 70%, 85% і 95%. Це не блокує завантаження. Cloudflare рахує оплату за ГБ-місяці, а не за поточний обсяг. Workers показує лише один застосунок.</p>
 </section>
 <section class="panel">
 <h2>R2 · mavka-private-files</h2>
@@ -121,19 +121,20 @@ function show(m){
  q('wr-limit').textContent=fmt(wr.requestsToday)+' / '+fmt(l.workersRequestsPerDay);
  q('dr-limit').textContent=fmt(d.rowsReadToday)+' / '+fmt(l.d1RowsReadPerDay);
  q('dw-limit').textContent=fmt(d.rowsWrittenToday)+' / '+fmt(l.d1RowsWrittenPerDay);
- q('r2-limit').textContent=Number.isFinite(st.bytes)?size(st.bytes)+' / 10 ГБ':'—';
+ q('r2-limit').textContent=Number.isFinite(st.bytes)?size(st.bytes)+' / '+(Number.isFinite(l.r2MonitoringBytes)?(l.r2MonitoringBytes/1e9)+' ГБ':'5 ГБ'):'—';
  progress('bar-wr',wr.requestsToday,l.workersRequestsPerDay);
  progress('bar-dr',d.rowsReadToday,l.d1RowsReadPerDay);
  progress('bar-dw',d.rowsWrittenToday,l.d1RowsWrittenPerDay);
- progress('bar-r2',st.bytes,10e9);
+ progress('bar-r2',st.bytes,l.r2MonitoringBytes);
  q('updated').textContent='Отримано: '+new Date(m.at).toLocaleString('uk-UA')+' · дані можуть надходити із затримкою';
  const missing=(m.errors||[]).join(', ');
+ const r2ratio=Number.isFinite(st.bytes)&&Number.isFinite(l.r2MonitoringBytes)&&l.r2MonitoringBytes>0 ? st.bytes/l.r2MonitoringBytes : null;
  const detail=m.diagnostics?Object.entries(m.diagnostics)
    .filter(([key,v])=>v!=='ok').map(([key,v])=>key+': '+v).join('; '):'';
- q('notice').className='notice'+(m.state!=='ready'?' warn':'');
+ q('notice').className='notice'+(m.state!=='ready'||r2ratio>=0.7?' warn':'');
  q('notice').textContent=m.state==='unconfigured'?
  'Аналітику не підключено: для справжніх показників потрібні CF_ACCOUNT_ID і захищений CF_ANALYTICS_TOKEN.':
- m.state==='ready'?'Аналітику підключено. Пам’ятайте: Workers — лише Relay; R2 — не фактичне споживання ГБ-місяців; перевіряйте Billing.':
+ m.state==='ready'?(r2ratio>=0.95?'УВАГА: R2 досяг 95% власного порогу 5 ГБ. ':r2ratio>=0.85?'R2 перевищив 85% власного порогу 5 ГБ. ':r2ratio>=0.70?'R2 перевищив 70% власного порогу 5 ГБ. ':'')+'Аналітику підключено. Поріг R2 — моніторинговий, не заборона запису; перевіряйте Billing.':
  'Частина показників недоступна ('+missing+'). '+(detail?'Причини: '+detail+'. ':'')+'Це не нульове споживання; не розширюйте дозволи токена без перевірки.';
  state(m.state==='ready'?'Готово · API Cloudflare':m.state==='partial'?'Часткові дані':'Потрібне підключення',m.state==='unavailable');
 }

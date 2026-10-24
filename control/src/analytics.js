@@ -7,10 +7,12 @@ export const LIMITS = Object.freeze({
   d1RowsWrittenPerDay: 100000,
   d1StorageBytesAccount: 5 * 1000 ** 3,
   r2StandardGbMonths: 10,
+  // Owner-defined dashboard threshold, NOT a provider hard quota or GB-month usage.
+  r2MonitoringBytes: 5_000_000_000,
   r2ClassAOperationsPerMonth: 1000000,
   r2ClassBOperationsPerMonth: 10000000,
 });
-const WORKERS = `query RelayWorkers($account: string!, $start: Time!, $end: Time!) {
+const WORKERS = `query RelayWorkers($account: string!, $start: string!, $end: string!) {
   viewer { accounts(filter: { accountTag: $account }) {
     workersInvocationsAdaptive(
       limit: 1
@@ -46,14 +48,32 @@ export function analyticsConfigured(env) {
     /^[a-f0-9]{32}$/i.test(env.CF_ACCOUNT_ID) &&
     typeof env.CF_ANALYTICS_TOKEN === 'string' && env.CF_ANALYTICS_TOKEN.length >= 20;
 }
+export function safeErrorKind(error) {
+  const message = String(error?.message ?? '');
+  // Avoid exposing untrusted exception text, arbitrary hostnames, tokens,
+  // account information, response bodies, or stack traces.
+  if (['query_invalid', 'permission', 'rate_limit', 'http_failure',
+    'graphql_error', 'no_account_data', 'timeout', 'fetch_or_runtime_type_error',
+    'runtime_reference_error', 'other_runtime_error'].includes(message)) return message;
+  if (error?.name === 'TimeoutError' || error?.name === 'AbortError') return 'timeout';
+  if (error?.name === 'TypeError') return 'fetch_or_runtime_type_error';
+  if (error?.name === 'ReferenceError') return 'runtime_reference_error';
+  return 'other_runtime_error';
+}
+
 async function query(env, name, graphql, variables) {
-  const response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
-    method: 'POST', redirect: 'error',
-    headers: { Authorization: 'Bearer ' + env.CF_ANALYTICS_TOKEN,
-      'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: graphql, variables }),
-    signal: AbortSignal.timeout(8000),
-  });
+  let response;
+  try {
+    response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+      method: 'POST', redirect: 'error',
+      headers: { Authorization: 'Bearer ' + env.CF_ANALYTICS_TOKEN,
+        'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: graphql, variables }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (error) {
+    throw new Error(safeErrorKind(error));
+  }
   // Only bounded, non-sensitive diagnostics may be returned to an administrator.
   // NEVER disclose raw GraphQL errors, HTTP bodies, account IDs or bearer tokens.
   if (!response.ok) {
@@ -101,9 +121,7 @@ export async function readAnalytics(env, now = new Date()) {
     .map(name => name + '_unavailable');
   const diagnostics = Object.fromEntries(['workers', 'd1', 'r2Storage', 'r2Operations']
     .map((name, i) => [name, results[i].status === 'fulfilled'
-      ? 'ok' : ['query_invalid', 'permission', 'rate_limit', 'http_failure', 'graphql_error',
-        'no_account_data'].includes(results[i].reason?.message)
-        ? results[i].reason.message : 'network_or_unknown']));
+      ? 'ok' : safeErrorKind(results[i].reason)]));
   return {
     state: errors.length === 4 ? 'unavailable' : errors.length ? 'partial' : 'ready',
     at, utcDay: today, limits: LIMITS,
