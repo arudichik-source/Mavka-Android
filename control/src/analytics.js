@@ -53,7 +53,8 @@ export function safeErrorKind(error) {
   // Avoid exposing untrusted exception text, arbitrary hostnames, tokens,
   // account information, response bodies, or stack traces.
   if (['query_invalid', 'permission', 'rate_limit', 'http_failure',
-    'graphql_error', 'no_account_data'].includes(message)) return message;
+    'graphql_error', 'no_account_data', 'timeout', 'fetch_or_runtime_type_error',
+    'runtime_reference_error', 'other_runtime_error'].includes(message)) return message;
   if (error?.name === 'TimeoutError' || error?.name === 'AbortError') return 'timeout';
   if (error?.name === 'TypeError') return 'fetch_or_runtime_type_error';
   if (error?.name === 'ReferenceError') return 'runtime_reference_error';
