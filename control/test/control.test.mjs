@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { configuration } from '../tools/configure.mjs';
 import { accessSettings, verifyAccess } from '../src/access.js';
-import { readAnalytics, analyticsConfigured } from '../src/analytics.js';
+import { readAnalytics, analyticsConfigured, safeErrorKind, LIMITS } from '../src/analytics.js';
+import { html } from '../src/ui.js';
 import control from '../src/worker.js';
 
 const domain = 'https://mavka-test.cloudflareaccess.com';
@@ -205,4 +206,30 @@ test('GraphQL schema errors get sanitized classification without raw backend mes
     });
     assert.equal(JSON.stringify(data).includes('TOKEN_XYZ'), false);
   } finally { globalThis.fetch = old; }
+});
+
+test('5 GB is the owner-defined R2 monitoring threshold, not the Cloudflare GB-month allowance', () => {
+  assert.equal(LIMITS.r2MonitoringBytes, 5_000_000_000);
+  assert.equal(LIMITS.r2StandardGbMonths, 10);
+  assert.match(html, /5 ГБ \\(контрольний поріг\\)/);
+  assert.match(html, /r2MonitoringBytes/);
+  assert.doesNotMatch(html, /10 ГБ \\(орієнтир\\)/);
+});
+
+test('unexpected provider/network errors are classified without disclosing secrets', async () => {
+  assert.equal(safeErrorKind(new TypeError('token secret should not show')), 'fetch_or_runtime_type_error');
+  assert.equal(safeErrorKind({ name: 'TimeoutError', message: 'secret' }), 'timeout');
+  assert.equal(safeErrorKind(new ReferenceError('secret runtime data')), 'runtime_reference_error');
+  const env = { CF_ACCOUNT_ID: 'a'.repeat(32), CF_ANALYTICS_TOKEN: 'long-test-token-never-real' };
+  const prev = globalThis.fetch;
+  globalThis.fetch = async () => { throw new TypeError('do not leak this sensitive host or token'); };
+  try {
+    const data = await readAnalytics(env, new Date('2026-10-24T09:00:00Z'));
+    assert.equal(data.state, 'unavailable');
+    assert.deepEqual(data.diagnostics, {
+      workers: 'fetch_or_runtime_type_error', d1: 'fetch_or_runtime_type_error',
+      r2Storage: 'fetch_or_runtime_type_error', r2Operations: 'fetch_or_runtime_type_error',
+    });
+    assert.equal(JSON.stringify(data).includes('sensitive host'), false);
+  } finally { globalThis.fetch = prev; }
 });
