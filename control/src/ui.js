@@ -52,6 +52,24 @@ a{color:#9cdfe0;text-decoration:none}a:hover{text-decoration:underline}
 .footer{margin-top:27px;border-top:1px solid var(--edge);padding:17px 0;color:var(--muted);font-size:12px;line-height:1.5}
 @media(max-width:950px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.columns{grid-template-columns:1fr}}
 @media(max-width:540px){.head{align-items:flex-start}.brand{font-size:14px}.pill{display:none}.grid{grid-template-columns:1fr}.panel{padding:16px}.toolbar button{padding:9px}.main{padding-top:20px}}
+
+.chart-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:17px}
+.selector{border:1px solid var(--edge);border-radius:9px;background:#0e1724;color:var(--bright);padding:9px 10px;min-width:190px;font:inherit}
+.tabs{display:flex;gap:4px;padding:3px;background:#0e1724;border:1px solid var(--edge);border-radius:12px}
+.tabs button{background:transparent;border:0;color:var(--muted);padding:8px 13px;min-width:57px;font-size:13px}
+.tabs button.active{background:#254758;color:#d8fff6;box-shadow:0 1px 6px #040e15}
+.chart-box{min-height:250px;position:relative;background:#0e1724;border:1px solid #27364c;border-radius:12px;padding:10px}
+.chart-box svg{width:100%;height:auto;display:block;min-height:220px}
+.chart-grid{stroke:#314259;stroke-dasharray:4 7;stroke-width:1}
+.chart-line{fill:none;stroke:#59d9c4;stroke-width:2.8;stroke-linejoin:round;stroke-linecap:round}
+.chart-point{fill:#59d9c4}
+.chart-tick{fill:#92a7bf;font:13px system-ui,sans-serif}
+.chart-empty{display:grid;place-items:center;min-height:220px;text-align:center;color:var(--muted);font-size:13px;padding:18px}
+.chart-meta{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:13px;color:var(--muted);font-size:12px}
+.small-btn{padding:8px 13px;font-size:12px}
+.read-only{border:1px solid var(--edge);padding:13px 16px;border-radius:11px;background:#0e1724}
+.read-only h3{margin:0 0 8px;font-size:15px}.read-only p{margin:0;color:var(--muted);font-size:12px}
+@media(max-width:540px){.selector{width:100%;min-width:0}.chart-head{align-items:stretch}.tabs{width:100%}.tabs button{flex:1}}
 </style>
 </head>
 <body>
@@ -90,10 +108,30 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </section>
 </div>
 <section class="panel section">
-<div class="topline" style="margin-bottom:12px"><div><h2 style="margin:0">Історія спостережень</h2><p class="dim">Знімки не частіше ніж раз на 15 хвилин, лише коли панель запитують і D1 налаштовано.</p></div><span class="status" id="history-state">База: перевіряємо…</span></div>
-<div class="table-scroll"><table><thead><tr><th>Час (UTC)</th><th>Relay запити</th><th>D1 читання</th><th>D1 запис</th><th>R2 байти</th></tr></thead><tbody id="rows"><tr><td colspan="5">Записів ще немає</td></tr></tbody></table></div>
+<div class="chart-head"><div><h2 style="margin:0 0 5px">Графік використання ресурсів</h2><p class="dim">Реальні знімки D1 за вибраний період. Пропуски не заповнюються вигаданими даними.</p></div>
+<div class="tabs" role="group" aria-label="Період графіка"><button class="active" id="period-24h" type="button" aria-pressed="true">24 год</button><button id="period-7d" type="button" aria-pressed="false">7 днів</button><button id="period-30d" type="button" aria-pressed="false">30 днів</button></div></div>
+<div class="chart-head"><label for="trend-metric" class="dim">Показник для графіка</label>
+<select id="trend-metric" class="selector">
+<option value="workers_requests">Запити Relay · з початку доби</option>
+<option value="workers_errors">Помилки виконання Relay</option>
+<option value="d1_rows_read">D1 · прочитані рядки</option>
+<option value="d1_rows_written">D1 · записані рядки</option>
+<option value="r2_payload_bytes">R2 · зайнятий обсяг</option>
+<option value="r2_objects">R2 · кількість об'єктів</option>
+</select></div>
+<div id="chart" class="chart-box" role="img" aria-label="Графік реальних вимірювань"><div class="chart-empty">Завантаження історії…</div></div>
+<div class="chart-meta"><span id="chart-coverage">Немає даних</span><span>Лічильники Workers і D1 обнуляються кожної доби UTC; записи — лише під час відкриття панелі.</span></div>
 </section>
-<div class="footer">MaVka Server Control 0.1.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<section class="panel section">
+<div class="topline" style="margin-bottom:12px"><div><h2 style="margin:0">Історія спостережень</h2><p class="dim">Посторінковий перегляд збережених даних за вибраний період — до 30 днів.</p></div><span class="status" id="history-state">База: перевіряємо…</span></div>
+<div class="table-scroll"><table><thead><tr><th>Час (UTC)</th><th>Relay запити</th><th>D1 читання</th><th>D1 запис</th><th>R2 байти</th></tr></thead><tbody id="rows"><tr><td colspan="5">Записів ще немає</td></tr></tbody></table></div>
+<div style="margin-top:14px;display:flex;justify-content:flex-end"><button class="small-btn" id="more-history" type="button" hidden>Показати ще 50 записів</button></div>
+</section>
+<section class="section columns" aria-label="Контроль безпеки">
+<div class="read-only"><h3>Журнал безпеки Relay</h3><p id="security-status">Джерело агрегованих подій ще не підключене. Наявні записи MAVKA_RELAY_SECURITY_V1 можна переглядати в Cloudflare Observability. Тут не відображаємо IP, ключі, підписи або вміст повідомлень.</p></div>
+<div class="read-only"><h3>Стан пристроїв</h3><p>Безпечний канал статистики пристроїв поки не підключено. Консоль не отримує доступу до приватних таблиць або вмісту повідомлень Relay.</p></div>
+</section>
+<div class="footer">MaVka Server Control 0.2.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -138,26 +176,144 @@ function show(m){
  'Частина показників недоступна ('+missing+'). '+(detail?'Причини: '+detail+'. ':'')+'Це не нульове споживання; не розширюйте дозволи токена без перевірки.';
  state(m.state==='ready'?'Готово · API Cloudflare':m.state==='partial'?'Часткові дані':'Потрібне підключення',m.state==='unavailable');
 }
-function fillHistory(h){
- q('history-state').textContent=h.state==='ready'?'D1 підключена':h.state==='not_bound'?'D1 не підключена':'Потрібна міграція D1';
- const body=q('rows');body.replaceChildren();
- const list=(h.entries||[]).slice(-24).reverse();
- if(!list.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent='Історії поки немає';tr.appendChild(td);body.appendChild(tr);return}
- for(const s of list){
- const tr=document.createElement('tr');const vals=[new Date(s.bucket_start*1000).toISOString().slice(0,16).replace('T',' '),
- fmt(s.workers_requests),fmt(s.d1_rows_read),fmt(s.d1_rows_written),size(s.r2_payload_bytes)];
- for(const value of vals){const td=document.createElement('td');td.textContent=value;tr.appendChild(td)}
- body.appendChild(tr);
+
+const chartNS='http://www.w3.org/2000/svg';
+let activePeriod='24h',activeMetric='workers_requests',trendEntries=[],historyCursor=null,visibleRows=[];
+const fmtCompact=v=>Number.isFinite(v)?new Intl.NumberFormat('uk-UA',{notation:'compact',maximumFractionDigits:1}).format(v):'—';
+function node(tag,attrs,parent){
+ const el=document.createElementNS(chartNS,tag);
+ for(const [name,value] of Object.entries(attrs||{}))el.setAttribute(name,String(value));
+ if(parent)parent.appendChild(el);
+ return el;
+}
+function drawTrends(t){
+ const parent=q('chart');parent.replaceChildren();
+ const list=(t?.entries||[]).filter(x=>Number.isFinite(x.bucket_start));
+ trendEntries=list;
+ if(t?.state!=='ready'||!list.length){
+   const div=document.createElement('div');div.className='chart-empty';
+   div.textContent=t?.state==='ready'?'За цей період ще немає збережених вимірювань.':
+     'Історія D1 тимчасово недоступна.';
+   parent.appendChild(div);q('chart-coverage').textContent='Знімків: 0';return;
  }
+ const W=920,H=258,L=68,R=23,T=22,B=41,w=W-L-R,h=H-T-B;
+ const values=list.map(x=>({t:x.bucket_start,v:Number.isFinite(x[activeMetric])?x[activeMetric]:null}));
+ const valid=values.filter(x=>x.v!==null);
+ if(!valid.length){
+   const div=document.createElement('div');div.className='chart-empty';
+   div.textContent='Немає достовірних значень цього показника.';parent.appendChild(div);
+   q('chart-coverage').textContent='Знімків: '+list.length;return;
+ }
+ const domainStart=Number.isFinite(t.from)?t.from:values[0].t;
+ const domainEnd=Number.isFinite(t.to)?t.to:values.at(-1).t+1;
+ const max=Math.max(1,...valid.map(x=>x.v))*1.08;
+ const X=p=>L+(p-domainStart)/Math.max(1,domainEnd-domainStart)*w;
+ const Y=v=>T+(1-v/max)*h;
+ const svg=node('svg',{viewBox:'0 0 '+W+' '+H,'aria-hidden':'true'},parent);
+ for(let i=0;i<=4;i++){
+  const val=max*i/4,yy=Y(val);
+  node('line',{x1:L,x2:W-R,y1:yy,y2:yy,class:'chart-grid'},svg);
+  const tx=node('text',{x:L-12,y:yy+5,'text-anchor':'end',class:'chart-tick'},svg);
+  tx.textContent=activeMetric==='r2_payload_bytes'?fmtCompact(val/1e6)+' МБ':fmtCompact(val);
+ }
+ for(let i=0;i<=4;i++){
+  const pos=domainStart+(domainEnd-domainStart)*i/4, xx=X(pos);
+  const d=new Date(pos*1000);
+  const tx=node('text',{x:xx,y:H-12,'text-anchor':i===0?'start':i===4?'end':'middle',class:'chart-tick'},svg);
+  tx.textContent=activePeriod==='24h'?d.toISOString().slice(11,16):d.toISOString().slice(5,10);
+ }
+ const gap=t.intervalSeconds||900;
+ let segments=[],seg=[],last=null;
+ for(const row of values){
+   if(row.v===null||(last!==null&&row.t-last>gap*1.6)){
+     if(seg.length)segments.push(seg);
+     seg=[];
+   }
+   if(row.v!==null)seg.push([X(row.t),Y(row.v),row]);
+   last=row.t;
+ }
+ if(seg.length)segments.push(seg);
+ for(const group of segments){
+   if(group.length>1) node('polyline',{points:group.map(p=>p[0]+','+p[1]).join(' '),class:'chart-line'},svg);
+   for(const [x,y,data] of group){
+     const c=node('circle',{cx:x,cy:y,r:3.6,class:'chart-point'},svg);
+     const title=node('title',{},c);
+     title.textContent=new Date(data.t*1000).toISOString().slice(0,16).replace('T',' ')+' UTC: '+(activeMetric==='r2_payload_bytes'?size(data.v):fmt(data.v));
+   }
+ }
+ const cap='Знімків: '+list.length+' · із реальними значеннями: '+valid.length;
+ q('chart-coverage').textContent=cap;
+ parent.setAttribute('aria-label',cap+' за '+activePeriod);
+}
+function appendRows(entries,reset){
+ const body=q('rows');
+ if(reset){body.replaceChildren();visibleRows=[];}
+ const incoming=entries||[];
+ if(!incoming.length&&!visibleRows.length){
+   const tr=document.createElement('tr'),td=document.createElement('td');
+   td.colSpan=5;td.textContent='Збережених записів у цьому періоді немає';tr.appendChild(td);body.appendChild(tr);
+   return;
+ }
+ for(const s of incoming){
+  const tr=document.createElement('tr'),vals=[new Date(s.bucket_start*1000).toISOString().slice(0,16).replace('T',' '),
+  fmt(s.workers_requests),fmt(s.d1_rows_read),fmt(s.d1_rows_written),size(s.r2_payload_bytes)];
+  for(const value of vals){const td=document.createElement('td');td.textContent=value;tr.appendChild(td)}
+  body.appendChild(tr);visibleRows.push(s);
+ }
+}
+async function loadHistory(before=null,reset=true){
+ let query='/api/history?period='+activePeriod;
+ if(before!==null)query+='&before='+encodeURIComponent(before);
+ const data=await get(query);
+ q('history-state').textContent=data.state==='ready'?'D1 підключена · '+activePeriod:
+ data.state==='not_bound'?'D1 не підключена':'Не вдалося прочитати історію';
+ if(data.state!=='ready'){appendRows([],reset);q('more-history').hidden=true;return}
+ appendRows(data.entries,reset);
+ historyCursor=data.nextBefore;
+ q('more-history').hidden=!historyCursor;
+}
+async function loadTrends(){
+ const t=await get('/api/trends?period='+activePeriod);
+ drawTrends(t);
 }
 let loading=false;
 async function refresh(){
  if(loading)return;loading=true;q('refresh').disabled=true;state('Читаємо Cloudflare…');
- try {const [m,h]=await Promise.all([get('/api/summary'),get('/api/history')]);show(m);fillHistory(h)}
- catch {state('Не вдалося отримати дані',true);q('notice').className='notice warn';
- q('notice').textContent='Немає доступу до API або служба недоступна. Перевірте авторизацію Cloudflare Access.'}
- finally {loading=false;q('refresh').disabled=false}
+ try {
+  const results=await Promise.allSettled([get('/api/summary'),loadHistory(),loadTrends(),get('/api/security')]);
+  if(results[0].status==='fulfilled')show(results[0].value);
+  else {state('Не вдалося отримати аналітику',true);q('notice').className='notice warn';
+    q('notice').textContent='Аналітика тимчасово недоступна. Авторизуйся знову через Cloudflare Access за потреби.'}
+  if(results[3].status==='fulfilled'&&results[3].value.state==='not_connected')
+    q('security-status').textContent='Не підключено. Події MAVKA_RELAY_SECURITY_V1 зберігаються в Cloudflare Observability; панель не читає приватні логи, IP-адреси, ключі й повідомлення. Для підключення потрібен окремий обмежений канал телеметрії.';
+ } finally {loading=false;q('refresh').disabled=false}
 }
+async function setPeriod(period){
+ if(!['24h','7d','30d'].includes(period))return;
+ activePeriod=period;
+ for(const name of ['24h','7d','30d']){
+  const el=q('period-'+name),sel=name===period;
+  el.classList.toggle('active',sel);el.setAttribute('aria-pressed',String(sel));
+ }
+ await Promise.allSettled([loadHistory(),loadTrends()]);
+}
+for(const period of ['24h','7d','30d'])
+ q('period-'+period).addEventListener('click',()=>setPeriod(period));
+q('trend-metric').addEventListener('change',event=>{
+ activeMetric=event.target.value;
+ // Cache latest server history only; do not generate fabricated points.
+ drawTrends(lastTrends);
+});
+let lastTrends={state:'ready',entries:[]};
+const originalDraw=drawTrends;
+// Store raw observations for metric switching without additional server calls.
+drawTrends=function(t){lastTrends=t;originalDraw(t)};
+q('more-history').addEventListener('click',async ()=>{
+ if(!historyCursor)return;
+ const button=q('more-history');button.disabled=true;
+ try{await loadHistory(historyCursor,false)}
+ finally{button.disabled=false}
+});
 q('refresh').addEventListener('click',refresh);
 refresh();setInterval(()=>{if(!document.hidden)refresh()},900000);
 })();
