@@ -20,7 +20,10 @@ async function metrics(env) {
   // Per-isolate lightweight cache, bounded to fifteen minutes; no polling
   // is scheduled when the page is closed. No permanent background process.
   const now = Date.now();
-  if (recent && now - recentAt < 900000) return recent;
+  // Keep successful readings for 15 minutes, but retry temporary API
+  // failures after one minute instead of caching a blank dashboard for 15.
+  if (recent && now - recentAt < (recent.state === 'ready' ? 900000 : 60000))
+    return recent;
   if (pending) return pending;
   const task = readAnalytics(env).then(data => {
     recent = data; recentAt = Date.now();
