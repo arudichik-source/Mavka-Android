@@ -374,7 +374,7 @@ test('device aggregation returns unavailable instead of inventing zeros if D1 fa
 test('security rollup aggregation uses only bounded allowlisted anonymous dimensions', async t => {
   const f=await fixture(t);
   const migration=await readFile(new URL('../migrations/0003_security_rollups.sql',import.meta.url),'utf8');
-  const statements=migration.replace(/--[^\\n]*/g,'').split(';').map(x=>x.trim()).filter(Boolean);
+  const statements=migration.replace(/--[^\n]*/g,'').split(';').map(x=>x.trim()).filter(Boolean);
   await f.db.batch(statements.map(sql=>f.db.prepare(sql)));
   const now=seconds();
   const bucket=Math.floor(now/900)*900;
