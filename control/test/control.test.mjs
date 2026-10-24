@@ -154,8 +154,8 @@ test('all four GraphQL queries use Cloudflare lowercase string scalar and return
   globalThis.fetch = async (_endpoint, options) => {
     const payload = JSON.parse(options.body);
     observed.push(payload.query);
-    assert.match(payload.query, /\\$account: string!/);
-    assert.doesNotMatch(payload.query, /\\$account: String!/);
+    assert.match(payload.query, /\$account: string!/);
+    assert.doesNotMatch(payload.query, /\$account: String!/);
     assert.equal(payload.variables.account, safeEnv.CF_ACCOUNT_ID);
     assert.equal(options.headers.Authorization, 'Bearer ' + safeEnv.CF_ANALYTICS_TOKEN);
     if (payload.query.includes('workersInvocationsAdaptive'))
