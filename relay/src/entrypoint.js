@@ -4,9 +4,14 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import worker from './worker.js';
 import { readDeviceTelemetry } from './device-telemetry.js';
+import { readSecurityRollups } from './security-rollups.js';
 export default worker;
 export class RelayTelemetry extends WorkerEntrypoint {
   async getDeviceCounts() {
     return readDeviceTelemetry(this.env.DB);
+  }
+  async getSecurityOverview() {
+    // Same named private RPC as device counts; aggregate observations only.
+    return readSecurityRollups(this.env.DB);
   }
 }
