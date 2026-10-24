@@ -12,7 +12,7 @@ try {
   const config = await configuration({ MAVKA_D1_DATABASE_ID: crypto.randomUUID(),
     MAVKA_ADMIN_DEVICE_ID: crypto.randomUUID(),
     MAVKA_ADMIN_SIGNING_JWK: JSON.stringify(await crypto.subtle.exportKey('jwk', key.publicKey)) });
-  config.main = fileURLToPath(new URL('../src/worker.js', import.meta.url));
+  config.main = fileURLToPath(new URL('../src/entrypoint.js', import.meta.url));
   config.d1_databases[0].migrations_dir = fileURLToPath(new URL('../migrations', import.meta.url));
   const path = join(folder, 'wrangler.json'); await writeFile(path, JSON.stringify(config));
   const result = spawnSync(process.execPath, [fileURLToPath(new URL('../node_modules/wrangler/bin/wrangler.js', import.meta.url)),
