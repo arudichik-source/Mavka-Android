@@ -52,6 +52,7 @@ test('configuration isolates D1 and fails closed without a real database ID', ()
   assert.equal(cfg.d1_databases[0].binding, 'CONTROL_DB');
   assert.equal(cfg.preview_urls, false);
   assert.equal(cfg.keep_vars, true);
+  assert.deepEqual(cfg.services, [{binding:'RELAY_TELEMETRY',service:'mavka-relay',entrypoint:'RelayTelemetry'}]);
   assert.equal(cfg.observability.redact_query_string, true);
   assert.equal(cfg.triggers, undefined);
   assert.equal(Object.hasOwn(cfg, 'vars'), false);
@@ -262,4 +263,28 @@ test('GraphQL never forwards bearer secrets when Cloudflare API responds with a 
     assert.equal(JSON.stringify(data).includes('untrusted.example.invalid'), false);
     assert.equal(JSON.stringify(data).includes(aenv.CF_ANALYTICS_TOKEN), false);
   } finally { globalThis.fetch = prev; }
+});
+
+test('device monitoring remains authenticated and only returns whitelisted aggregate counts', async () => {
+  const validCtx = {access:{aud:audience,getIdentity:async()=>({email})}};
+  const mock = {
+    state:'ready', observedAt:Math.floor(Date.now()/1000),
+    total: 4, mainActive:1, mobileActive:2, mobilePending:1,
+    mobileRevoked:0, mobileSeenRecently:1, mobileNotSeenRecently:1,
+    deviceId:'must_never_leave_relay', secretKey:'not-for-export',
+  };
+  const boundEnv = {...env,RELAY_TELEMETRY:{getDeviceCounts:async()=>mock}};
+  assert.equal((await control.fetch(request(null,'/api/devices'),boundEnv)).status,403);
+  assert.equal((await control.fetch(request(null,'/api/devices?x=1'),boundEnv,validCtx)).status,404);
+  const response = await control.fetch(request(null,'/api/devices'),boundEnv,validCtx);
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.state,'ready');
+  assert.equal(data.data.mobileActive,2);
+  assert.equal(data.data.mobilePending,1);
+  assert.equal(data.data.mobileSeenRecently,1);
+  assert.equal(JSON.stringify(data).includes('must_never_leave_relay'),false);
+  assert.equal(JSON.stringify(data).includes('not-for-export'),false);
+  const noRpc=await control.fetch(request(null,'/api/devices'),env,validCtx);
+  assert.equal((await noRpc.json()).state,'not_connected');
 });
