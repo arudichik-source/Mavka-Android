@@ -211,9 +211,9 @@ test('GraphQL schema errors get sanitized classification without raw backend mes
 test('5 GB is the owner-defined R2 monitoring threshold, not the Cloudflare GB-month allowance', () => {
   assert.equal(LIMITS.r2MonitoringBytes, 5_000_000_000);
   assert.equal(LIMITS.r2StandardGbMonths, 10);
-  assert.match(html, /5 ГБ \\(контрольний поріг\\)/);
+  assert.ok(html.includes('5 ГБ (контрольний поріг)'));
   assert.match(html, /r2MonitoringBytes/);
-  assert.doesNotMatch(html, /10 ГБ \\(орієнтир\\)/);
+  assert.ok(!html.includes('10 ГБ (орієнтир)'));
 });
 
 test('unexpected provider/network errors are classified without disclosing secrets', async () => {
