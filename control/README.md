@@ -1,4 +1,4 @@
-# MaVka Server Control 0.2.1 — separate, read-only Cloudflare console
+# MaVka Server Control 0.3.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -41,6 +41,22 @@ does **not** modify, proxy or call the MaVka message API.
   covered by stored observations when sampling history is still short.
   Label zoomed views and keep UTC timestamps explicit. Use integer Y-axis
   tick marks for counters, avoiding misleading fractional request counts.
+- **0.3 device summary**: the dashboard now requests `GET /api/devices`
+  after Cloudflare Access validation. An account-internal named **RPC Service
+  Binding**, `RELAY_TELEMETRY → mavka-relay / RelayTelemetry`, returns only
+  aggregate D1 counts: mobile active, pending, revoked, recently seen in the
+  last 30 minutes, and total. A recent D1 sighting does not guarantee the
+  handset is online. The dashboard does NOT bind the private Relay D1 database
+  and receives no device IDs, keys, phone numbers, names or messages. All RPC
+  calls fail closed and display `not_connected` instead of false zeros.
+- Deployment order: **first** deploy the updated `mavka-relay` with named
+  `RelayTelemetry` entrypoint; **then** deploy `mavka-server-control` with
+  its new service binding. Both reuse current Cloudflare bindings, secrets,
+  Access and GitHub build pipelines; no D1 migration is required for counts.
+- `MAVKA_RELAY_SECURITY_V1` rejection logs still live in Cloudflare
+  Observability. We do not authorize the monitoring panel to read raw logs or
+  add a new Observability Write permission. A separate sanitized, strictly
+  bounded channel will be needed to show log reasons in the panel.
 - **CSV export**: optional same-browser export of real aggregate samples
   covering 24 h, 7 d, or 30 d. The app pages D1 with an existing authenticated
   read-only endpoint, caps downloads at 65 pages (<= 3250 rows), adds a UTF-8
