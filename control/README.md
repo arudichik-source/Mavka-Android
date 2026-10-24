@@ -17,6 +17,13 @@ does **not** modify, proxy or call the MaVka message API.
   D1 row counts are account-wide; R2 current bucket bytes are **not** GB-months.
   Class A/B billing totals are intentionally not guessed. A missing GraphQL
   dataset shows *unavailable*, never fabricated 0.
+- Owner-defined R2 bucket threshold: **5 GB (5,000,000,000 bytes)** with
+  display warnings at 70%, 85%, and 95%. This is **monitoring only**, not a
+  Cloudflare-imposed storage limit, billing allowance, or upload rejection.
+  Cloudflare's included R2 Standard storage is billed in GB-months.
+- Safe diagnostic error codes distinguish provider validation, auth, timeout,
+  runtime TypeError, and network-related failures without leaking API tokens
+  or remote response bodies. Failed datasets are never displayed as 0.
 - Only auth-approved administrators may access any HTML or API endpoint.
 
 ## Security (configure BEFORE using the console)
