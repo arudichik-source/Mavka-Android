@@ -1,5 +1,6 @@
 import { verifyAccess } from './access.js';
 import { readAnalytics } from './analytics.js';
+import { devicesSummary } from './devices.js';
 import { parsePeriod, parseBefore, readHistoryPage, readTrends } from './history.js';
 import { html } from './ui.js';
 
@@ -90,6 +91,7 @@ export default {
       if (url.pathname === '/api/trends') return json(await readTrends(env.CONTROL_DB, period));
       return json(await readHistoryPage(env.CONTROL_DB, period, before));
     }
+    if (url.pathname === '/api/devices' && !url.search) return json(await devicesSummary(env));
     if (url.pathname === '/api/security') {
       if (url.search) return json({ error: 'invalid_query' }, 400);
       // No unaudited access to Relay logs, devices, signatures, or databases.
@@ -99,7 +101,7 @@ export default {
         logsLink: 'https://dash.cloudflare.com/' });
     }
     if (url.pathname === '/api/about' && !url.search) return json({
-      application: 'MaVka Server Control', version: '0.2.0',
+      application: 'MaVka Server Control', version: '0.3.0',
       mode: 'read_only', refreshSeconds: 900,
       storage: env.CONTROL_DB?.prepare ? 'bound' : 'not_bound',
       analyticsConfigured: Boolean(env.CF_ACCOUNT_ID && env.CF_ANALYTICS_TOKEN),
