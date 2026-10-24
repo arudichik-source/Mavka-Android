@@ -87,9 +87,10 @@ test('D1 history is fail-closed, bounded and never returns fake zero samples',as
 });
 
 test('dashboard client JavaScript parses and 0.2 history elements exist',()=>{
-  const match=html.match(/<script nonce="__CSP_NONCE__">([\\s\\S]*?)<\\/script>/);
-  assert.ok(match, 'No self-contained client script');
-  assert.doesNotThrow(()=>new Script(match[1]));
+  const marker='<script nonce="__CSP_NONCE__">';
+  const start=html.indexOf(marker), end=html.indexOf('</script>',start);
+  assert.ok(start>=0&&end>start,'No self-contained client script');
+  assert.doesNotThrow(()=>new Script(html.slice(start+marker.length,end)));
   for(const id of ['chart','period-24h','period-7d','period-30d','trend-metric',
     'more-history','security-status','chart-coverage']){
     assert.ok(html.includes('id="'+id+'"'),id);
