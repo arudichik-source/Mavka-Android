@@ -78,6 +78,7 @@ export function reportSecurityEvent(request, error, principal) {
     const event = securityEvent(request, error, principal);
     // One structured line. Do not serialize request/error objects.
     console.info(JSON.stringify(event));
+    return event;
   } catch {
     // A logging failure must never alter Relay's authentication response.
   }
