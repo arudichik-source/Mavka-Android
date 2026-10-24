@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import worker, { cleanup } from '../src/worker.js';
 import { SECURITY_EVENT, securityEvent } from '../src/security-audit.js';
+import { flushSecurityRollups, readSecurityRollups, pruneSecurityRollups, queueSecurityRollup } from '../src/security-rollups.js';
 import { readDeviceTelemetry } from '../src/device-telemetry.js';
 import { ApiError } from '../src/protocol.js';
 import { signedRequest, verifyDelivery, base64url, MAX_TTL } from '../src/protocol.js';
@@ -24,7 +25,7 @@ async function fixture(t) {
   const main = await identity();
   const options = { cf: { country: 'UA' }, telemetry: { enabled: false }, workers: [{ name: 'relay',
     modulesRoot: fileURLToPath(new URL('../', import.meta.url)),
-    modules: ['worker.js', 'protocol.js', 'security-audit.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
+    modules: ['worker.js', 'protocol.js', 'security-audit.js', 'security-rollups.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
     compatibilityDate: '2026-10-01', d1Databases: { DB: 'relay-tests' },
     bindings: { RELAY_ADMIN_DEVICE_ID: main.deviceId, RELAY_ADMIN_SIGNING_KEY: JSON.stringify(main.publicSigningKey) } }] };
   const mf = new Miniflare(convertV4MiniflareOptions(options));
@@ -367,4 +368,67 @@ test('device aggregation returns unavailable instead of inventing zeros if D1 fa
   const result = await readDeviceTelemetry(bad);
   assert.deepEqual(result, {state:'unavailable',reason:'database_unavailable'});
   assert.equal(JSON.stringify(result).includes('private SQL'), false);
+});
+
+
+test('security rollup aggregation uses only bounded allowlisted anonymous dimensions', async t => {
+  const f=await fixture(t);
+  const migration=await readFile(new URL('../migrations/0003_security_rollups.sql',import.meta.url),'utf8');
+  const statements=migration.replace(/--[^\\n]*/g,'').split(';').map(x=>x.trim()).filter(Boolean);
+  await f.db.batch(statements.map(sql=>f.db.prepare(sql)));
+  const now=seconds();
+  const bucket=Math.floor(now/900)*900;
+  const source={
+    bucket, category:'authentication',reason:'auth_signature_invalid',
+    country:'UA',route:'status',status:401,principal:'unverified',events:3,
+  };
+  assert.equal(await flushSecurityRollups(f.db,[source]),true);
+  assert.equal(await flushSecurityRollups(f.db,[{...source,events:2}]),true);
+  const dashboard=await readSecurityRollups(f.db,now);
+  assert.equal(dashboard.state,'ready');
+  assert.equal(dashboard.coverage,'best_effort');
+  assert.equal(dashboard.total24h,5);
+  assert.equal(dashboard.total7d,5);
+  assert.deepEqual(dashboard.byReason,[{category:'authentication',reason:'auth_signature_invalid',count:5}]);
+  assert.deepEqual(dashboard.byCountry,[{scope:'UA',count:5}]);
+  assert.equal(dashboard.byHour.length,1);
+  assert.equal(dashboard.byHour[0].count,5);
+  for(const forbidden of ['device_id','x-mavka','clientIp','nonce','signature','message','email','publicKey']){
+    assert.equal(Object.keys(dashboard).some(k=>k===forbidden),false);
+  }
+  await pruneSecurityRollups(f.db,now+31*86400);
+  assert.equal((await readSecurityRollups(f.db,now+31*86400)).total24h,0);
+});
+test('security aggregation schema absent cannot block Relay or fabricate incident counts',async t=>{
+  const f=await fixture(t);
+  const data=await readSecurityRollups(f.db);
+  assert.equal(data.state,'not_connected');
+  assert.equal(data.total24h,null);
+  assert.equal(data.byReason.length,0);
+  assert.equal(await flushSecurityRollups(f.db,[{
+    bucket:seconds(),category:'authentication',reason:'unauthorized',
+    country:'UA',route:'status',status:401,principal:'unverified',events:1,
+  }]),false);
+  await pruneSecurityRollups(f.db); // missing optional table: must not throw
+  const health=await f.dispatch(new Request(origin+'/health'));
+  assert.equal(health.status,200);
+});
+test('untrusted security event metadata is converted to fixed enum categories before persistence',async()=>{
+  const statements=[];
+  const db={ prepare(sql){return{bind(...values){
+    statements.push({sql,values});return{run:async()=>({})};
+  }}},batch:async x=>x.map(()=>({})) };
+  const now=Date.now(),event={
+    event:SECURITY_EVENT,outcome:'rejected',category:'PRIVATE_UNKNOWN',
+    reason:'LEAK-PRIVATE-TOKEN',countryScope:'CLIENT-CONTROLLED-IP',
+    route:'path/privateDeviceID',status:401,principal:'malicious',
+  };
+  const tasks=[],ctx={waitUntil(p){tasks.push(p)}};
+  queueSecurityRollup(event,{DB:db},ctx,now);
+  await Promise.all(tasks);
+  assert.equal(statements.length,1);
+  const values=JSON.stringify(statements[0].values);
+  for(const secret of ['LEAK-PRIVATE-TOKEN','CLIENT-CONTROLLED-IP','path/privateDeviceID','PRIVATE_UNKNOWN','malicious'])
+    assert.equal(values.includes(secret),false);
+  assert.equal(values.includes('request_rejected'),true);
 });
