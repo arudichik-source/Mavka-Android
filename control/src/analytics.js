@@ -65,7 +65,10 @@ async function query(env, name, graphql, variables) {
   let response;
   try {
     response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
-      method: 'POST', redirect: 'error',
+      // workerd does NOT support redirect:'error'; it throws TypeError before
+      // contacting Cloudflare. Manual mode never forwards the bearer secret
+      // to a redirect target. Treat 3xx as an HTTP failure below.
+      method: 'POST', redirect: 'manual',
       headers: { Authorization: 'Bearer ' + env.CF_ANALYTICS_TOKEN,
         'Accept': 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: graphql, variables }),

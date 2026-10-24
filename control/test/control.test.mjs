@@ -159,6 +159,7 @@ test('all four GraphQL queries use Cloudflare lowercase string scalar and return
     assert.doesNotMatch(payload.query, /\$account: String!/);
     assert.equal(payload.variables.account, safeEnv.CF_ACCOUNT_ID);
     assert.equal(options.headers.Authorization, 'Bearer ' + safeEnv.CF_ANALYTICS_TOKEN);
+    assert.equal(options.redirect, 'manual');
     if (payload.query.includes('workersInvocationsAdaptive'))
       return Response.json({ data: { viewer: { accounts: [{
         workersInvocationsAdaptive: [{sum: {requests: 117, errors: 2}}]
@@ -231,5 +232,28 @@ test('unexpected provider/network errors are classified without disclosing secre
       r2Storage: 'fetch_or_runtime_type_error', r2Operations: 'fetch_or_runtime_type_error',
     });
     assert.equal(JSON.stringify(data).includes('sensitive host'), false);
+  } finally { globalThis.fetch = prev; }
+});
+
+test('GraphQL never forwards bearer secrets when Cloudflare API responds with a redirect', async () => {
+  const aenv = { CF_ACCOUNT_ID: 'c'.repeat(32), CF_ANALYTICS_TOKEN: 'long-safe-test-token-not-real' };
+  const prev = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => {
+    calls += 1;
+    assert.equal(options.redirect, 'manual');
+    assert.equal(options.headers.Authorization, 'Bearer ' + aenv.CF_ANALYTICS_TOKEN);
+    return new Response(null, { status: 302, headers: { Location: 'https://untrusted.example.invalid' } });
+  };
+  try {
+    const data = await readAnalytics(aenv, new Date('2026-10-24T09:00:00Z'));
+    assert.equal(calls, 4);
+    assert.equal(data.state, 'unavailable');
+    assert.deepEqual(data.diagnostics, {
+      workers: 'http_failure', d1: 'http_failure',
+      r2Storage: 'http_failure', r2Operations: 'http_failure',
+    });
+    assert.equal(JSON.stringify(data).includes('untrusted.example.invalid'), false);
+    assert.equal(JSON.stringify(data).includes(aenv.CF_ANALYTICS_TOKEN), false);
   } finally { globalThis.fetch = prev; }
 });
