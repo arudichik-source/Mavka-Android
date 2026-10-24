@@ -95,5 +95,23 @@ test('dashboard client JavaScript parses and 0.2 history elements exist',()=>{
     'more-history','security-status','chart-coverage']){
     assert.ok(html.includes('id="'+id+'"'),id);
   }
-  assert.ok(html.includes('MaVka Server Control 0.2.0'));
+  assert.ok(html.includes('MaVka Server Control 0.2.1'));
+  assert.ok(html.includes('id="export-history"'));
+  assert.ok(html.includes('id="history-export-status"'));
+  assert.ok(html.includes('zoomToSamples'));
+  assert.ok(html.includes('Math.ceil(largest*1.06/4)'));
+  assert.ok(html.includes("new Blob"));
+  assert.ok(html.includes("period='+activePeriod"));
+});
+
+test('CSV export only reads authenticated aggregate history and bounds pages',()=>{
+  assert.match(html,/for\(let page=0;page<65;page\+\+\)/);
+  assert.match(html,/if\(!complete\)throw Error\('limit'\)/);
+  assert.match(html,/result\.state!=='ready'/);
+  assert.ok(html.includes('workers_requests'));
+  assert.ok(html.includes('r2_payload_bytes'));
+  assert.ok(!html.includes('/v1/messages'));
+  const exportBlock=html.slice(html.indexOf('async function exportHistoryCsv()'),
+    html.indexOf("q('export-history').addEventListener"));
+  assert.ok(!exportBlock.includes('CF_ANALYTICS_TOKEN'));
 });

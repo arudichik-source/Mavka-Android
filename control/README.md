@@ -1,6 +1,6 @@
-# MaVka Server Control 0.2 — separate, read-only Cloudflare console
+# MaVka Server Control 0.2.1 — separate, read-only Cloudflare console
 
-The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 adds real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
+The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
 does **not** modify, proxy or call the MaVka message API.
 
@@ -37,6 +37,20 @@ does **not** modify, proxy or call the MaVka message API.
   the control Worker a binding to the private `mavka-messages` D1.
 - 0.2 retains the 5 GB owner-defined R2 monitoring threshold and no
   external scripts, CDNs, databases or cryptographic key access.
+- **0.2.1**: automatically zoom the chart X-axis to the interval actually
+  covered by stored observations when sampling history is still short.
+  Label zoomed views and keep UTC timestamps explicit. Use integer Y-axis
+  tick marks for counters, avoiding misleading fractional request counts.
+- **CSV export**: optional same-browser export of real aggregate samples
+  covering 24 h, 7 d, or 30 d. The app pages D1 with an existing authenticated
+  read-only endpoint, caps downloads at 65 pages (<= 3250 rows), adds a UTF-8
+  BOM and semicolon delimiter for Excel compatibility. No files, keys, IPs,
+  Relay device IDs or message contents are ever queried or exported.
+- A dedicated Cloudflare Workers Observability query API is available, but
+  its documented API permission includes `Workers Observability Write`;
+  intentionally **do not** expand the existing read-only Analytics token to
+  grant log-query access. Security/device integration stays `not_connected`.
+
 
 ## Security (configure BEFORE using the console)
 
