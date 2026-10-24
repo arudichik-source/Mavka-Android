@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Script } from 'node:vm';
+import { html } from '../src/ui.js';
 import { parseBefore, parsePeriod, readHistoryPage, readTrends } from '../src/history.js';
 
 const NOW = new Date('2026-10-24T10:30:00.000Z');
@@ -82,4 +84,15 @@ test('D1 history is fail-closed, bounded and never returns fake zero samples',as
   assert.equal((await readHistoryPage(null,'wrong',null,NOW)).state,'invalid_query');
   const {db}=makeDB([]);
   assert.deepEqual((await readHistoryPage(db,'30d',null,NOW)).entries,[]);
+});
+
+test('dashboard client JavaScript parses and 0.2 history elements exist',()=>{
+  const match=html.match(/<script nonce="__CSP_NONCE__">([\\s\\S]*?)<\\/script>/);
+  assert.ok(match, 'No self-contained client script');
+  assert.doesNotThrow(()=>new Script(match[1]));
+  for(const id of ['chart','period-24h','period-7d','period-30d','trend-metric',
+    'more-history','security-status','chart-coverage']){
+    assert.ok(html.includes('id="'+id+'"'),id);
+  }
+  assert.ok(html.includes('MaVka Server Control 0.2.0'));
 });
