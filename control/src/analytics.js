@@ -10,7 +10,7 @@ export const LIMITS = Object.freeze({
   r2ClassAOperationsPerMonth: 1000000,
   r2ClassBOperationsPerMonth: 10000000,
 });
-const WORKERS = `query RelayWorkers($account: String!, $start: Time!, $end: Time!) {
+const WORKERS = `query RelayWorkers($account: string!, $start: Time!, $end: Time!) {
   viewer { accounts(filter: { accountTag: $account }) {
     workersInvocationsAdaptive(
       limit: 1
@@ -18,14 +18,14 @@ const WORKERS = `query RelayWorkers($account: String!, $start: Time!, $end: Time
     ) { sum { requests errors } }
   } }
 }`;
-const D1 = `query D1Daily($account: String!, $today: Date) {
+const D1 = `query D1Daily($account: string!, $today: Date) {
   viewer { accounts(filter: { accountTag: $account }) {
     d1AnalyticsAdaptiveGroups(limit: 1000,
       filter: { date_geq: $today, date_leq: $today }
     ) { sum { rowsRead rowsWritten } }
   } }
 }`;
-const R2_STORAGE = `query R2Storage($account: String!, $start: Time!, $end: Time!) {
+const R2_STORAGE = `query R2Storage($account: string!, $start: Time!, $end: Time!) {
   viewer { accounts(filter: { accountTag: $account }) {
     r2StorageAdaptiveGroups(limit: 1,
       filter: { datetime_geq: $start, datetime_leq: $end,
@@ -33,7 +33,7 @@ const R2_STORAGE = `query R2Storage($account: String!, $start: Time!, $end: Time
     ) { max { payloadSize metadataSize objectCount } dimensions { datetime } }
   } }
 }`;
-const R2_OPS = `query R2Operations($account: String!, $start: Time!, $end: Time!) {
+const R2_OPS = `query R2Operations($account: string!, $start: Time!, $end: Time!) {
   viewer { accounts(filter: { accountTag: $account }) {
     r2OperationsAdaptiveGroups(limit: 1000,
       filter: { datetime_geq: $start, datetime_leq: $end,
