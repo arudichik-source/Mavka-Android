@@ -54,10 +54,23 @@ async function query(env, name, graphql, variables) {
     body: JSON.stringify({ query: graphql, variables }),
     signal: AbortSignal.timeout(8000),
   });
-  if (!response.ok) throw new Error(name + '_http_error');
+  // Only bounded, non-sensitive diagnostics may be returned to an administrator.
+  // NEVER disclose raw GraphQL errors, HTTP bodies, account IDs or bearer tokens.
+  if (!response.ok) {
+    const kind = response.status === 401 || response.status === 403 ? 'permission'
+      : response.status === 429 ? 'rate_limit' : 'http_failure';
+    throw new Error(kind);
+  }
   const result = await response.json();
-  if (result.errors?.length || !result.data?.viewer?.accounts?.[0])
-    throw new Error(name + '_dataset_unavailable');
+  if (result.errors?.length) {
+    const message = result.errors.map(e => typeof e?.message === 'string' ? e.message : '').join(' ');
+    const kind = /unknown type|type mismatch|not defined|variable.*type|expected type|cannot query field|unknown argument|validation/i.test(message)
+      ? 'query_invalid'
+      : /authorization|authenticate|permission|forbidden|not authorized|access denied/i.test(message)
+        ? 'permission' : 'graphql_error';
+    throw new Error(kind);
+  }
+  if (!result.data?.viewer?.accounts?.[0]) throw new Error('no_account_data');
   return result.data.viewer.accounts[0];
 }
 const number = v => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
@@ -86,6 +99,11 @@ export async function readAnalytics(env, now = new Date()) {
   const errors = ['workers', 'd1', 'r2Storage', 'r2Operations']
     .filter((name, i) => results[i].status !== 'fulfilled')
     .map(name => name + '_unavailable');
+  const diagnostics = Object.fromEntries(['workers', 'd1', 'r2Storage', 'r2Operations']
+    .map((name, i) => [name, results[i].status === 'fulfilled'
+      ? 'ok' : ['query_invalid', 'permission', 'rate_limit', 'http_failure', 'graphql_error',
+        'no_account_data'].includes(results[i].reason?.message)
+        ? results[i].reason.message : 'network_or_unknown']));
   return {
     state: errors.length === 4 ? 'unavailable' : errors.length ? 'partial' : 'ready',
     at, utcDay: today, limits: LIMITS,
@@ -103,7 +121,7 @@ export async function readAnalytics(env, now = new Date()) {
           action: String(o.dimensions?.actionType ?? 'unknown').slice(0, 80),
           requests: number(o.sum?.requests) ?? 0 })),
         classA: null, classB: null } : null },
-    errors,
+    errors, diagnostics,
     caveats: ['Workers requests are relay-only, not account-wide balance.',
       'R2 current bytes are not GB-months; class A/B and billing costs are unverified.',
       'Analytics may be delayed or sampled; the actual invoice is in Cloudflare Billing.'],
