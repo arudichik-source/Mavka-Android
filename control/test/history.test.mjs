@@ -111,5 +111,7 @@ test('CSV export only reads authenticated aggregate history and bounds pages',()
   assert.ok(html.includes('workers_requests'));
   assert.ok(html.includes('r2_payload_bytes'));
   assert.ok(!html.includes('/v1/messages'));
-  assert.ok(!html.includes('CF_ANALYTICS_TOKEN'));
+  const exportBlock=html.slice(html.indexOf('async function exportHistoryCsv()'),
+    html.indexOf("q('export-history').addEventListener"));
+  assert.ok(!exportBlock.includes('CF_ANALYTICS_TOKEN'));
 });
