@@ -146,3 +146,63 @@ test('Cloudflare analytics return partial rather than fabricated zero on dataset
     assert.deepEqual(data.errors, ['r2Operations_unavailable']);
   } finally { globalThis.fetch = old; }
 });
+
+test('all four GraphQL queries use Cloudflare lowercase string scalar and return real mock metrics', async () => {
+  const safeEnv = { CF_ACCOUNT_ID: 'a'.repeat(32), CF_ANALYTICS_TOKEN: 'test-token-not-real-long-enough' };
+  const observed = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_endpoint, options) => {
+    const payload = JSON.parse(options.body);
+    observed.push(payload.query);
+    assert.match(payload.query, /\\$account: string!/);
+    assert.doesNotMatch(payload.query, /\\$account: String!/);
+    assert.equal(payload.variables.account, safeEnv.CF_ACCOUNT_ID);
+    assert.equal(options.headers.Authorization, 'Bearer ' + safeEnv.CF_ANALYTICS_TOKEN);
+    if (payload.query.includes('workersInvocationsAdaptive'))
+      return Response.json({ data: { viewer: { accounts: [{
+        workersInvocationsAdaptive: [{sum: {requests: 117, errors: 2}}]
+      }] } } });
+    if (payload.query.includes('d1AnalyticsAdaptiveGroups'))
+      return Response.json({ data: { viewer: { accounts: [{
+        d1AnalyticsAdaptiveGroups: [{sum: {rowsRead: 201, rowsWritten: 8}}]
+      }] } } });
+    if (payload.query.includes('r2StorageAdaptiveGroups'))
+      return Response.json({ data: { viewer: { accounts: [{
+        r2StorageAdaptiveGroups: [{max: {payloadSize: 4096, metadataSize: 128, objectCount: 3},
+          dimensions: {datetime: '2026-10-24T06:00:00Z'}}]
+      }] } } });
+    return Response.json({ data: { viewer: { accounts: [{
+      r2OperationsAdaptiveGroups: [{sum: {requests: 9}, dimensions: {actionType: 'GetObject'}}]
+    }] } } });
+  };
+  try {
+    const data = await readAnalytics(safeEnv, new Date('2026-10-24T09:00:00Z'));
+    assert.equal(observed.length, 4);
+    assert.equal(data.state, 'ready');
+    assert.deepEqual(data.errors, []);
+    assert.deepEqual(data.diagnostics, {
+      workers: 'ok', d1: 'ok', r2Storage: 'ok', r2Operations: 'ok',
+    });
+    assert.equal(data.workers.requestsToday, 117);
+    assert.equal(data.d1.rowsWrittenToday, 8);
+    assert.equal(data.r2.storage.bytes, 4096);
+    assert.equal(data.r2.operations.requestsThisMonth, 9);
+  } finally { globalThis.fetch = original; }
+});
+
+test('GraphQL schema errors get sanitized classification without raw backend messages', async () => {
+  const e = { CF_ACCOUNT_ID: 'b'.repeat(32), CF_ANALYTICS_TOKEN: 'test-token-not-real-long-enough' };
+  const old = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    errors: [{ message: 'Unknown type \\"String\\"; private diagnostic TOKEN_XYZ' }],
+  });
+  try {
+    const data = await readAnalytics(e, new Date('2026-10-24T09:00:00Z'));
+    assert.equal(data.state, 'unavailable');
+    assert.deepEqual(data.diagnostics, {
+      workers: 'query_invalid', d1: 'query_invalid',
+      r2Storage: 'query_invalid', r2Operations: 'query_invalid',
+    });
+    assert.equal(JSON.stringify(data).includes('TOKEN_XYZ'), false);
+  } finally { globalThis.fetch = old; }
+});
