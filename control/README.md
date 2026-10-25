@@ -1,4 +1,4 @@
-# MaVka Server Control 0.4.0 — separate, read-only Cloudflare console
+# MaVka Server Control 0.5.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,31 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 0.5 — conservative monitoring within free-tier quotas
+- **No new database/table/token, no external script, no new cron and no
+  extra GraphQL queries.** Uses existing cached summaries and private
+  5-minute Relay security RPC. The existing dashboard refreshes every 15
+  minutes while visible; alerts are **on refresh**, not independent push/SMS/email.
+- **Security incident signals:** derive up to 14 days of daily canonical
+  reason counts from retained `relay_security_rollups` (30 days).
+  A warning is NOT proof of an attack. Every signal is anonymous, approximate
+  and should be reviewed in Cloudflare Observability. Alerts are not stored
+  again in a separate incidents table and therefore add **zero D1 writes**.
+- **Quota warnings:** 70%, 85% and 95% monitoring thresholds calculated
+  locally from already-fetched Workers-only, D1-account and R2-bucket
+  readings. The owner-defined R2 threshold is **5 GB of current size**:
+  NOT an upload block, a paid quota or a GB-month bill. R2 operation
+  Class A/B billing remains unknown and is not fabricated.
+- **Cleanup:** `mavka-control.usage_snapshots` retains 30 days, pruned on
+  new snapshots; Relay's 30-day aggregated security journal is pruned
+  **hourly** by its existing every-five-minute cron; messages and nonces
+  retain their existing fast TTL cleanup. R2 `transfers/` has an existing
+  seven-day temporary-object lifecycle. Do NOT delete undelivered payloads
+  or security-critical revoked device records to free storage.
+- **Failure behavior:** missing analytics or security RPC means unknown,
+  not zero; alerts never revoke devices or block traffic. Cloudflare
+  Billing and Observability remain sources of truth for costs and raw logs.
 
 ## Security (configure BEFORE using the console)
 

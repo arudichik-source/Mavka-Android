@@ -77,6 +77,12 @@ a{color:#9cdfe0;text-decoration:none}a:hover{text-decoration:underline}
 .security-line span{overflow-wrap:anywhere}.security-line b{flex-shrink:0;font-variant-numeric:tabular-nums}
 
 @media(max-width:540px){.selector{width:100%;min-width:0}.chart-head{align-items:stretch}.tabs{width:100%}.tabs button{flex:1}}
+.alert-item{border-bottom:1px solid var(--edge);padding:9px 0;display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.alert-item strong{font-size:12px;line-height:1.6}.alert-item small{display:block;color:var(--muted);font-size:11px}
+.alert-level{flex-shrink:0;font-size:11px;font-weight:650;border-radius:7px;border:1px solid #375363;padding:4px 7px;color:#b6d9dc}
+.alert-level.critical{color:#ffc3c3;border-color:#8b4b52}
+.alert-level.warning{color:#f7d597;border-color:#725d39}
+.retention-note{padding:12px;border:1px solid var(--edge);border-radius:10px;color:var(--muted);font-size:12px;line-height:1.55;margin-top:13px}
 </style>
 </head>
 <body>
@@ -134,6 +140,26 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="table-scroll"><table><thead><tr><th>Час (UTC)</th><th>Relay запити</th><th>D1 читання</th><th>D1 запис</th><th>R2 байти</th></tr></thead><tbody id="rows"><tr><td colspan="5">Записів ще немає</td></tr></tbody></table></div>
 <div style="margin-top:14px;display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap"><span id="history-export-status" class="dim" role="status" aria-live="polite"></span><button class="small-btn" id="export-history" type="button">Експорт історії CSV</button><button class="small-btn" id="more-history" type="button" hidden>Показати ще 50 записів</button></div>
 </section>
+<section class="panel section" aria-label="Сигнали та контроль квот">
+<div class="chart-head"><div><h2 style="margin:0 0 6px">Контроль ризиків і лімітів</h2>
+<p class="dim">Оцінюємо лише підтверджені агрегати і поточні показники. Жодного додаткового фонового опитування.</p></div><span class="pill">На основі наявних знімків</span></div>
+<div class="columns">
+<div class="read-only"><h3>Попередження про ресурси</h3>
+<p id="quota-summary" role="status">Завантаження показників…</p>
+<div id="quota-alerts" aria-live="polite"></div></div>
+<div class="read-only"><h3>Сигнали безпеки · останні 14 днів</h3>
+<p id="incident-summary" role="status">Завантаження агрегованої історії…</p>
+<div id="incident-list" aria-live="polite"></div>
+<p style="margin-top:10px">Це виявлені за порогами сигнали, а не підтверджені атаки. Перевірка виконується під час оновлення панелі; окремі push/email сповіщення поки не налаштовані.</p></div>
+</div>
+<div class="retention-note"><strong>Автоматичне очищення й витрати.</strong>
+ Історія показників Control — 30 днів; агрегати безпеки Relay — 30 днів;
+ огляд сигналів — останні 14 днів без дублювання в новій базі.
+ Тимчасові зашифровані частини R2 у <code>transfers/</code> — життєвий цикл 7 днів.
+ Relay очищує чергу й прострочені службові записи кожні 5 хвилин,
+ а старі агрегати безпеки перевіряє щогодини. Відкликані реєстрації пристроїв та
+ неотримані документи автоматично через поріг R2 у 5 ГБ не видаляємо.</div>
+</section>
 <section class="section columns" aria-label="Контроль безпеки">
 <div class="read-only"><h3>Журнал безпеки Relay</h3>
 <p id="security-status" role="status" aria-live="polite">Завантаження захищеної статистики…</p>
@@ -158,7 +184,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="small-card"><b id="device-revoked">—</b><div>Відкликані</div></div>
 </div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p></div>
 </section>
-<div class="footer">MaVka Server Control 0.4.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.5.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -178,6 +204,61 @@ async function get(path){
 }
 function state(v,bad=false){q('state').textContent=v;q('dot').className='dot'+(bad?' err':v.includes('Готово')?' ok':'')}
 function setMetric(id,v){q(id).textContent=fmt(v)}
+const alertLabels={critical:'Критично',warning:'Попередження',info:'До відома'};
+function alertRow(label,description,severity){
+ const line=document.createElement('div');line.className='alert-item';
+ const left=document.createElement('div'),a=document.createElement('strong'),b=document.createElement('small');
+ a.textContent=label;b.textContent=description;left.append(a,b);
+ const level=document.createElement('span');level.className='alert-level '+severity;
+ level.textContent=alertLabels[severity]||'До відома';line.append(left,level);
+ return line;
+}
+function showQuotaWarnings(info){
+ const list=q('quota-alerts'),status=q('quota-summary');list.replaceChildren();
+ if(!info||info.state==='unavailable'){
+  status.textContent='Показники недоступні. Не сприймай це як нульове використання.';
+  return;
+ }
+ const warnings=Array.isArray(info.warnings)?info.warnings:[];
+ status.textContent=warnings.length?'Деякі показники наближаються до контрольних порогів.':
+   'За доступними показниками перевищення порога 70% немає.';
+ for(const w of warnings.slice(0,4)){
+  const description=fmt(w.used)+' / '+fmt(w.threshold)+' · '+w.percent+'%'+
+    (w.key==='r2_bytes'?' · це власний поріг, не платіжний ліміт':'');
+  list.append(alertRow(w.label,description,w.severity));
+ }
+ if(info.missing?.length){
+  const p=document.createElement('p');p.className='dim';p.style.marginTop='10px';
+  p.textContent='Дані недоступні: '+info.missing.join(', ')+'. Не показуємо вигадані нулі.';
+  list.append(p);
+ }
+}
+function showIncidents(info){
+ const list=q('incident-list'),status=q('incident-summary');list.replaceChildren();
+ if(!info||info.state!=='ready'){
+  status.textContent='Історія сигналів недоступна — перевіряємо з’єднання з Relay.';
+  return;
+ }
+ const incidents=Array.isArray(info.incidents)?info.incidents:[];
+ const visible=incidents.slice(0,35);
+ const significant=incidents.filter(x=>x.severity==='critical'||x.severity==='warning').length;
+ status.textContent='Збережені сигнали за 14 днів: '+fmt(incidents.length)+
+  ', з них для перевірки: '+fmt(significant)+'. Дані орієнтовні.';
+ if(!visible.length){
+  const p=document.createElement('p');p.className='dim';p.style.marginTop='11px';
+  p.textContent='За наявними агрегатами сигналів немає. Це не гарантує відсутності спроб доступу.';
+  list.append(p);return;
+ }
+ for(const x of visible){
+  const date=new Date(x.dayStart*1000).toISOString().slice(0,10);
+  list.append(alertRow(x.label,date+' UTC · '+fmt(x.count)+' спостережень · потребує перевірки',x.severity));
+ }
+ if(incidents.length>visible.length){
+  const tail=document.createElement('p');tail.className='dim';
+  tail.textContent='Відображено перші 35 з '+fmt(incidents.length)+'. Решта входить у статистику.';
+  list.append(tail);
+ }
+}
 function show(m){
  const wr=m.workers||{},d=m.d1||{},r=m.r2||{},st=r.storage||{},op=r.operations||{},l=m.limits||{};
  setMetric('requests',wr.requestsToday);setMetric('errors',wr.errorsToday);
@@ -201,6 +282,7 @@ function show(m){
  'Аналітику не підключено: для справжніх показників потрібні CF_ACCOUNT_ID і захищений CF_ANALYTICS_TOKEN.':
  m.state==='ready'?(r2ratio>=0.95?'УВАГА: R2 досяг 95% власного порогу 5 ГБ. ':r2ratio>=0.85?'R2 перевищив 85% власного порогу 5 ГБ. ':r2ratio>=0.70?'R2 перевищив 70% власного порогу 5 ГБ. ':'')+'Аналітику підключено. Поріг R2 — моніторинговий, не заборона запису; перевіряйте Billing.':
  'Частина показників недоступна ('+missing+'). '+(detail?'Причини: '+detail+'. ':'')+'Це не нульове споживання; не розширюйте дозволи токена без перевірки.';
+ showQuotaWarnings(m.quotaAlerts);
  state(m.state==='ready'?'Готово · API Cloudflare':m.state==='partial'?'Часткові дані':'Потрібне підключення',m.state==='unavailable');
 }
 
@@ -333,6 +415,7 @@ function showDevices(result){
  setMetric('device-revoked',d.mobileRevoked);
 }
 function showSecurity(result){
+ showIncidents(result?.risk);
  const status=q('security-status'), warning=q('security-warning');
  const reasons=q('security-reasons'),countries=q('security-countries'),hours=q('security-hours');
  const markUnavailable=()=>{

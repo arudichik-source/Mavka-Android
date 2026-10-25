@@ -2,6 +2,7 @@ import { verifyAccess } from './access.js';
 import { readAnalytics } from './analytics.js';
 import { devicesSummary } from './devices.js';
 import { securitySummary } from './security.js';
+import { assessQuotaWarnings, RETENTION_INFO } from './alerts.js';
 import { parsePeriod, parseBefore, readHistoryPage, readTrends } from './history.js';
 import { html } from './ui.js';
 
@@ -77,7 +78,7 @@ export default {
           // History failure never prevents an authorized read-only dashboard.
           await storeSnapshot(env.CONTROL_DB, data).catch(() => {});
         }
-        return json(data);
+        return json({ ...data, quotaAlerts: assessQuotaWarnings(data) });
       } catch { return json({ state: 'unavailable', error: 'analytics_unavailable' }, 503); }
     }
     if (url.pathname === '/api/history' || url.pathname === '/api/trends') {
@@ -100,10 +101,12 @@ export default {
       return json(await securitySummary(env));
     }
     if (url.pathname === '/api/about' && !url.search) return json({
-      application: 'MaVka Server Control', version: '0.4.0',
+      application: 'MaVka Server Control', version: '0.5.0',
       mode: 'read_only', refreshSeconds: 900,
       storage: env.CONTROL_DB?.prepare ? 'bound' : 'not_bound',
       analyticsConfigured: Boolean(env.CF_ACCOUNT_ID && env.CF_ANALYTICS_TOKEN),
+      retention: RETENTION_INFO,
+      alertMode: 'on_dashboard_refresh_no_background_notifier',
     });
     return json({ error: 'not_found' }, 404);
   },
