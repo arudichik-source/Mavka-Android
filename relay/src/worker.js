@@ -2,6 +2,7 @@ import { ApiError, VERSION, MAX_BODY, MAX_TTL, requireValue, object, id, publicK
   decodeUrl, messageBody, fingerprint, signingInput, encoder } from './protocol.js';
 import { reportSecurityEvent } from './security-audit.js';
 import { queueSecurityRollup, pruneSecurityRollups, shouldPruneSecurityRollups } from './security-rollups.js';
+import { recordMaintenanceCheckpoint } from './maintenance.js';
 
 const SKEW = 300;
 const MAX_DEVICES = 500;
@@ -216,7 +217,7 @@ async function ack(db, auth, messageId, body, now) {
   return json({ messageId, status: 'delivered', deleted: true });
 }
 export async function cleanup(db, now = nowSeconds()) {
-  await db.batch([
+  return db.batch([
     stmt(db, 'DELETE FROM messages WHERE expires_at <= ?', now),
     stmt(db, 'DELETE FROM relay_nonces WHERE expires_at <= ?', now),
     stmt(db, 'DELETE FROM relay_rate_windows WHERE window_start < ?', now - 600),
@@ -279,8 +280,15 @@ export default {
     }
   },
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(cleanup(env.DB));
-    if (shouldPruneSecurityRollups(_event?.scheduledTime))
-      ctx.waitUntil(pruneSecurityRollups(env.DB));
+    // Always clean expired messages/nonces on the existing 5-minute cron.
+    // Once per hour record one tiny D1 checkpoint based on DELETE metadata.
+    // Optional migration failure must not impact existing message cleanup.
+    ctx.waitUntil((async () => {
+      const cleaned = await cleanup(env.DB);
+      if (shouldPruneSecurityRollups(_event?.scheduledTime)) {
+        const security = await pruneSecurityRollups(env.DB);
+        await recordMaintenanceCheckpoint(env.DB, cleaned, security, _event.scheduledTime);
+      }
+    })());
   },
 };
