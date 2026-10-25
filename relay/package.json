@@ -9,7 +9,7 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "configure": "node tools/configure.mjs",
-    "check": "node --check src/worker.js && node --check src/entrypoint.js && node --check src/device-telemetry.js && node --check src/security-rollups.js && node --check src/protocol.js && npm test",
+    "check": "node --check src/worker.js && node --check src/entrypoint.js && node --check src/device-telemetry.js && node --check src/security-rollups.js && node --check src/maintenance.js && node --check src/protocol.js && npm test",
     "dry-run": "wrangler deploy --dry-run --outdir dist",
     "check-bundle": "node tools/check-bundle.mjs"
   },
