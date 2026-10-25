@@ -160,6 +160,26 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
  а старі агрегати безпеки перевіряє щогодини. Відкликані реєстрації пристроїв та
  неотримані документи автоматично через поріг R2 у 5 ГБ не видаляємо.</div>
 </section>
+<section class="panel section" aria-label="Контроль автоматичного очищення">
+<div class="chart-head"><div><h2 style="margin:0 0 6px">Автоматичне очищення · контроль роботи</h2>
+<p class="dim">Показуємо тільки останній погодинний контрольний знімок Relay, без повторного читання таблиць документів.</p></div>
+<span id="cleanup-pill" class="pill">Очікуємо стан</span></div>
+<div class="columns">
+<div class="read-only"><h3>Службове очищення Relay</h3>
+<p id="cleanup-status" role="status" aria-live="polite">Отримуємо контрольну відмітку…</p>
+<div class="stats" style="margin-top:13px">
+<div class="small-card"><b id="cleanup-msg">—</b><div>Прострочені повідомлення, видалено під час контрольного запуску</div></div>
+<div class="small-card"><b id="cleanup-nonces">—</b><div>Прострочені nonce, видалено під час запуску</div></div>
+<div class="small-card"><b id="cleanup-receipts">—</b><div>Прострочені підтвердження, видалено під час запуску</div></div>
+<div class="small-card"><b id="cleanup-rate">—</b><div>Старі ліміти частоти, видалено під час запуску</div></div>
+</div>
+<p id="cleanup-security" style="margin-top:10px">Стан очищення журналу безпеки — перевіряємо.</p></div>
+<div class="read-only"><h3>Збереження та квоти</h3>
+<p>Relay: повідомлення й службові TTL перевіряються кожні 5 хвилин.
+Контрольна відмітка записується в один рядок D1 щогодини. Це не підрахунок за всю годину і не поточна кількість прострочених записів.</p>
+<p style="margin-top:12px">Control: старіші за 30 днів знімки тепер видаляються автоматично о 03:17 UTC щодня, навіть якщо сторінка закрита.</p>
+<p style="margin-top:12px">Журнал безпеки Relay: очищення щогодини (30 днів). Тимчасові файли R2 у <code>transfers/</code>: політика 7 днів. Основна черга й відкликані реєстрації не очищуються достроково заради квот.</p></div>
+</div></section>
 <section class="section columns" aria-label="Контроль безпеки">
 <div class="read-only"><h3>Журнал безпеки Relay</h3>
 <p id="security-status" role="status" aria-live="polite">Завантаження захищеної статистики…</p>
@@ -184,7 +204,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="small-card"><b id="device-revoked">—</b><div>Відкликані</div></div>
 </div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p></div>
 </section>
-<div class="footer">MaVka Server Control 0.5.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.6.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -399,6 +419,30 @@ async function loadTrends(){
  drawTrends(t);
 }
 let loading=false;
+function showMaintenance(result){
+ const pill=q('cleanup-pill'),status=q('cleanup-status');
+ const ids=['cleanup-msg','cleanup-nonces','cleanup-receipts','cleanup-rate'];
+ if(!result?.data || !['ready','stale'].includes(result.state)){
+  pill.textContent='Немає контрольного знімка';
+  status.textContent='Поки немає погодинного звіту. Потрібна одна окрема таблиця в D1 Relay й наступний плановий погодинний цикл.';
+  for(const id of ids)q(id).textContent='—';
+  q('cleanup-security').textContent='Очищення журналу безпеки: даних немає.';
+  return;
+ }
+ const d=result.data,at=new Date(d.checkedAt*1000).toLocaleString('uk-UA');
+ const stale=result.state==='stale';
+ pill.textContent=stale?'Увага · немає свіжого підтвердження':'Очищення підтверджено';
+ status.textContent='Контрольний запуск: '+at+' · '+Math.floor(d.ageSeconds/60)+' хв тому'+
+  (stale?' · знімок старіший за 90 хв, перевір Cron Triggers':' · дані актуальні');
+ const counts=d.deletionCounts||{};
+ for(const [id,key] of [['cleanup-msg','deleted_messages'],['cleanup-nonces','deleted_nonces'],
+  ['cleanup-receipts','deleted_receipts'],['cleanup-rate','deleted_rate_windows']])
+  setMetric(id,counts[key]);
+ q('cleanup-security').textContent='Журнал безпеки: '+(d.securityPruneSucceeded
+   ? 'плановий запуск очищення успішний'
+   : 'результат очищення не підтверджено — перевір Workers Logs')+
+   ' · видалено під час знімка: '+fmt(counts.deleted_security_rollups)+'.';
+}
 function showDevices(result){
  const status=q('devices-status');
  if(result?.state!=='ready'||!result.data){
@@ -482,12 +526,13 @@ function showSecurity(result){
 async function refresh(){
  if(loading)return;loading=true;q('refresh').disabled=true;state('Читаємо Cloudflare…');
  try {
-  const results=await Promise.allSettled([get('/api/summary'),loadHistory(),loadTrends(),get('/api/security'),get('/api/devices')]);
+  const results=await Promise.allSettled([get('/api/summary'),loadHistory(),loadTrends(),get('/api/security'),get('/api/devices'),get('/api/maintenance')]);
   if(results[0].status==='fulfilled')show(results[0].value);
   else {state('Не вдалося отримати аналітику',true);q('notice').className='notice warn';
     q('notice').textContent='Аналітика тимчасово недоступна. Авторизуйся знову через Cloudflare Access за потреби.'}
   showSecurity(results[3].status==='fulfilled'?results[3].value:null);
   showDevices(results[4].status==='fulfilled'?results[4].value:null);
+  showMaintenance(results[5].status==='fulfilled'?results[5].value:null);
  } finally {loading=false;q('refresh').disabled=false}
 }
 async function setPeriod(period){
