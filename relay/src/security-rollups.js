@@ -156,9 +156,11 @@ export async function readSecurityRollups(db, now = Math.floor(Date.now()/1000))
   } catch { return unavailable('migration_or_database_unavailable'); }
 }
 export async function pruneSecurityRollups(db, now = Math.floor(Date.now()/1000)) {
-  if (!db?.prepare) return;
+  if (!db?.prepare) return { success:false, deleted:null };
   try {
-    await db.prepare('DELETE FROM relay_security_rollups WHERE bucket_start < ?')
+    const result = await db.prepare('DELETE FROM relay_security_rollups WHERE bucket_start < ?')
       .bind(now - RETENTION_SECONDS).run();
-  } catch { /* Older installations may not yet have this optional table. */ }
+    return {success:result?.success!==false,
+      deleted:Number.isSafeInteger(result?.meta?.changes)?result.meta.changes:null};
+  } catch { return {success:false,deleted:null}; /* Migration may be absent. */ }
 }
