@@ -1,4 +1,4 @@
-# MaVka Server Control 0.5.0 — separate, read-only Cloudflare console
+# MaVka Server Control 0.6.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -10,8 +10,8 @@ does **not** modify, proxy or call the MaVka message API.
   telemetry, 15-minute browser/isolate refresh, quota guides and compact
   30-day snapshots (at most one per quarter hour).
 - **Read-only** API: `GET /`, `GET /api/summary`,
-  `GET /api/history`, `GET /api/trends`, `GET /api/security`, `GET /api/about`.
-- No cron, no automatic polling after the tab closes, no relay device access,
+  `GET /api/history`, `GET /api/trends`, `GET /api/security`, `GET /api/maintenance`, `GET /api/about`.
+- One UTC daily cron for local D1 expiry pruning, but no browser polling after the tab closes, no direct relay device access,
   no R2 object listing, no relay D1 bindings, and no mutation endpoint.
 - Workers usage is **mavka-relay only**, not account-wide billable requests;
   D1 row counts are account-wide; R2 current bucket bytes are **not** GB-months.
@@ -84,6 +84,38 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 0.6 — automatic cleanup health monitoring
+
+- A new Cloudflare Cron Trigger on `mavka-server-control`, `17 3 * * *`
+  (03:17 UTC daily), runs ONE indexed DELETE to prune `usage_snapshots`
+  older than 30 days, even when the admin UI is closed.
+  The former DELETE on EVERY stats view was removed to save D1 queries.
+  No additional D1 schema migration is needed for the Control database.
+- The existing `mavka-relay` cron **continues** its 5-minute TTL
+  cleanup of messages, nonces, request windows and receipts, plus hourly
+  30-day pruning of security rollups. It now writes ONE anonymous
+  hourly maintenance checkpoint to a singleton D1 row. It uses D1's
+  existing DELETE `meta.changes` values (no extra expiry COUNT scans).
+- To enable the checkpoint, after saving a D1 Time Travel bookmark or
+  SQL backup, manually apply `relay/migrations/0004_maintenance_status.sql`
+  ONLY to `mavka-messages`. The new table does not alter messages,
+  devices or security history. Without the optional migration the existing
+  TTL cleanup continues unaffected and the dashboard shows `not_connected`.
+- The authenticated `GET /api/maintenance` uses the existing private named
+  `RelayTelemetry.getMaintenanceStatus()` RPC, with strict whitelist and
+  a 5-minute isolate cache. Stale snapshots are highlighted after 90 minutes.
+  Values are **rows deleted in the last sampled hourly cleanup only**,
+  NOT hourly totals and NOT the current expired backlog. Cloudflare Cron
+  Events remain authoritative for each run.
+- Approximate added cost: **1 small D1 UPSERT per hour in Relay** (24/day,
+  <=744 per 31-day month), **1 Control D1 DELETE and one Control Worker
+  scheduled invocation daily**. No per-request security logs, extra GraphQL
+  queries, scanning of message contents, new API tokens or R2 objects.
+  Existing read-only/admin access remains required for every HTTP API.
+- R2 has a separate **seven-day lifecycle only under `transfers/`**.
+  Do NOT delete undelivered documents or revoked-device denylist records
+  as a blanket storage-pressure response.
 
 ## Version 0.5 — conservative monitoring within free-tier quotas
 - **No new database/table/token, no external script, no new cron and no
