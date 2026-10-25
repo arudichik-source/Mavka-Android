@@ -3,6 +3,7 @@ import { readAnalytics } from './analytics.js';
 import { devicesSummary } from './devices.js';
 import { securitySummary } from './security.js';
 import { assessQuotaWarnings, RETENTION_INFO } from './alerts.js';
+import { maintenanceSummary, pruneControlHistory } from './maintenance.js';
 import { parsePeriod, parseBefore, readHistoryPage, readTrends } from './history.js';
 import { html } from './ui.js';
 
@@ -47,10 +48,9 @@ function storeSnapshot(db, data) {
       data.workers?.requestsToday ?? null, data.workers?.errorsToday ?? null,
       data.d1?.rowsReadToday ?? null, data.d1?.rowsWrittenToday ?? null,
       data.r2?.storage?.bytes ?? null, data.r2?.storage?.objects ?? null);
-  // Compact rolling history. No schedule, no raw logs, no sensitive data.
-  const pruning = db.prepare('DELETE FROM usage_snapshots WHERE bucket_start < ?')
-    .bind(bucket - 30 * 86400);
-  return db.batch([insertion, pruning]);
+  // One insert per unique 15-minute bucket. History pruning now runs once
+  // daily, even when nobody opens the dashboard. Avoid a DELETE per view.
+  return insertion.run();
 }
 export default {
   async fetch(request, env, ctx) {
@@ -94,6 +94,7 @@ export default {
       return json(await readHistoryPage(env.CONTROL_DB, period, before));
     }
     if (url.pathname === '/api/devices' && !url.search) return json(await devicesSummary(env));
+    if (url.pathname === '/api/maintenance' && !url.search) return json(await maintenanceSummary(env));
     if (url.pathname === '/api/security') {
       if (url.search) return json({ error: 'invalid_query' }, 400);
       // Private named Relay RPC returns bounded aggregate counters only.
@@ -101,7 +102,7 @@ export default {
       return json(await securitySummary(env));
     }
     if (url.pathname === '/api/about' && !url.search) return json({
-      application: 'MaVka Server Control', version: '0.5.0',
+      application: 'MaVka Server Control', version: '0.6.0',
       mode: 'read_only', refreshSeconds: 900,
       storage: env.CONTROL_DB?.prepare ? 'bound' : 'not_bound',
       analyticsConfigured: Boolean(env.CF_ACCOUNT_ID && env.CF_ANALYTICS_TOKEN),
@@ -109,5 +110,11 @@ export default {
       alertMode: 'on_dashboard_refresh_no_background_notifier',
     });
     return json({ error: 'not_found' }, 404);
+  },
+  async scheduled(_event, env, ctx) {
+    // Daily UTC maintenance, 1 DELETE/day regardless of dashboard visits.
+    ctx.waitUntil(pruneControlHistory(env.CONTROL_DB).then(result => {
+      if(result.state!=='ready') throw Error('control_daily_retention_failed');
+    }));
   },
 };
