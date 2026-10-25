@@ -7,6 +7,7 @@ import worker, { cleanup } from '../src/worker.js';
 import { SECURITY_EVENT, securityEvent } from '../src/security-audit.js';
 import { flushSecurityRollups, readSecurityRollups, pruneSecurityRollups, queueSecurityRollup, shouldPruneSecurityRollups } from '../src/security-rollups.js';
 import { readDeviceTelemetry } from '../src/device-telemetry.js';
+import { readMaintenanceCheckpoint, recordMaintenanceCheckpoint, shouldWriteMaintenanceCheckpoint } from '../src/maintenance.js';
 import { ApiError } from '../src/protocol.js';
 import { signedRequest, verifyDelivery, base64url, MAX_TTL } from '../src/protocol.js';
 import { configuration } from '../tools/configure.mjs';
@@ -25,7 +26,7 @@ async function fixture(t) {
   const main = await identity();
   const options = { cf: { country: 'UA' }, telemetry: { enabled: false }, workers: [{ name: 'relay',
     modulesRoot: fileURLToPath(new URL('../', import.meta.url)),
-    modules: ['worker.js', 'protocol.js', 'security-audit.js', 'security-rollups.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
+    modules: ['worker.js', 'protocol.js', 'security-audit.js', 'security-rollups.js', 'maintenance.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
     compatibilityDate: '2026-10-01', d1Databases: { DB: 'relay-tests' },
     bindings: { RELAY_ADMIN_DEVICE_ID: main.deviceId, RELAY_ADMIN_SIGNING_KEY: JSON.stringify(main.publicSigningKey) } }] };
   const mf = new Miniflare(convertV4MiniflareOptions(options));
@@ -469,4 +470,52 @@ test('14-day signal history is bounded by date and suppresses detailed origin in
  for(const item of d.signalDays){
   assert.deepEqual(Object.keys(item).sort(),['count','dayStart','reason'].sort());
  }
+});
+
+test('hourly maintenance checkpoint uses actual DELETE metadata; no extra expiry scans',async t=>{
+ const f=await fixture(t);
+ const now=seconds(), hourMs=Math.floor(Date.now()/3600000)*3600000;
+ const sql=await readFile(new URL('../migrations/0004_maintenance_status.sql',import.meta.url),'utf8');
+ await f.db.batch(sql.replace(/--[^\n]*/g,'').split(';').map(s=>s.trim()).filter(Boolean)
+   .map(s=>f.db.prepare(s)));
+ const secSql=await readFile(new URL('../migrations/0003_security_rollups.sql',import.meta.url),'utf8');
+ await f.db.batch(secSql.replace(/--[^\n]*/g,'').split(';').map(s=>s.trim()).filter(Boolean)
+   .map(s=>f.db.prepare(s)));
+ await f.db.prepare('INSERT INTO relay_nonces(device_id,nonce,expires_at) VALUES (?,?,?)')
+  .bind(f.main.deviceId,'sample-expired-nonce',now-100).run();
+ await f.db.prepare('INSERT INTO relay_rate_windows(device_id,window_start,requests) VALUES (?,?,?)')
+  .bind(f.main.deviceId,now-3600,1).run();
+ const promises=[];
+ await worker.scheduled({scheduledTime:hourMs},{DB:f.db},{waitUntil:p=>promises.push(p)});
+ await Promise.all(promises);
+ const status=await readMaintenanceCheckpoint(f.db,Math.floor(hourMs/1000)+60);
+ assert.equal(status.state,'ready');
+ assert.equal(status.data.checkedAt,Math.floor(hourMs/1000));
+ assert.equal(status.data.deletionCounts.deleted_nonces,1);
+ assert.equal(status.data.deletionCounts.deleted_rate_windows,1);
+ assert.equal(status.data.deletionCounts.deleted_messages,0);
+ assert.equal(status.data.securityPruneSucceeded,true);
+ assert.equal(Object.keys(status.data.deletionCounts).length,5);
+ const raw=JSON.stringify(status);
+ assert.equal(raw.includes(f.main.deviceId),false);
+ assert.equal(raw.includes('sample-expired-nonce'),false);
+ assert.equal((await readMaintenanceCheckpoint(f.db,Math.floor(hourMs/1000)+6000)).state,'stale');
+ const before=status.data.checkedAt;
+ const again=[];
+ await worker.scheduled({scheduledTime:hourMs+5*60000},{DB:f.db},{waitUntil:p=>again.push(p)});
+ await Promise.all(again);
+ assert.equal((await readMaintenanceCheckpoint(f.db,Math.floor(hourMs/1000)+60)).data.checkedAt,before);
+});
+test('hourly report fails closed without optional D1 migration; five-minute cleanup still works',async t=>{
+ const f=await fixture(t);
+ assert.equal(shouldWriteMaintenanceCheckpoint(Date.UTC(2026,9,25,12)),true);
+ assert.equal(shouldWriteMaintenanceCheckpoint(Date.UTC(2026,9,25,12,5)),false);
+ const tasks=[];
+ await worker.scheduled({scheduledTime:Date.UTC(2026,9,25,12)},
+  {DB:f.db},{waitUntil:p=>tasks.push(p)});
+ await Promise.all(tasks);
+ assert.equal((await readMaintenanceCheckpoint(f.db)).state,'not_connected');
+ assert.equal(await recordMaintenanceCheckpoint(f.db,Array(4).fill({meta:{changes:0}}),
+  {success:true,deleted:0},Date.UTC(2026,9,25,13)),false);
+ assert.equal((await f.dispatch(new Request(origin+'/health'))).status,200);
 });
