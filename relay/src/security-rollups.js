@@ -28,6 +28,12 @@ const COUNTRIES = new Set(['UA','non_UA','unknown']);
 const PRINCIPALS = new Set(['verified_main','verified_mobile','unverified']);
 const validStatus = n => Number.isInteger(n) && n >= 400 && n <= 599;
 const integer = n => Number.isSafeInteger(n) && n >= 0 ? n : 0;
+const SIGNAL_REASONS = new Set(['auth_signature_invalid','request_replayed',
+  'auth_main_binding_invalid','country_not_allowed','rate_limited','other']);
+// Security retention runs only hourly although Relay message cleanup stays
+// every five minutes. A no-op deletion every five minutes wastes D1 queries.
+export const shouldPruneSecurityRollups = scheduledTime =>
+  Number.isFinite(scheduledTime) && Math.floor(scheduledTime/60000)%60===0;
 const buf = new Map();
 let eventsInBuffer = 0, lastFlushMs = 0, flushing = false;
 
@@ -93,7 +99,7 @@ export function queueSecurityRollup(event, env, ctx, now = Date.now()) {
 
 const unavailable = reason => ({state:'not_connected', reason, source:'relay_aggregate_d1',
   coverage:'best_effort', periodHours:24, total24h:null, total7d:null,
-  byReason:[], byCountry:[], byHour:[]});
+  byReason:[], byCountry:[], byHour:[], signalDays:[]});
 function sanitizeRows(rows, max, mapper) {
   return (rows||[]).slice(0,max).map(mapper).filter(Boolean);
 }
@@ -101,7 +107,7 @@ export async function readSecurityRollups(db, now = Math.floor(Date.now()/1000))
   if (!db?.prepare) return unavailable('db_not_bound');
   try {
     const start24 = now - 86400, start7 = now - 7*86400;
-    const [totals,reasonRows,countries,hours] = await db.batch([
+    const [totals,reasonRows,countries,hours,days] = await db.batch([
       db.prepare(`SELECT COALESCE(SUM(CASE WHEN bucket_start>=? THEN events ELSE 0 END),0) AS events_24h,
         COALESCE(SUM(events),0) AS events_7d
         FROM relay_security_rollups WHERE bucket_start>=?`).bind(start24,start7),
@@ -114,6 +120,16 @@ export async function readSecurityRollups(db, now = Math.floor(Date.now()/1000))
       db.prepare(`SELECT CAST(bucket_start/3600 AS INTEGER)*3600 AS hour_start,
         SUM(events) AS count FROM relay_security_rollups WHERE bucket_start>=?
         GROUP BY CAST(bucket_start/3600 AS INTEGER) ORDER BY hour_start ASC LIMIT 25`).bind(start24),
+      // Only six coarse reasons for 14 days, at most 90 groups. This is
+      // computed on existing 30-day rollups, no extra D1 writes or incident DB.
+      db.prepare(`SELECT CAST(bucket_start/86400 AS INTEGER)*86400 AS day_start,
+        CASE WHEN reason IN ('auth_signature_invalid','request_replayed',
+          'auth_main_binding_invalid','country_not_allowed','rate_limited')
+          THEN reason ELSE 'other' END AS signal_reason,
+        SUM(events) AS count
+        FROM relay_security_rollups WHERE bucket_start >= ?
+        GROUP BY CAST(bucket_start/86400 AS INTEGER), signal_reason
+        ORDER BY day_start DESC, signal_reason ASC LIMIT 90`).bind(now - 14*86400),
     ]);
     const count24 = integer(totals.results?.[0]?.events_24h);
     const count7 = integer(totals.results?.[0]?.events_7d);
@@ -130,6 +146,12 @@ export async function readSecurityRollups(db, now = Math.floor(Date.now()/1000))
       byHour:sanitizeRows(hours.results,25,row=>
         Number.isSafeInteger(row.hour_start)&&row.hour_start>=0
           ? {hourStart:row.hour_start,count:integer(row.count)}:null),
+      // 14-day anonymous incident *signals*, not full forensic history.
+      // Includes no route, principal, IP, device, headers or payload fields.
+      signalDays:sanitizeRows(days.results,90,row=>
+        Number.isSafeInteger(row.day_start)&&row.day_start>=0&&
+        SIGNAL_REASONS.has(row.signal_reason)
+          ? {dayStart:row.day_start,reason:row.signal_reason,count:integer(row.count)}:null),
     };
   } catch { return unavailable('migration_or_database_unavailable'); }
 }

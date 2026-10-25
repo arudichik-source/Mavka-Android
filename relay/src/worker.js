@@ -1,7 +1,7 @@
 import { ApiError, VERSION, MAX_BODY, MAX_TTL, requireValue, object, id, publicKey,
   decodeUrl, messageBody, fingerprint, signingInput, encoder } from './protocol.js';
 import { reportSecurityEvent } from './security-audit.js';
-import { queueSecurityRollup, pruneSecurityRollups } from './security-rollups.js';
+import { queueSecurityRollup, pruneSecurityRollups, shouldPruneSecurityRollups } from './security-rollups.js';
 
 const SKEW = 300;
 const MAX_DEVICES = 500;
@@ -280,6 +280,7 @@ export default {
   },
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(cleanup(env.DB));
-    ctx.waitUntil(pruneSecurityRollups(env.DB));
+    if (shouldPruneSecurityRollups(_event?.scheduledTime))
+      ctx.waitUntil(pruneSecurityRollups(env.DB));
   },
 };
