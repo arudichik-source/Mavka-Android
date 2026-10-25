@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import worker, { cleanup } from '../src/worker.js';
 import { SECURITY_EVENT, securityEvent } from '../src/security-audit.js';
-import { flushSecurityRollups, readSecurityRollups, pruneSecurityRollups, queueSecurityRollup } from '../src/security-rollups.js';
+import { flushSecurityRollups, readSecurityRollups, pruneSecurityRollups, queueSecurityRollup, shouldPruneSecurityRollups } from '../src/security-rollups.js';
 import { readDeviceTelemetry } from '../src/device-telemetry.js';
 import { ApiError } from '../src/protocol.js';
 import { signedRequest, verifyDelivery, base64url, MAX_TTL } from '../src/protocol.js';
@@ -393,6 +393,10 @@ test('security rollup aggregation uses only bounded allowlisted anonymous dimens
   assert.deepEqual(dashboard.byCountry,[{scope:'UA',count:5}]);
   assert.equal(dashboard.byHour.length,1);
   assert.equal(dashboard.byHour[0].count,5);
+  assert.deepEqual(dashboard.signalDays,[{
+    dayStart:Math.floor(bucket/86400)*86400,
+    reason:'auth_signature_invalid',count:5,
+  }]);
   for(const forbidden of ['device_id','x-mavka','clientIp','nonce','signature','message','email','publicKey']){
     assert.equal(Object.keys(dashboard).some(k=>k===forbidden),false);
   }
@@ -431,4 +435,38 @@ test('untrusted security event metadata is converted to fixed enum categories be
   for(const secret of ['LEAK-PRIVATE-TOKEN','CLIENT-CONTROLLED-IP','path/privateDeviceID','PRIVATE_UNKNOWN','malicious'])
     assert.equal(values.includes(secret),false);
   assert.equal(values.includes('request_rejected'),true);
+});
+
+test('30-day security cleanup is hourly rather than every Relay five-minute cycle',()=>{
+ const t=Date.UTC(2026,9,25,12,0,0);
+ assert.equal(shouldPruneSecurityRollups(t),true);
+ assert.equal(shouldPruneSecurityRollups(t+5*60000),false);
+ assert.equal(shouldPruneSecurityRollups(t+55*60000),false);
+ assert.equal(shouldPruneSecurityRollups(t+60*60000),true);
+ assert.equal(shouldPruneSecurityRollups(undefined),false);
+});
+test('14-day signal history is bounded by date and suppresses detailed origin information',async t=>{
+ const f=await fixture(t);
+ const migration=await readFile(new URL('../migrations/0003_security_rollups.sql',import.meta.url),'utf8');
+ await f.db.batch(migration.replace(/--[^\n]*/g,'').split(';')
+  .map(s=>s.trim()).filter(Boolean).map(sql=>f.db.prepare(sql)));
+ const now=seconds(),hour=Math.floor(now/900)*900;
+ const sample=(bucket,reason,events=1)=>({
+  bucket,category:'authentication',reason,country:'non_UA',
+  route:'other',status:401,principal:'unverified',events,
+ });
+ assert.equal(await flushSecurityRollups(f.db,[
+  sample(hour,'request_replayed',3),
+  sample(hour-4*86400,'rate_limited',7),
+  sample(hour-16*86400,'country_not_allowed',5),
+ ]),true);
+ const d=await readSecurityRollups(f.db,now);
+ assert.equal(d.state,'ready');
+ assert.equal(d.signalDays.length,2);
+ assert.equal(d.signalDays.some(x=>x.reason==='country_not_allowed'),false);
+ assert.equal(d.signalDays.some(x=>x.reason==='request_replayed'),true);
+ assert.equal(d.signalDays.some(x=>x.reason==='rate_limited'),true);
+ for(const item of d.signalDays){
+  assert.deepEqual(Object.keys(item).sort(),['count','dayStart','reason'].sort());
+ }
 });
