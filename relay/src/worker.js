@@ -280,6 +280,7 @@ export default {
   },
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(cleanup(env.DB));
-    ctx.waitUntil(pruneSecurityRollups(env.DB));
+    if (shouldPruneSecurityRollups(_event?.scheduledTime))
+      ctx.waitUntil(pruneSecurityRollups(env.DB));
   },
 };
