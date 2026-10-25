@@ -95,7 +95,7 @@ test('dashboard client JavaScript parses and 0.2 history elements exist',()=>{
     'more-history','security-status','chart-coverage']){
     assert.ok(html.includes('id="'+id+'"'),id);
   }
-  assert.ok(html.includes('MaVka Server Control 0.5.0'));
+  assert.ok(html.includes('MaVka Server Control 0.6.0'));
   assert.ok(html.includes('id="export-history"'));
   assert.ok(html.includes('id="history-export-status"'));
   assert.ok(html.includes('zoomToSamples'));
