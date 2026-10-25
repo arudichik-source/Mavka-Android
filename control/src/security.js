@@ -1,3 +1,4 @@
+import { assessIncidentSignals } from './alerts.js';
 // Only bounded aggregate reasons from the named private Relay RPC.
 // This Control Worker never receives, stores, or reads raw security logs.
 const REASONS = new Set([
@@ -14,6 +15,8 @@ const REASONS = new Set([
 const CATEGORIES = new Set(['authentication','perimeter','authorization','replay',
  'rate_limit','route_or_resource','service','invalid_request']);
 const SCOPES = new Set(['UA','non_UA','unknown']);
+const SIGNAL_CODES = new Set(['auth_signature_invalid','request_replayed',
+  'auth_main_binding_invalid','country_not_allowed','rate_limited','other']);
 const ok = n => Number.isSafeInteger(n)&&n>=0;
 const missing = reason => ({state:'not_connected',source:'relay_aggregate_d1',
   reason,data:null,coverage:'best_effort'});
@@ -31,6 +34,11 @@ export async function securitySummary(env, now=Date.now()){
      raw.total24h>raw.total7d||!Array.isArray(raw.byReason)||
      !Array.isArray(raw.byCountry)||!Array.isArray(raw.byHour))
      return missing('migration_or_telemetry_unavailable');
+   const signalDays=raw.signalDays===undefined?null:raw.signalDays;
+   if(signalDays!==null && (!Array.isArray(signalDays)||signalDays.length>90||
+     !signalDays.every(x=>x&&SIGNAL_CODES.has(x.reason)&&ok(x.dayStart)&&
+     x.dayStart%86400===0&&ok(x.count))))
+     return missing('invalid_risk_signal_shape');
    if(raw.byReason.length>12||raw.byCountry.length>3||raw.byHour.length>25 ||
      !raw.byReason.every(r=>r&&CATEGORIES.has(r.category)&&REASONS.has(r.reason)&&ok(r.count))||
      !raw.byCountry.every(x=>x&&SCOPES.has(x.scope)&&ok(x.count))||
@@ -44,6 +52,9 @@ export async function securitySummary(env, now=Date.now()){
      byReason:raw.byReason.map(x=>({category:x.category,reason:x.reason,count:x.count})),
      byCountry:raw.byCountry.map(x=>({scope:x.scope,count:x.count})),
      byHour:raw.byHour.map(x=>({hourStart:x.hourStart,count:x.count})),
+     // No separate incident database; a bounded history derived from
+     // already-retained 14-day aggregates (no extra writes).
+     risk:assessIncidentSignals(signalDays,raw.observedAt),
      // These are observed aggregate counts, never proven global totals.
      limitations:'Approximate, may undercount due to Worker isolate buffering. Cloudflare Observability is the source for individual events.',
    };
