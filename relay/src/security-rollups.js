@@ -99,7 +99,7 @@ export function queueSecurityRollup(event, env, ctx, now = Date.now()) {
 
 const unavailable = reason => ({state:'not_connected', reason, source:'relay_aggregate_d1',
   coverage:'best_effort', periodHours:24, total24h:null, total7d:null,
-  byReason:[], byCountry:[], byHour:[]});
+  byReason:[], byCountry:[], byHour:[], signalDays:[]});
 function sanitizeRows(rows, max, mapper) {
   return (rows||[]).slice(0,max).map(mapper).filter(Boolean);
 }
