@@ -23,6 +23,7 @@ export function configuration(env) {
       traces: { enabled: false },
       issues: { enabled: false },
     },
+    triggers: { crons: ['17 3 * * *'] }, // one daily purge, 03:17 UTC
     services: [{ binding: 'RELAY_TELEMETRY', service: 'mavka-relay',
       entrypoint: 'RelayTelemetry' }],
     d1_databases: [{
