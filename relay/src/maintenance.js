@@ -1,6 +1,7 @@
 // Minimal once-per-hour cleanup checkpoint from EXISTING deletion results.
 // No extra table scans, no device IDs, keys, message contents or IPs.
 // One D1 UPSERT/hour into the fixed id=1 row; missing migration is safe.
+import { readR2AuditFromRow } from './r2-audit.js';
 const okCount = value => Number.isSafeInteger(value) && value>=0 ? value : null;
 const countFrom = result => okCount(result?.meta?.changes);
 export const shouldWriteMaintenanceCheckpoint = scheduledTime =>
@@ -36,10 +37,9 @@ const unavailable=reason=>({state:'not_connected',reason,data:null});
 export async function readMaintenanceCheckpoint(db,now=Math.floor(Date.now()/1000)){
  if(!db?.prepare)return unavailable('db_not_bound');
  try{
-   const row=await db.prepare(`SELECT last_checked_at,deleted_messages,
-     deleted_nonces,deleted_rate_windows,deleted_receipts,
-     deleted_security_rollups,security_prune_ok
-     FROM relay_maintenance_status WHERE id=1`).first();
+   // Only the existing SINGLE row is read. SELECT * keeps migration 0005
+   // optional; no SQL error when new columns are absent.
+   const row=await db.prepare('SELECT * FROM relay_maintenance_status WHERE id=1').first();
    if(!row)return unavailable('no_hourly_checkpoint_yet');
    const at=row.last_checked_at;
    if(!Number.isSafeInteger(at)||at<0||at>now+300)
@@ -53,6 +53,7 @@ export async function readMaintenanceCheckpoint(db,now=Math.floor(Date.now()/100
      deletionCounts:Object.fromEntries(counters.map(k=>[
        k,okCount(row[k])])),
      securityPruneSucceeded:row.security_prune_ok===1,
+     r2Audit:readR2AuditFromRow(row,now),
    };
    return {state:age>5400?'stale':'ready',source:'relay_private_d1',
      data,note:'Numbers describe one hourly sampled cleanup, NOT the whole hour, not current pending expirations.'};
