@@ -280,14 +280,36 @@ export default {
     }
   },
   async scheduled(_event, env, ctx) {
-    // Always clean expired messages/nonces on the existing 5-minute cron.
-    // Once per hour record one tiny D1 checkpoint based on DELETE metadata.
-    // Optional migration failure must not impact existing message cleanup.
+    // The existing five-minute message/nonce TTL cleanup remains mandatory.
+    // At most ONE additional privacy-safe log entry per hour. No IPs, device
+    // identifiers, request data, SQL errors, or arbitrary exception strings.
+    const hourly = shouldPruneSecurityRollups(_event?.scheduledTime);
     ctx.waitUntil((async () => {
-      const cleaned = await cleanup(env.DB);
-      if (shouldPruneSecurityRollups(_event?.scheduledTime)) {
-        const security = await pruneSecurityRollups(env.DB);
-        await recordMaintenanceCheckpoint(env.DB, cleaned, security, _event.scheduledTime);
+      try {
+        const cleaned = await cleanup(env.DB);
+        if (hourly) {
+          const security = await pruneSecurityRollups(env.DB);
+          const stored = await recordMaintenanceCheckpoint(
+            env.DB, cleaned, security, _event.scheduledTime);
+          console.info(JSON.stringify({
+            event: 'MAVKA_RELAY_MAINTENANCE_V1',
+            outcome: stored && security?.success === true ? 'ok' : 'degraded',
+            ttlCleanup: 'ok',
+            securityPrune: security?.success === true ? 'ok' : 'failed',
+            checkpoint: stored ? 'stored' : 'not_stored',
+          }));
+        }
+      } catch {
+        // Workers Logs already captures the failed invocation; this code
+        // identifies a failed hourly cleanup without exposing SQL or IDs.
+        if (hourly) {
+          console.warn(JSON.stringify({
+            event: 'MAVKA_RELAY_MAINTENANCE_V1',
+            outcome: 'failed',
+            reason: 'ttl_cleanup_failed',
+          }));
+        }
+        throw new Error('relay_maintenance_failed');
       }
     })());
   },
