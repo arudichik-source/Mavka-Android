@@ -3,6 +3,7 @@ import { ApiError, VERSION, MAX_BODY, MAX_TTL, requireValue, object, id, publicK
 import { reportSecurityEvent } from './security-audit.js';
 import { queueSecurityRollup, pruneSecurityRollups, shouldPruneSecurityRollups } from './security-rollups.js';
 import { recordMaintenanceCheckpoint } from './maintenance.js';
+import { shouldAuditR2, scanR2Transfers, recordR2Audit } from './r2-audit.js';
 
 const SKEW = 300;
 const MAX_DEVICES = 500;
@@ -298,6 +299,20 @@ export default {
             securityPrune: security?.success === true ? 'ok' : 'failed',
             checkpoint: stored ? 'stored' : 'not_stored',
           }));
+          // Scan temporary R2 metadata only once in six hours, bounded to
+          // one list of 500 entries. Never read/delete object contents.
+          // A failed optional R2 audit must never fail Relay TTL cleanup.
+          if (shouldAuditR2(_event?.scheduledTime)) {
+            const audit = await scanR2Transfers(
+              env.FILES, Math.floor(_event.scheduledTime/1000));
+            const saved = await recordR2Audit(env.DB,audit,_event.scheduledTime);
+            console.info(JSON.stringify({
+              event:'MAVKA_RELAY_R2_AUDIT_V1',
+              outcome:audit.state==='ready'&&saved?'ok':'unavailable',
+              audit:audit.state,checkpoint:saved?'stored':'not_stored',
+              truncated:audit.state==='ready'?audit.truncated:null,
+            }));
+          }
         }
       } catch {
         // Workers Logs already captures the failed invocation; this code
