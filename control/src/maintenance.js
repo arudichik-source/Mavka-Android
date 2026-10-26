@@ -4,6 +4,10 @@ const KEYS=['deleted_messages','deleted_nonces','deleted_rate_windows',
  'deleted_receipts','deleted_security_rollups'];
 const validCount=n=>n===null || (Number.isSafeInteger(n)&&n>=0);
 const missing=reason=>({state:'not_connected',reason,data:null});
+const REMOTE_MISSING=new Set([
+ 'db_not_bound','no_hourly_checkpoint_yet',
+ 'invalid_checkpoint','table_or_database_unavailable',
+]);
 let cached=null,cachedAt=0,pending=null;
 // A previously cached successful read must NEVER stay "ready" when its
 // checkpoint passes the 90-minute threshold. Re-evaluate age on EVERY HTTP
@@ -25,7 +29,9 @@ export async function maintenanceSummary(env,now=Date.now()){
  pending=(async()=>{
   try{
    const raw=await env.RELAY_TELEMETRY.getMaintenanceStatus();
-   if(!['ready','stale'].includes(raw?.state)||!raw.data)return missing('migration_or_rpc_unavailable');
+   if(!['ready','stale'].includes(raw?.state)||!raw.data)
+    return missing(REMOTE_MISSING.has(raw?.reason)
+     ? raw.reason : 'migration_or_rpc_unavailable');
    const d=raw.data;
    if(!Number.isSafeInteger(d.checkedAt)||d.checkedAt<0||
       !Number.isSafeInteger(d.ageSeconds)||d.ageSeconds<0||
