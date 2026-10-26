@@ -14,6 +14,11 @@ test('R2 scan occurs only once every 6 hours from existing five minute Cron',()=
  for(const hour of [0,6,12,18])assert.equal(shouldAuditR2(Date.UTC(2026,9,26,hour)),true);
  for(const hour of [1,3,7,13,23])assert.equal(shouldAuditR2(Date.UTC(2026,9,26,hour)),false);
  assert.equal(shouldAuditR2(t+5*60000),false);
+ // Cron.scheduledTime has millisecond precision; a nonzero seconds field
+ // must not skip the one intended UTC six-hour window.
+ assert.equal(shouldAuditR2(t+12345),true);
+ assert.equal(shouldAuditR2(t+59999),true);
+ assert.equal(shouldAuditR2(t-1),false);
  assert.equal(shouldAuditR2(null),false);
 });
 test('single capped metadata list exposes only anonymous age/size/count',async()=>{

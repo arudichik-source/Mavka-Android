@@ -298,6 +298,9 @@ export default {
             ttlCleanup: 'ok',
             securityPrune: security?.success === true ? 'ok' : 'failed',
             checkpoint: stored ? 'stored' : 'not_stored',
+            // Explain a skipped six-hour scan using the existing log event.
+            // No additional logging or D1/R2 requests.
+            r2AuditDue: shouldAuditR2(_event?.scheduledTime),
           }));
           // Scan temporary R2 metadata only once in six hours, bounded to
           // one list of 500 entries. Never read/delete object contents.

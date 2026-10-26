@@ -5,11 +5,16 @@
 // A 7-day lifecycle may take another ~24h to expire objects; caution >8 days.
 const PREFIX='transfers/';
 const LIMIT=500;
-const SIX_HOURS_MS=6*3600000;
+const SIX_HOURS_IN_MINUTES=6*60;
 const EIGHT_DAYS_SECONDS=8*86400;
 const valid=n=>Number.isSafeInteger(n)&&n>=0;
+// A five-minute Cron tick is represented by its UTC scheduled minute.
+// Do NOT require the runtime's millisecond/second fields to be precisely
+// zero: late or sub-minute scheduling metadata would silently skip R2.
+// This still selects exactly one of the ordinary 5-minute ticks per 6h.
 export const shouldAuditR2=ms=>
- Number.isSafeInteger(ms)&&ms>=0&&ms%SIX_HOURS_MS===0;
+ Number.isSafeInteger(ms)&&ms>=0&&
+ Math.floor(ms/60000)%SIX_HOURS_IN_MINUTES===0;
 
 const failed=state=>({state,scanned:null,bytes:null,overdue:null,
  oldestAgeSeconds:null,truncated:null});

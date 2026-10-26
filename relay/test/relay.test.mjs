@@ -528,7 +528,9 @@ test('scheduled six-hour R2 audit writes one sampled prefix checkpoint without t
    await f.db.batch(migration.replace(/--[^\n]*/g,'').split(';')
      .map(s=>s.trim()).filter(Boolean).map(sql=>f.db.prepare(sql)));
  }
- const scheduledMs=Date.UTC(2026,9,26,6,0);
+ // Simulate a scheduler timestamp inside the matching UTC minute, not
+ // exactly on the millisecond boundary. Production used to skip this.
+ const scheduledMs=Date.UTC(2026,9,26,6,0,17,0);
  let listing=0;
  const fakeR2={list:async options=>{
   listing++;
