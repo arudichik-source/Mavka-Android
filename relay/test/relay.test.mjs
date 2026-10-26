@@ -8,6 +8,7 @@ import { SECURITY_EVENT, securityEvent } from '../src/security-audit.js';
 import { flushSecurityRollups, readSecurityRollups, pruneSecurityRollups, queueSecurityRollup, shouldPruneSecurityRollups } from '../src/security-rollups.js';
 import { readDeviceTelemetry } from '../src/device-telemetry.js';
 import { readMaintenanceCheckpoint, recordMaintenanceCheckpoint, shouldWriteMaintenanceCheckpoint } from '../src/maintenance.js';
+import {scanR2Transfers,readR2AuditFromRow} from '../src/r2-audit.js';
 import { ApiError } from '../src/protocol.js';
 import { signedRequest, verifyDelivery, base64url, MAX_TTL } from '../src/protocol.js';
 import { configuration } from '../tools/configure.mjs';
@@ -26,7 +27,7 @@ async function fixture(t) {
   const main = await identity();
   const options = { cf: { country: 'UA' }, telemetry: { enabled: false }, workers: [{ name: 'relay',
     modulesRoot: fileURLToPath(new URL('../', import.meta.url)),
-    modules: ['worker.js', 'protocol.js', 'security-audit.js', 'security-rollups.js', 'maintenance.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
+    modules: ['worker.js', 'protocol.js', 'security-audit.js', 'security-rollups.js', 'maintenance.js', 'r2-audit.js'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url)) })),
     compatibilityDate: '2026-10-01', d1Databases: { DB: 'relay-tests' },
     bindings: { RELAY_ADMIN_DEVICE_ID: main.deviceId, RELAY_ADMIN_SIGNING_KEY: JSON.stringify(main.publicSigningKey) } }] };
   const mf = new Miniflare(convertV4MiniflareOptions(options));
@@ -517,5 +518,60 @@ test('hourly report fails closed without optional D1 migration; five-minute clea
  assert.equal((await readMaintenanceCheckpoint(f.db)).state,'not_connected');
  assert.equal(await recordMaintenanceCheckpoint(f.db,Array(4).fill({meta:{changes:0}}),
   {success:true,deleted:0},Date.UTC(2026,9,25,13)),false);
+ assert.equal((await f.dispatch(new Request(origin+'/health'))).status,200);
+});
+
+test('scheduled six-hour R2 audit writes one sampled prefix checkpoint without touching objects',async t=>{
+ const f=await fixture(t);
+ for(const name of ['0003_security_rollups.sql','0004_maintenance_status.sql','0005_r2_audit.sql']){
+   const migration=await readFile(new URL('../migrations/'+name,import.meta.url),'utf8');
+   await f.db.batch(migration.replace(/--[^\n]*/g,'').split(';')
+     .map(s=>s.trim()).filter(Boolean).map(sql=>f.db.prepare(sql)));
+ }
+ const scheduledMs=Date.UTC(2026,9,26,6,0);
+ let listing=0;
+ const fakeR2={list:async options=>{
+  listing++;
+  assert.deepEqual(options,{prefix:'transfers/',limit:500});
+  return {objects:[{key:'transfers/PRIVATE/SECRET/part',
+    uploaded:new Date(scheduledMs-9*86400000),size:4096}],truncated:false};
+ }};
+ const wait=[];
+ await worker.scheduled({scheduledTime:scheduledMs},{DB:f.db,FILES:fakeR2},
+   {waitUntil:p=>wait.push(p)});
+ await Promise.all(wait);
+ assert.equal(listing,1);
+ const t0=Math.floor(scheduledMs/1000);
+ const status=await readMaintenanceCheckpoint(f.db,t0+60);
+ assert.equal(status.state,'ready');
+ assert.equal(status.data.r2Audit.state,'ready');
+ assert.equal(status.data.r2Audit.data.sampledObjects,1);
+ assert.equal(status.data.r2Audit.data.sampledBytes,4096);
+ assert.equal(status.data.r2Audit.data.overdueObjects,1);
+ assert.equal(status.data.r2Audit.data.oldestAgeSeconds,9*86400);
+ assert.equal(JSON.stringify(status).includes('PRIVATE'),false);
+ assert.equal(JSON.stringify(status).includes('SECRET'),false);
+ const fiveLater=[];
+ await worker.scheduled({scheduledTime:scheduledMs+5*60000},
+   {DB:f.db,FILES:fakeR2},{waitUntil:p=>fiveLater.push(p)});
+ await Promise.all(fiveLater);
+ assert.equal(listing,1,'never scan R2 every five minutes');
+});
+test('optional migration 0005 absent does not break hourly Relay cleanup',async t=>{
+ const f=await fixture(t);
+ for(const name of ['0003_security_rollups.sql','0004_maintenance_status.sql']){
+  const migration=await readFile(new URL('../migrations/'+name,import.meta.url),'utf8');
+  await f.db.batch(migration.replace(/--[^\n]*/g,'').split(';')
+    .map(s=>s.trim()).filter(Boolean).map(sql=>f.db.prepare(sql)));
+ }
+ const jobs=[];
+ const ms=Date.UTC(2026,9,26,12,0);
+ await worker.scheduled({scheduledTime:ms},{DB:f.db,FILES:{list:async()=>({
+  objects:[],truncated:false
+ })}},{waitUntil:p=>jobs.push(p)});
+ await Promise.all(jobs);
+ const status=await readMaintenanceCheckpoint(f.db,ms/1000+60);
+ assert.equal(status.state,'ready');
+ assert.equal(status.data.r2Audit.state,'not_connected');
  assert.equal((await f.dispatch(new Request(origin+'/health'))).status,200);
 });
