@@ -179,6 +179,22 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 Контрольна відмітка записується в один рядок D1 щогодини. Це не підрахунок за всю годину і не поточна кількість прострочених записів.</p>
 <p style="margin-top:12px">Control: старіші за 30 днів знімки тепер видаляються автоматично о 03:17 UTC щодня, навіть якщо сторінка закрита.</p>
 <p style="margin-top:12px">Журнал безпеки Relay: очищення щогодини (30 днів). Тимчасові файли R2 у <code>transfers/</code>: політика 7 днів. Основна черга й відкликані реєстрації не очищуються достроково заради квот.</p></div>
+</div>
+<div class="read-only" style="margin-top:14px" aria-label="Контроль життєвого циклу R2">
+<div class="chart-head" style="margin-bottom:10px"><div><h3>R2 · перевірка тимчасових частин</h3>
+<p id="r2-audit-status" role="status" aria-live="polite">Перевіряємо результати останнього огляду…</p></div>
+<span class="pill" id="r2-audit-pill">Немає знімка</span></div>
+<div class="stats">
+<div class="small-card"><b id="r2-audit-count">—</b><div>Перевірено об’єктів у transfers/</div></div>
+<div class="small-card"><b id="r2-audit-bytes">—</b><div>Обсяг перевіреної частини, не всього R2</div></div>
+<div class="small-card"><b id="r2-audit-overdue">—</b><div>Старші за 8 днів серед перевірених</div></div>
+<div class="small-card"><b id="r2-audit-oldest">—</b><div>Найстаріший перевірений об’єкт</div></div>
+</div>
+<p id="r2-audit-warning" role="status" style="margin-top:10px">Підсумки огляду ще недоступні.</p>
+<p style="margin-top:8px">Перевіряємо один список до 500 об’єктів кожні 6 годин, без скачування файлів.
+Дані про обсяг — тільки для перевіреної частини префікса, не для всього бакета і не для обчислення вартості.
+Правило Cloudflare R2 Lifecycle видаляє тимчасові об’єкти через 7 днів; видалення може затримуватися.
+Файли не видаляємо вручну й не змінюємо чергу доставки.</p>
 </div></section>
 <section class="section columns" aria-label="Контроль безпеки">
 <div class="read-only"><h3>Журнал безпеки Relay</h3>
@@ -204,7 +220,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="small-card"><b id="device-revoked">—</b><div>Відкликані</div></div>
 </div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p></div>
 </section>
-<div class="footer">MaVka Server Control 0.6.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.7.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -419,7 +435,45 @@ async function loadTrends(){
  drawTrends(t);
 }
 let loading=false;
+function showR2Audit(result){
+ const pill=q('r2-audit-pill'),status=q('r2-audit-status'),warning=q('r2-audit-warning');
+ if(!result?.data||!['ready','stale'].includes(result.state)){
+  for(const id of ['r2-audit-count','r2-audit-overdue'])q(id).textContent='—';
+  q('r2-audit-bytes').textContent='—';q('r2-audit-oldest').textContent='—';
+  pill.textContent='Немає підтвердженого огляду';
+  const reasons={
+   no_r2_audit_yet:'Потрібне одноразове доповнення службової D1 (міграція 0005), а потім найближчий шестигодинний цикл.',
+   r2_list_failed:'Не вдалося отримати список R2. Перевір прив’язку FILES і Workers Logs.',
+   r2_binding_missing:'У Relay немає прив’язки приватного R2 FILES.',
+   invalid_audit:'Результат аудиту некоректний. Не показуємо вигаданих нулів.'
+  };
+  status.textContent=reasons[result?.reason]||
+   'Немає підключеного огляду тимчасових файлів R2.';
+  warning.textContent='Огляд не підтверджено; це не означає, що R2 порожній.';
+  return;
+ }
+ const d=result.data;
+ q('r2-audit-count').textContent=fmt(d.sampledObjects);
+ q('r2-audit-bytes').textContent=size(d.sampledBytes);
+ q('r2-audit-overdue').textContent=fmt(d.overdueObjects);
+ q('r2-audit-oldest').textContent=d.sampledObjects===0?'—':
+  Math.floor(d.oldestAgeSeconds/86400)+' дн. '+Math.floor(d.oldestAgeSeconds%86400/3600)+' год';
+ pill.textContent=result.state==='stale'?'Знімок застарів':'Перевірено';
+ const date=new Date(d.auditedAt*1000).toLocaleString('uk-UA');
+ status.textContent='Останній огляд: '+date+' · '+Math.floor(d.ageSeconds/3600)+
+  ' год тому · перевірено лише transfers/';
+ const messages=[];
+ if(result.state==='stale')messages.push('Контрольний знімок старший за 8 годин. Перевір Cron Relay.');
+ if(d.truncated)messages.push('Список обрізано до 500 об’єктів. Кількість і обсяг НЕ є повним підсумком навіть для transfers/.');
+ if(d.overdueObjects>0)messages.push('У вибірці є '+fmt(d.overdueObjects)+
+  ' об’єктів старше 8 днів. Перевір R2 Lifecycle. Затримка видалення не обов’язково є збоєм.');
+ if(!messages.length)messages.push(
+  d.sampledObjects===0?'Тимчасових об’єктів у перевіреному префіксі немає.':
+   'У перевіреному списку об’єктів старше 8 днів не виявлено.');
+ warning.textContent=messages.join(' ');
+}
 function showMaintenance(result){
+ showR2Audit(result?.data?.r2Audit);
  const pill=q('cleanup-pill'),status=q('cleanup-status');
  const ids=['cleanup-msg','cleanup-nonces','cleanup-receipts','cleanup-rate'];
  if(!result?.data || !['ready','stale'].includes(result.state)){
