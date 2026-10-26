@@ -43,14 +43,16 @@ test('private maintenance RPC forwards only bounded safe R2 lifecycle statistics
  ].sort());
 });
 test('R2 status cache re-evaluates stale age without extra Relay RPC request',async()=>{
- const now=Date.now()+300000;
+ const now=Date.now();
+ // Isolate module-level RPC cache from other tests.
+ const {maintenanceSummary:localSummary}=await import('../src/maintenance.js?test=r2-freshness');
  let calls=0;
  const env={RELAY_TELEMETRY:{getMaintenanceStatus:async()=>{
   calls++;return sample(now-7*3600000-59*60000);
  }}};
- const a=await maintenanceSummary(env,now);
+ const a=await localSummary(env,now);
  assert.equal(a.data.r2Audit.state,'ready');
- const b=await maintenanceSummary(env,now+2*60000);
+ const b=await localSummary(env,now+2*60000);
  assert.equal(b.data.r2Audit.state,'stale');
  assert.equal(calls,1);
 });
