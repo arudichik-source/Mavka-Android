@@ -530,7 +530,7 @@ test('scheduled six-hour R2 audit writes one sampled prefix checkpoint without t
  }
  // Simulate a scheduler timestamp inside the matching UTC minute, not
  // exactly on the millisecond boundary. Production used to skip this.
- const scheduledMs=Date.UTC(2026,9,26,6,0,17,250);
+ const scheduledMs=Date.UTC(2026,9,26,6,0,17,0);
  let listing=0;
  const fakeR2={list:async options=>{
   listing++;
