@@ -1,4 +1,4 @@
-# MaVka Server Control 0.6.1 — separate, read-only Cloudflare console
+# MaVka Server Control 0.7.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,50 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 0.7 — R2 lifecycle health (low overhead)
+
+- **No extra Cloudflare API token**, no new Worker, Cron or HTTP polling.
+  Uses the existing named private `RelayTelemetry.getMaintenanceStatus()`
+  RPC and existing authenticated `GET /api/maintenance`, so the dashboard
+  makes no additional requests.
+- Relay inspects **only metadata** in `mavka-private-files/transfers/`
+  once every six hours UTC (00, 06, 12, 18) using **one** R2
+  `list({prefix:'transfers/',limit:500})` per pass.
+  The prefix is the temporary-file namespace designed for encrypted
+  transfer chunks; this does not enumerate other R2 bucket files.
+  Only the count, sampled bytes, number of sampled files older than eight
+  days, oldest age, scan timestamp and the `truncated` indicator are
+  stored. No R2 `get`, `put`, or `delete` is triggered by monitoring.
+- **Cloudflare Lifecycle** remains responsible for deleting temporary
+  files after seven days; it may take around a further 24 hours to
+  remove expired objects. Objects older than **eight** days are
+  highlighted for review; there is no emergency automatic deletion
+  that could break delivery.
+- **IMPORTANT**: 500 is a hard limit on ONE metadata page. If
+  `truncated=true`, displayed counts and bytes are a PARTIAL SAMPLE,
+  not complete totals for `transfers/`. Even a complete prefix scan is
+  not an account-wide/bucket-wide storage reading or a GB-month bill.
+  The existing GraphQL R2 bucket usage and 5GB monitoring threshold are
+  independent and remain unchanged. Sample age cannot prove lifecycle
+  policy is enabled or correctly configured.
+- **One-time manual migration required** on the *existing* Relay
+  `mavka-messages` D1, NOT `mavka-control`, after a D1 Time Travel
+  bookmark / SQL export. Run the seven `ALTER TABLE` statements
+  from `relay/migrations/0005_r2_audit.sql` once (no new table).
+  Never automatically run this migration as part of CI/Deploy.
+  Older databases without these fields continue full Relay cleanup;
+  UI shows `not_connected` rather than fake zeros.
+- Added usage is **four R2 Class A list operations per day**
+  (about 120-124/month) and at most four tiny D1 UPDATEs/day to the
+  existing one-row `relay_maintenance_status`. No R2 lifecycle
+  operations are charged by the dashboard simply for displaying
+  these D1 aggregates. No objects, keys, cursor tokens, payloads,
+  filenames, signatures, IPs or device IDs are stored in audit data.
+- If R2 metadata listing fails, report `unavailable`. An audit older
+  than eight hours is `stale`, even when the RPC result was cached,
+  without a repeat R2 request. Every six hours Relay emits one
+  generic `MAVKA_RELAY_R2_AUDIT_V1` event with outcome but no keys.
 
 ## Version 0.6 — automatic cleanup health monitoring
 
