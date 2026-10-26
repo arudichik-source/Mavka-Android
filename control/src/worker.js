@@ -112,9 +112,23 @@ export default {
     return json({ error: 'not_found' }, 404);
   },
   async scheduled(_event, env, ctx) {
-    // Daily UTC maintenance, 1 DELETE/day regardless of dashboard visits.
-    ctx.waitUntil(pruneControlHistory(env.CONTROL_DB).then(result => {
-      if(result.state!=='ready') throw Error('control_daily_retention_failed');
-    }));
+    // One daily UTC DELETE and at most one privacy-safe status log per day.
+    // Never log SQL errors, device identity, security logs or message data.
+    ctx.waitUntil((async () => {
+      const result = await pruneControlHistory(env.CONTROL_DB);
+      if (result.state !== 'ready') {
+        console.warn(JSON.stringify({
+          event: 'MAVKA_CONTROL_RETENTION_V1',
+          outcome: 'failed',
+          reason: result.state === 'not_bound' ? 'db_not_bound' : 'cleanup_unavailable',
+        }));
+        throw new Error('control_daily_retention_failed');
+      }
+      console.info(JSON.stringify({
+        event: 'MAVKA_CONTROL_RETENTION_V1',
+        outcome: 'ok',
+        rowsDeleted: result.deleted,
+      }));
+    })());
   },
 };

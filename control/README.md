@@ -1,4 +1,4 @@
-# MaVka Server Control 0.6.0 — separate, read-only Cloudflare console
+# MaVka Server Control 0.6.1 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
