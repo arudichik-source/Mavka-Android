@@ -204,7 +204,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="small-card"><b id="device-revoked">—</b><div>Відкликані</div></div>
 </div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p></div>
 </section>
-<div class="footer">MaVka Server Control 0.6.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.6.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -424,7 +424,15 @@ function showMaintenance(result){
  const ids=['cleanup-msg','cleanup-nonces','cleanup-receipts','cleanup-rate'];
  if(!result?.data || !['ready','stale'].includes(result.state)){
   pill.textContent='Немає контрольного знімка';
-  status.textContent='Поки немає погодинного звіту. Потрібна одна окрема таблиця в D1 Relay й наступний плановий погодинний цикл.';
+  const reason=result?.reason;
+  const descriptions={
+   no_hourly_checkpoint_yet:'Службова таблиця доступна, але погодинний контрольний запис ще не сформовано. Перевір Cron Triggers і події MAVKA_RELAY_MAINTENANCE_V1.',
+   table_or_database_unavailable:'Не вдалося прочитати контрольну таблицю Relay. Перевір D1 mavka-messages, міграцію 0004 і Workers Logs.',
+   rpc_not_deployed:'Внутрішній RPC Relay ще недоступний. Перевір останнє розгортання обох Workers.',
+   db_not_bound:'База D1 Relay недоступна. Перевір прив’язку DB до mavka-messages.',
+  };
+  status.textContent=descriptions[reason]||
+   'Немає підтвердженого погодинного звіту. Перевір Cron Triggers та Workers Logs для Relay.';
   for(const id of ids)q(id).textContent='—';
   q('cleanup-security').textContent='Очищення журналу безпеки: даних немає.';
   return;
