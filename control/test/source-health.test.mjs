@@ -107,5 +107,5 @@ test('full dashboard refresh and period changes reuse existing six API calls',()
  assert.match(script,/if\(data\.state!=='ready'\).*return data/);
  assert.match(script,/drawTrends\(t\);\s*return t;/);
  assert.match(script,/900000/);
- assert.match(html,/MaVka Server Control 0\.8\.0/);
+ assert.match(html,/MaVka Server Control 0\.8\.1/);
 });
