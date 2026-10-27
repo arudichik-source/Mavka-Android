@@ -56,7 +56,7 @@ test('client logic is syntactically valid and still uses existing network reads'
  assert.ok(start>=0&&end>start);
  const code=html.slice(start+marker.length,end);
  assert.doesNotThrow(()=>new Script(code));
- assert.match(code,/get\('\/api\/history\?period='/);
+ assert.match(code,/let query='\\/api\\/history\\?period='/);
  assert.match(code,/get\('\/api\/trends\?period='/);
  assert.match(code,/900000/);
  // Local navigation never fetches more backend data.
