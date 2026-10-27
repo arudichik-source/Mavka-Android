@@ -293,7 +293,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="small-card"><b id="cleanup-receipts">—</b><div>Прострочені підтвердження, видалено під час запуску</div></div>
 <div class="small-card"><b id="cleanup-rate">—</b><div>Старі ліміти частоти, видалено під час запуску</div></div>
 </div>
-<p id="cleanup-security" style="margin-top:10px">Стан очищення журналу безпеки — перевіряємо.</p></div>
+<p id="cleanup-security" style="margin-top:10px">Стан очищення журналу безпеки — перевіряємо.</p><p style="margin-top:10px">Це не підрахунок за всю годину: показуємо лише останній контрольний запуск Relay.</p></div>
 <div class="read-only">
 <div class="chart-head" style="margin-bottom:8px"><h3 style="margin:0">D1 Control · очищення</h3><span id="control-retention-pill" class="source-health-status">Очікуємо стан</span></div>
 <p id="control-retention-status" role="status" aria-live="polite">Отримуємо відмітку останнього щоденного запуску…</p>
