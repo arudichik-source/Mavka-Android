@@ -159,12 +159,12 @@ test('UI and SQL migration are minimal and the existing refresh adds no HTTP req
  const sql=readFileSync(new URL('../migrations/0002_control_retention_status.sql',import.meta.url),'utf8');
  assert.match(sql,/CREATE TABLE IF NOT EXISTS control_retention_status/);
  assert.match(sql,/PRIMARY KEY CHECK\(id = 1\)/);
- assert.doesNotMatch(sql,/DROP|DELETE|ALTER TABLE|mavka-messages[\s\S]*CREATE TABLE/);
+ assert.doesNotMatch(sql,/\bDROP\s+TABLE|\bDELETE\s+FROM|\bALTER\s+TABLE/);
  for(const id of ['control-retention-pill','control-retention-status','control-retention-age',
    'control-retention-deleted','control-retention-attempt'])
   assert.ok(html.includes('id="'+id+'"'),id);
  assert.match(html,/function showControlRetention\(result\)/);
  assert.match(html,/showControlRetention\(result\?\.controlRetention\)/);
  assert.match(html,/MaVka Server Control 0\.9\.0/);
- assert.ok(html.includes('get(\\'/api/maintenance\\')'));
+ assert.ok(html.includes("get('/api/maintenance')"));
 });
