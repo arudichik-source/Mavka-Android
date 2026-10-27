@@ -278,7 +278,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="small-card"><b id="device-revoked">—</b><div>Відкликані</div></div>
 </div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p></div>
 </section>
-<div class="footer">MaVka Server Control 0.7.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.7.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -483,10 +483,11 @@ async function loadHistory(before=null,reset=true){
  const data=await get(query);
  q('history-state').textContent=data.state==='ready'?'D1 підключена · '+activePeriod:
  data.state==='not_bound'?'D1 не підключена':'Не вдалося прочитати історію';
- if(data.state!=='ready'){appendRows([],reset);q('more-history').hidden=true;return}
+ if(data.state!=='ready'){appendRows([],reset);q('more-history').hidden=true;q('history-preview').textContent='Історія недоступна · '+activePeriod;return}
  appendRows(data.entries,reset);
  historyCursor=data.nextBefore;
  q('more-history').hidden=!historyCursor;
+ updateHistoryPreview();
 }
 async function loadTrends(){
  const t=await get('/api/trends?period='+activePeriod);
@@ -727,6 +728,60 @@ q('more-history').addEventListener('click',async ()=>{
  try{await loadHistory(historyCursor,false)}
  finally{button.disabled=false}
 });
+
+// Native details permit click/keyboard collapse without requiring JavaScript.
+// Persist only a local UI preference; never send it to the Worker.
+const historyDetails=q('history-details');
+const historyPreferenceKey='mavka-control.history-open.v1';
+try{if(localStorage.getItem(historyPreferenceKey)==='false')historyDetails.open=false}
+catch{/* blocked localStorage: use default expanded state */}
+historyDetails.addEventListener('toggle',()=>{
+ try{localStorage.setItem(historyPreferenceKey,String(historyDetails.open))}
+ catch{/* optional preference */}
+});
+function updateHistoryPreview(){
+ const last=visibleRows[0]?.bucket_start;
+ const stamp=Number.isSafeInteger(last)?
+  ' · останній '+new Date(last*1000).toISOString().slice(0,16).replace('T',' ')+' UTC':'';
+ q('history-preview').textContent='Завантажено записів: '+visibleRows.length+
+  ' · '+activePeriod+stamp;
+}
+// Fixed right-side local anchor menu; no extra requests or trackers.
+const quickNav=q('quick-nav');
+const navLinks=[...quickNav.querySelectorAll('a[href^="#"]')];
+const targets=navLinks.map(link=>q(link.getAttribute('href').slice(1)));
+function markActiveNavigation(){
+ let current=targets[0]?.id;
+ const cutoff=Math.min(190,window.innerHeight*0.33);
+ for(const section of targets)
+  if(section&&section.getBoundingClientRect().top<=cutoff)current=section.id;
+ for(const link of navLinks){
+  const active=link.getAttribute('href')==='#'+current;
+  link.classList.toggle('active',active);
+  if(active)link.setAttribute('aria-current','location');
+  else link.removeAttribute('aria-current');
+ }
+}
+let navFramePending=false;
+function scheduleNavHighlight(){
+ if(navFramePending)return;
+ navFramePending=true;
+ requestAnimationFrame(()=>{navFramePending=false;markActiveNavigation()});
+}
+for(const link of navLinks)
+ link.addEventListener('click',()=>{quickNav.open=false;scheduleNavHighlight()});
+document.addEventListener('keydown',event=>{
+ if(event.key==='Escape'&&quickNav.open){
+  quickNav.open=false;quickNav.querySelector('summary').focus();
+ }
+});
+document.addEventListener('pointerdown',event=>{
+ if(quickNav.open&&!quickNav.contains(event.target))quickNav.open=false;
+});
+window.addEventListener('scroll',scheduleNavHighlight,{passive:true});
+window.addEventListener('resize',scheduleNavHighlight);
+scheduleNavHighlight();
+
 q('refresh').addEventListener('click',refresh);
 refresh();setInterval(()=>{if(!document.hidden)refresh()},900000);
 })();
