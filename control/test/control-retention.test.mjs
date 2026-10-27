@@ -163,8 +163,8 @@ test('UI and SQL migration are minimal and the existing refresh adds no HTTP req
  for(const id of ['control-retention-pill','control-retention-status','control-retention-age',
    'control-retention-deleted','control-retention-attempt'])
   assert.ok(html.includes('id="'+id+'"'),id);
- assert.match(html,/function showControlRetention\(result\)/);
- assert.match(html,/showControlRetention\(result\?\.controlRetention\)/);
+ assert.match(html,/function showControlRetention\(result,diagnostic\)/);
+ assert.match(html,/showControlRetention\(result\?\.controlRetention,diagnostic\.control\)/);
  assert.match(html,/MaVka Server Control 0\.9\.1/);
  assert.ok(html.includes("get('/api/maintenance')"));
 });
