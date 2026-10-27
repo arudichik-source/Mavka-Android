@@ -139,6 +139,17 @@ html{scroll-behavior:smooth}
 .source-health-status.missing{color:#ffc3c3;border-color:#8b4b52}
 .source-health-detail{font-size:12px;color:var(--muted);line-height:1.5;margin-top:9px;overflow-wrap:anywhere}
 .source-health-summary{font-size:13px;color:var(--muted);line-height:1.5;margin:0 0 14px}
+.forecast-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.forecast-card{border:1px solid #304157;background:#101826;border-radius:12px;padding:16px;min-width:0}
+.forecast-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.forecast-top strong{font-size:13px}
+.forecast-status{font-size:11px;border:1px solid #3c596d;color:#b2d8df;border-radius:7px;padding:5px 8px}
+.forecast-status.warn{border-color:#725d39;color:#f7d597}
+.forecast-status.critical{border-color:#8b4b52;color:#ffc3c3}
+.forecast-value{font-size:23px;font-weight:760;font-variant-numeric:tabular-nums;margin:13px 0 5px}
+.forecast-detail{font-size:12px;color:var(--muted);line-height:1.55;margin-top:8px}
+.forecast-foot{font-size:12px;color:#c6d9e5;line-height:1.5;margin-top:8px}
+@media(max-width:650px){.forecast-grid{grid-template-columns:1fr}}
 @media(max-width:950px){.source-health-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:540px){.source-health-grid{grid-template-columns:1fr}}
 @media(max-width:750px){
@@ -162,6 +173,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <a href="#overview">Огляд сервера</a>
 <a href="#resources">Квоти та сховище</a>
 <a href="#source-health">Стан джерел</a>
+<a href="#forecast">Прогноз ресурсів</a>
 <a href="#trends">Графік ресурсів</a>
 <a href="#history">Історія спостережень</a>
 <a href="#risks">Ризики та ліміти</a>
@@ -207,6 +219,14 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <span id="source-health-checked" class="status" role="status">Очікуємо перевірку</span></div>
 <p id="source-health-summary" class="source-health-summary" aria-live="polite">Отримуємо показники…</p>
 <div id="source-health-grid" class="source-health-grid" aria-label="Доступність джерел телеметрії"></div>
+</section>
+<section class="panel section jump-target" id="forecast" aria-label="Прогноз використання ресурсів">
+<div class="chart-head"><div><h2 style="margin:0 0 6px">Прогноз використання ресурсів</h2>
+<p class="dim">Обережна оцінка за реальними знімками D1: для добових лічильників — до 00:00 UTC, для R2 — на 24 години. Це не гарантія і не рахунок Cloudflare.</p></div>
+<span id="forecast-checked" class="status">Очікуємо дані</span></div>
+<p id="forecast-summary" class="source-health-summary" aria-live="polite">Перевіряємо наявність достатньої історії…</p>
+<div id="forecast-grid" class="forecast-grid" aria-label="Оцінка темпу використання ресурсів"></div>
+<p class="retention-note">Прогноз доступний тільки за щонайменше трьома свіжими знімками, що охоплюють понад 2 години без обнулення добових лічильників. Показники Workers охоплюють лише Relay; D1 — весь акаунт. 5 ГБ R2 — власний контрольний поріг, не платіжний ліміт. Пропуски вимірювань, зміна навантаження або автоматичне очищення R2 можуть зробити оцінку неточною.</p>
 </section>
 <section class="panel section jump-target" id="trends">
 <details class="panel-disclosure" id="trends-details" open>
@@ -335,7 +355,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </div></details></div>
 </section>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Повернутися нагору" title="Повернутися нагору" hidden>↑ Вгору</button>
-<div class="footer">MaVka Server Control 0.8.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.8.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -659,6 +679,120 @@ function renderSourceHealth(responses){
  q('source-health-checked').textContent='Перевірено: '+new Date().toLocaleTimeString('uk-UA')+
   ' · за наявними відповідями';
 }
+// Conservative, browser-only projections from already-loaded usage snapshots.
+// These are hypothetical pace estimates, never billing forecasts or verified uptime.
+function resourceUsageForecast(summary,trends,now=Date.now()){
+ const limits=summary?.limits||{},worker=summary?.workers||{},d1=summary?.d1||{};
+ const storage=summary?.r2?.storage||{};
+ const configs=[
+  {name:'workers',title:'Workers · запити Relay',key:'workers_requests',
+   current:worker.requestsToday,limit:limits.workersRequestsPerDay,kind:'daily'},
+  {name:'d1-reads',title:'D1 · прочитані рядки',key:'d1_rows_read',
+   current:d1.rowsReadToday,limit:limits.d1RowsReadPerDay,kind:'daily'},
+  {name:'d1-writes',title:'D1 · записані рядки',key:'d1_rows_written',
+   current:d1.rowsWrittenToday,limit:limits.d1RowsWrittenPerDay,kind:'daily'},
+  {name:'r2',title:'R2 · місце в сховищі',key:'r2_payload_bytes',
+   current:storage.bytes,limit:limits.r2MonitoringBytes,kind:'storage'}
+ ];
+ const at=Date.parse(summary?.at),fresh=Number.isFinite(at)&&
+  at>=now-30*60000&&at<=now+5*60000;
+ const storageAt=Date.parse(storage.observedAt);
+ const storageFresh=Number.isFinite(storageAt)&&
+  storageAt>=now-24*3600000&&storageAt<=now+5*60000;
+ const hasTrends=trends?.state==='ready'&&Array.isArray(trends.entries);
+ const midnight=Date.parse(new Date(now).toISOString().slice(0,10)+'T00:00:00Z');
+ const nextMidnight=midnight+86400000;
+ const valid=n=>typeof n==='number'&&Number.isFinite(n)&&n>=0;
+ return configs.map(cfg=>{
+  const base={name:cfg.name,title:cfg.title,kind:cfg.kind,actual:cfg.current,
+   limit:cfg.limit,status:'waiting',estimate:null,rate:null,message:'',
+   detail:'',projectionHours:cfg.kind==='daily'?(nextMidnight-now)/3600000:24};
+  const unavailable=reason=>({...base,message:reason});
+  if(!valid(cfg.current)||!valid(cfg.limit)||cfg.limit<=0)
+   return unavailable('Немає підтвердженого поточного показника або порогу.');
+  if(!fresh||(cfg.kind==='storage'&&!storageFresh))
+   return unavailable('Актуальність аналітики не підтверджена. Прогноз приховано.');
+  if(!hasTrends)return unavailable('Історію D1 не вдалося прочитати.');
+  const start=cfg.kind==='daily'?Math.max(midnight,now-6*3600000):now-12*3600000;
+  // The daily counter must never bridge the UTC midnight reset.
+  const samples=trends.entries
+   .filter(r=>Number.isSafeInteger(r?.bucket_start)&&valid(r[cfg.key])&&
+      r.bucket_start*1000>=start&&r.bucket_start*1000<=now+5*60000)
+   .map(r=>({time:r.bucket_start*1000,value:r[cfg.key]}))
+   .sort((a,b)=>a.time-b.time);
+  if(samples.length<3)
+   return unavailable('Недостатньо знімків: потрібно щонайменше 3.');
+  const first=samples[0],last=samples.at(-1);
+  const hours=(last.time-first.time)/3600000;
+  if(hours<2)return unavailable('Замалий період спостереження: потрібно від 2 годин.');
+  if(now-last.time>45*60000)
+   return unavailable('Останній знімок старший за 45 хвилин.');
+  if(cfg.kind==='daily'&&samples.some((s,i)=>i>0&&s.value<samples[i-1].value))
+   return unavailable('У вибірці є обнулення або зменшення добового лічильника.');
+  if(cfg.kind==='daily'&&cfg.current<last.value)
+   return unavailable('Поточний показник не узгоджується з останнім знімком.');
+  const perHour=(last.value-first.value)/hours;
+  if(!Number.isFinite(perHour))return unavailable('Темп не вдалося визначити.');
+  if(cfg.kind==='storage'&&perHour<0)return {
+   ...base,rate:perHour,message:'За вибіркою обсяг R2 зменшується; прогноз наближення до порогу не будуємо.',
+   detail:'Знімків: '+samples.length+' · вікно: '+hours.toFixed(1)+' год'
+  };
+  const rate=Math.max(0,perHour);
+  const estimate=cfg.current+rate*base.projectionHours;
+  if(!Number.isFinite(estimate))return unavailable('Оцінка поза допустимим діапазоном.');
+  const currentShare=cfg.current/cfg.limit;
+  const projectedShare=estimate/cfg.limit;
+  const thresholds=[.70,.85,.95];
+  const reached=thresholds.filter(t=>currentShare>=t).at(-1);
+  const next=thresholds.find(t=>currentShare<t&&projectedShare>=t);
+  let status='ok',message='За наявним темпом наступні пороги в межах прогнозу не перетинаються.';
+  if(reached!==undefined){
+   status=currentShare>=.95?'critical':'warn';
+   message='Поточне використання вже досягло '+Math.round(reached*100)+'% контрольного порогу.';
+  }else if(next!==undefined&&rate>0){
+   status=next>=.95?'critical':'warn';
+   const until=(cfg.limit*next-cfg.current)/rate;
+   message='За незмінного темпу '+Math.round(next*100)+'% може бути досягнуто приблизно через '+
+    until.toFixed(1)+' год.';
+  }else if(rate===0)message='У збереженій вибірці приросту не зафіксовано.';
+  return {...base,status,estimate,rate,message,
+   detail:'Знімків: '+samples.length+' · вікно: '+hours.toFixed(1)+
+    ' год · '+(cfg.kind==='daily'?'прогноз до 00:00 UTC':'оцінка на 24 год')};
+ });
+}
+function renderUsageForecast(responses){
+ const summary=responses?.[0]?.status==='fulfilled'?responses[0].value:null;
+ const trends=responses?.[2]?.status==='fulfilled'?responses[2].value:null;
+ const rows=resourceUsageForecast(summary,trends);
+ const root=q('forecast-grid');root.replaceChildren();
+ let predicted=0,needsReview=0;
+ for(const item of rows){
+  const card=document.createElement('article');card.className='forecast-card';
+  const head=document.createElement('div');head.className='forecast-top';
+  const name=document.createElement('strong');name.textContent=item.title;
+  const badge=document.createElement('span');
+  badge.className='forecast-status '+(item.status==='waiting'?'':item.status);
+  badge.textContent=item.status==='waiting'?'Недостатньо даних':
+   item.status==='ok'?'Оцінка готова':'Потрібна увага';
+  head.append(name,badge);
+  const shown=n=>item.kind==='storage'?size(n):fmt(Math.round(n));
+  const value=document.createElement('div');value.className='forecast-value';
+  value.textContent=shown(item.actual)+' / '+shown(item.limit);
+  const explanation=document.createElement('div');explanation.className='forecast-detail';
+  explanation.textContent=item.message;
+  const foot=document.createElement('div');foot.className='forecast-foot';
+  foot.textContent=item.estimate===null?item.detail||'Розрахунок не виконується без достовірних вимірювань.':
+   'Оцінка: '+shown(item.estimate)+' ('+(item.estimate/item.limit*100).toFixed(1)+
+   '% порогу) · темп ~'+shown(item.rate)+'/год. '+item.detail;
+  card.append(head,value,explanation,foot);root.appendChild(card);
+  if(item.estimate!==null)predicted++;
+  if(item.status==='warn'||item.status==='critical')needsReview++;
+ }
+ q('forecast-summary').textContent='Доступно оцінок: '+predicted+' з 4'+
+  (needsReview?' · потребують уваги: '+needsReview:'')+
+  '. Прогноз умовний і не є фактичним використанням майбутніх квот.';
+ q('forecast-checked').textContent='Розраховано: '+new Date().toLocaleTimeString('uk-UA');
+}
 function showR2Audit(result){
  const pill=q('r2-audit-pill'),status=q('r2-audit-status'),warning=q('r2-audit-warning');
  if(!result?.data||!['ready','stale'].includes(result.state)){
@@ -821,6 +955,7 @@ async function refresh(){
   showMaintenance(results[5].status==='fulfilled'?results[5].value:null);
   sourceHealthResults=results;
   renderSourceHealth(sourceHealthResults);
+  renderUsageForecast(sourceHealthResults);
   updateDisclosurePreviews();
  } finally {loading=false;q('refresh').disabled=false}
 }
@@ -836,6 +971,7 @@ async function setPeriod(period){
   sourceHealthResults[1]=reads[0];
   sourceHealthResults[2]=reads[1];
   renderSourceHealth(sourceHealthResults);
+  renderUsageForecast(sourceHealthResults);
  }
  updateDisclosurePreviews();
 }
