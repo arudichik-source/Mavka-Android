@@ -558,7 +558,7 @@ let loading=false;
 let sourceHealthResults=null;
 function sourceHealthTime(value){
  const stamp=typeof value==='number'?value*1000:Date.parse(value);
- return Number.isFinite(stamp)&&stamp>=0
+ return Number.isFinite(stamp)&&stamp>=0&&stamp<=8.64e15
   ? new Date(stamp).toISOString().slice(0,16).replace('T',' ')+' UTC'
   : 'час не підтверджено';
 }
@@ -603,10 +603,10 @@ function telemetrySourceRows(responses,now=Date.now()){
   trends?.state==='ready'?'ok':'missing',
   trends?.state==='ready'?'Вибірка: '+fmt(trends.entries?.length||0)+' знімків · '+activePeriod
    :'Не вдалося прочитати знімки для графіка');
- const remote=(value,valid)=>valid&&Number.isSafeInteger(value)&&value>=0;
+ const remote=value=>Number.isSafeInteger(value)&&value>0&&value*1000<=now+300000;
  const securityValid=security?.state==='ready'&&security?.coverage==='best_effort'&&
-  remote(security.observedAt,true);
- const deviceValid=devices?.state==='ready'&&devices?.data&&remote(devices.observedAt,true);
+  remote(security.observedAt);
+ const deviceValid=devices?.state==='ready'&&devices?.data&&remote(devices.observedAt);
  const older=(stamp,minutes)=>Number.isSafeInteger(stamp)&&stamp>=0&&now-stamp*1000>minutes*60000;
  put('security','Relay · журнал безпеки',
   securityValid?(older(security.observedAt,30)?'warn':'ok'):'missing',
