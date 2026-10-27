@@ -1,4 +1,4 @@
-# MaVka Server Control 0.9.0 — separate, read-only Cloudflare console
+# MaVka Server Control 0.9.1 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,45 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 0.9.1 — Cron schedule diagnostics from existing checkpoints
+
+- The existing `Автоматичне очищення` panel now includes a side-by-side
+  **Діагностика Cron · дві D1** summary of Control's daily checkpoint and
+  Relay's hourly maintenance checkpoint. Each status is derived **only** from
+  the already fetched Access-protected `GET /api/maintenance` JSON; no new
+  requests, tokens, D1 tables, migrations, Cron triggers, writes, RPC methods,
+  browser timers, or R2/GraphQL usage.
+- Control's expected schedule is **03:17 UTC**. Rather than relying only on
+  the previous >36-hour stale rule, the dashboard compares the last successful
+  checkpoint to the *latest expected daily slot*, allowing **two hours of
+  grace** for execution and recording. After 05:17 UTC, a missing success for
+  that day's slot becomes "possible missed confirmation". Until that time
+  the previous day's success can still be considered current. All dates are
+  calculated in UTC, irrespective of Kyiv daylight-saving changes.
+- An explicit **failed latest attempt** wins over an older successful record;
+  a confirmed `deletedLastSuccess:0` is a valid success. Invalid or future
+  timestamps and missing data never show green status. The overall badge
+  reports the most concerning available condition.
+- The Relay hourly checkpoint is considered stale if over **90 minutes** old,
+  and a false `securityPruneSucceeded` flag is highlighted even when the
+  checkpoint is fresh. This does **not** prove that every underlying 5-minute
+  TTL cleanup ran, because the RPC intentionally reports only a recent hourly
+  sample and not every Cron invocation.
+- A Control status of `awaiting_first_run` remains **unknown**, rather than
+  asserting a missed Cron: the existing singleton schema does not record the
+  creation time of the optional control table. There is no reliable way to
+  determine from an empty table whether its first expected Cron has elapsed.
+  Similarly, a missed marker may reflect recording problems instead of a
+  skipped invocation; Cloudflare Cron Events/Logs remain the final evidence.
+- The Control card and "Стан джерел" view share this same schedule-aware
+  judgment so a suspected missed daily run is not shown as green in a nearby
+  card. Calculations refresh when the user opens/refreshes the dashboard
+  (existing 15-minute interval while open).
+- Tests cover the UTC grace boundary, successful zero-deletion runs,
+  stale/failed markers, empty first-run state, future timestamps, and Relay
+  independent health. Existing authentication and scheduled deletion code
+  remain unchanged except for the displayed UI/API version.
 
 ## Version 0.9.0 — independent daily Control D1 cleanup confirmation
 
