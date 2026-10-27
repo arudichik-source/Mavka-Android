@@ -1,4 +1,4 @@
-# MaVka Server Control 0.8.0 — separate, read-only Cloudflare console
+# MaVka Server Control 0.8.1 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,38 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 0.8.1 — resource use pace projections (no new queries)
+
+- Adds `Прогноз використання ресурсів` with four compact read-only cards:
+  Relay Workers daily requests, account-wide D1 daily read/write rows, and the
+  owner-defined **5,000,000,000-byte R2 storage monitoring threshold**.
+- Uses only the current `GET /api/summary` and the existing selected-period
+  `GET /api/trends` responses, already loaded to draw the charts. No new API,
+  D1/R2 queries, Workers cron, writes, secrets, permissions, background tasks
+  or separate data-retention table. The 15-minute refresh remains unchanged.
+- The calculation is a *conditional constant-pace estimate*: the first and
+  latest sample within the last 6h (daily counters) or 12h (R2) give an observed
+  net rate; daily projection ends at **00:00 UTC** and R2 is projected only
+  24 hours ahead. For 70/85/95% levels the UI estimates the time to the next
+  control threshold, never a guaranteed breach or charge.
+- Estimates are suppressed unless at least 3 real observations span >=2h,
+  the newest observation is at most 45 minutes old, and the summary is at most
+  30 minutes old. R2 storage Analytics must be no older than 24h.
+  Unavailable data, samples crossing the UTC midnight reset, falling daily
+  counters, incompatible latest/live values, or invalid rates yield a
+  transparent "insufficient evidence" state rather than fabricated numbers.
+  R2 net shrinkage is reported as *decreasing*, not extrapolated as growth.
+- The existing D1 sampling is **only on dashboard visits**, so forecasts may
+  often be unavailable after gaps or on day one. Chart periods of 7d/30d have
+  coarser sampled points, possibly insufficient to forecast. No new
+  continuous monitoring is introduced to fill those gaps.
+- This is not a reliable Cloudflare bill estimate. Workers figures only cover
+  `mavka-relay`; D1 usage is account-wide; R2 **5GB** is a custom warning
+  threshold, not an upload block or Cloudflare free-storage cap. R2 lifecycle
+  cleanup can reverse recent growth and invalidate a 24h trend.
+- Regression tests cover zero rates, stale/sparse samples, UTC resets, R2
+  shrinkage, threshold warnings, and the absence of additional requests.
 
 ## Version 0.8.0 — source health and data freshness
 
