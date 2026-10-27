@@ -116,6 +116,6 @@ test('existing refreshes reuse cached summary/trends without new API calls',()=>
  assert.match(script,/900000/);
  assert.match(html,/href="#forecast"/);
  assert.match(html,/id="forecast-grid"/);
- assert.match(html,/MaVka Server Control 0\.8\.1/);
+ assert.match(html,/MaVka Server Control 0\.9\.0/);
  assert.doesNotThrow(()=>new Script(script));
 });
