@@ -1,4 +1,4 @@
-# MaVka Server Control 0.7.0 — separate, read-only Cloudflare console
+# MaVka Server Control 0.7.1 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,27 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 0.7.1 — compact client-side navigation
+
+- The existing `Історія спостережень` panel uses a native semantic
+  `<details><summary>` disclosure. Only the history table, pagination
+  and CSV export are hidden; the title, D1 connection status, loaded row
+  count, chosen period, and latest known UTC sample remain visible.
+- Its open/closed state is saved as a **local browser preference**
+  (`mavka-control.history-open.v1`). Browsers that block localStorage
+  still work with default expanded history; no preference is sent to
+  Cloudflare or stored in D1.
+- A small, fixed **Розділи** menu on the right contains nine same-page
+  anchor links: overview, quota/resources, graph, history, risks, cleanup,
+  R2 lifecycle, security and devices. Active section is highlighted
+  on scroll. Escape/outside click closes the list; links close it and
+  navigate in-page. On smaller viewports it docks at bottom-right.
+  Keyboard focus indicators and `prefers-reduced-motion` are supported.
+- Existing `GET /api/history`, trending, pagination and CSV export
+  remain unchanged. Collapsing does NOT stop or add any requests; the
+  15-minute refresh interval is untouched. No Cloudflare RPC, Workers
+  Cron, R2, D1 schema, API permissions, messages or device keys changed.
 
 ## Version 0.7 — R2 lifecycle health (low overhead)
 
