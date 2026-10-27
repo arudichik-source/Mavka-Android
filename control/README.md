@@ -1,4 +1,4 @@
-# MaVka Server Control 0.7.1 — separate, read-only Cloudflare console
+# MaVka Server Control 0.7.2 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,27 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 0.7.2 — compact status panels and back-to-top
+
+- The existing chart, privacy-safe Relay security journal and aggregate device
+  status now have **three independent native** `<details>` panels, each with
+  a compact summary even while folded: chart period and coverage, approximate
+  rejected-request counts, or anonymized active/recent device totals.
+- Browser-only expanded/collapsed preferences are saved under
+  `mavka-control.disclosure.{trends|security|devices}.v1`, independently of
+  the existing history key. If `localStorage` is disabled, disclosure controls
+  remain usable without persistence; no preference is sent to the server.
+- The fixed accessible **↑ Вгору** button appears after scrolling 360px;
+  it uses reduced-motion-aware scrolling. On small screens it is positioned
+  above the bottom-right section-navigation button.
+- Collapsed sections continue to refresh normally. All existing 15-minute
+  polling, API paths, CSV pagination, Cloudflare Access checks, R2 lifecycle,
+  Relay cleanup and device privacy rules remain unchanged.
+- This change adds **zero new D1, R2, GraphQL or Relay requests**, requires no
+  migrations or new secrets, and is safe for the existing free-tier quotas.
+- Tests cover unique disclosures, summary visibility, browser-only preferences,
+  keyboard semantics, network invariants and scroll control.
 
 ## Version 0.7.1 — compact client-side navigation
 

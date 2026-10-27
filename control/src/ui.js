@@ -114,12 +114,28 @@ html{scroll-behavior:smooth}
 .history-details:not([open]) .history-toggle::after{content:"Розгорнути  ▾"}
 .history-details:not([open]) summary{padding-bottom:0}
 .history-content{padding-top:10px;border-top:1px solid var(--edge)}
+.panel-disclosure>summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.panel-disclosure>summary::-webkit-details-marker{display:none}
+.panel-disclosure>summary:focus-visible,.back-to-top:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.disclosure-heading{display:grid;gap:5px;flex:1;min-width:165px}
+.disclosure-heading h2,.disclosure-heading h3{margin:0}
+.disclosure-heading .dim{overflow-wrap:anywhere;line-height:1.45}
+.disclosure-toggle{font-size:12px;border:1px solid #3c596d;background:#213549;
+ border-radius:9px;padding:8px 11px;color:#ddf7f1;white-space:nowrap}
+.disclosure-toggle::after{content:"Згорнути  ▴"}
+.panel-disclosure:not([open]) .disclosure-toggle::after{content:"Розгорнути  ▾"}
+.disclosure-content{padding-top:14px;margin-top:14px;border-top:1px solid var(--edge)}
+.back-to-top{position:fixed;right:16px;bottom:18px;z-index:7;
+ background:#1b3545;color:#e0fff7;border-color:#476b76;border-radius:11px;
+ padding:10px 13px;font-size:12px;font-weight:650;box-shadow:0 8px 22px #050b14b3}
+.back-to-top[hidden]{display:none}
 @media(max-width:750px){
  .quick-nav{top:auto;right:12px;bottom:14px}
  .quick-links{top:auto;bottom:calc(100% - 1px);border-radius:12px 12px 0 12px;max-height:62vh}
  .quick-nav details[open] summary{border-radius:0 0 11px 11px}
  .history-summary-end{width:100%;justify-content:space-between}
- .footer{padding-bottom:65px}
+ .back-to-top{right:12px;bottom:72px}
+ .footer{padding-bottom:110px}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 </style>
@@ -173,7 +189,13 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </section>
 </div>
 <section class="panel section jump-target" id="trends">
-<div class="chart-head"><div><h2 style="margin:0 0 5px">Графік використання ресурсів</h2><p class="dim">Реальні знімки D1 за вибраний період. Пропуски не заповнюються вигаданими даними.</p></div>
+<details class="panel-disclosure" id="trends-details" open>
+<summary aria-controls="trends-content"><span class="disclosure-heading">
+<h2>Графік використання ресурсів</h2>
+<span class="dim" id="trends-preview">Період: 24 год · очікуємо дані</span></span>
+<span class="disclosure-toggle" aria-hidden="true"></span></summary>
+<div class="disclosure-content" id="trends-content">
+<div class="chart-head"><p class="dim">Реальні знімки D1 за вибраний період. Пропуски не заповнюються вигаданими даними.</p>
 <div class="tabs" role="group" aria-label="Період графіка"><button class="active" id="period-24h" type="button" aria-pressed="true">24 год</button><button id="period-7d" type="button" aria-pressed="false">7 днів</button><button id="period-30d" type="button" aria-pressed="false">30 днів</button></div></div>
 <div class="chart-head"><label for="trend-metric" class="dim">Показник для графіка</label>
 <select id="trend-metric" class="selector">
@@ -186,7 +208,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </select></div>
 <div id="chart" class="chart-box" role="img" aria-label="Графік реальних вимірювань"><div class="chart-empty">Завантаження історії…</div></div>
 <div class="chart-meta"><span id="chart-coverage">Немає даних</span><span>Лічильники Workers і D1 обнуляються кожної доби UTC; записи — лише під час відкриття панелі.</span></div>
-</section>
+</div></details></section>
 <section class="panel section jump-target" id="history">
 <details class="history-details" id="history-details" open>
 <summary aria-controls="history-content"><span class="history-heading">
@@ -255,7 +277,13 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 Файли не видаляємо вручну й не змінюємо чергу доставки.</p>
 </div></section>
 <section class="section columns jump-target" id="security" aria-label="Контроль безпеки">
-<div class="read-only"><h3>Журнал безпеки Relay</h3>
+<div class="read-only">
+<details class="panel-disclosure" id="security-details" open>
+<summary aria-controls="security-content"><span class="disclosure-heading">
+<h3>Журнал безпеки Relay</h3>
+<span class="dim" id="security-preview">Очікуємо зведення безпеки</span></span>
+<span class="disclosure-toggle" aria-hidden="true"></span></summary>
+<div class="disclosure-content" id="security-content">
 <p id="security-status" role="status" aria-live="polite">Завантаження захищеної статистики…</p>
 <div class="stats" style="margin-top:13px">
 <div class="small-card"><b id="security-day">—</b><div>Спостережено відхилень за 24 год</div></div>
@@ -268,17 +296,26 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div id="security-countries" class="dim">Ще немає статистики.</div></div>
 <div style="margin-top:13px"><h3 style="font-size:13px">Активність за годинами UTC</h3>
 <div id="security-hours" class="security-hours" aria-label="Погодинна статистика відхилень"></div></div>
-<p style="margin-top:12px">Це приблизні агрегати з окремої таблиці D1 Relay, вони можуть занижувати кількість подій. Детальний журнал залишається у Cloudflare Observability. IP, ключі, ID, заголовки, підписи й повідомлення сюди не передаються.</p></div>
-<div class="read-only jump-target" id="devices"><h3>Стан пристроїв Relay</h3>
+<p style="margin-top:12px">Це приблизні агрегати з окремої таблиці D1 Relay, вони можуть занижувати кількість подій. Детальний журнал залишається у Cloudflare Observability. IP, ключі, ID, заголовки, підписи й повідомлення сюди не передаються.</p>
+</div></details></div>
+<div class="read-only jump-target" id="devices">
+<details class="panel-disclosure" id="devices-details" open>
+<summary aria-controls="devices-content"><span class="disclosure-heading">
+<h3>Стан пристроїв Relay</h3>
+<span class="dim" id="devices-preview">Очікуємо стан пристроїв</span></span>
+<span class="disclosure-toggle" aria-hidden="true"></span></summary>
+<div class="disclosure-content" id="devices-content">
 <p id="devices-status">Перевіряємо приватний канал статистики…</p>
 <div class="stats" style="margin-top:14px">
 <div class="small-card"><b id="device-active">—</b><div>Підключені мобільні (активний статус)</div></div>
 <div class="small-card"><b id="device-online">—</b><div>Зверталися протягом 30 хвилин</div></div>
 <div class="small-card"><b id="device-pending">—</b><div>Очікують активації</div></div>
 <div class="small-card"><b id="device-revoked">—</b><div>Відкликані</div></div>
-</div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p></div>
+</div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p>
+</div></details></div>
 </section>
-<div class="footer">MaVka Server Control 0.7.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<button id="back-to-top" class="back-to-top" type="button" aria-label="Повернутися нагору" title="Повернутися нагору" hidden>↑ Вгору</button>
+<div class="footer">MaVka Server Control 0.7.2 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -654,6 +691,7 @@ async function refresh(){
   showSecurity(results[3].status==='fulfilled'?results[3].value:null);
   showDevices(results[4].status==='fulfilled'?results[4].value:null);
   showMaintenance(results[5].status==='fulfilled'?results[5].value:null);
+  updateDisclosurePreviews();
  } finally {loading=false;q('refresh').disabled=false}
 }
 async function setPeriod(period){
@@ -664,6 +702,7 @@ async function setPeriod(period){
   el.classList.toggle('active',sel);el.setAttribute('aria-pressed',String(sel));
  }
  await Promise.allSettled([loadHistory(),loadTrends()]);
+ updateDisclosurePreviews();
 }
 for(const period of ['24h','7d','30d'])
  q('period-'+period).addEventListener('click',()=>setPeriod(period));
@@ -746,6 +785,31 @@ function updateHistoryPreview(){
  q('history-preview').textContent='Завантажено записів: '+visibleRows.length+
   ' · '+activePeriod+stamp;
 }
+// Independent native disclosures keep their state only in this browser.
+for(const name of ['trends','security','devices']){
+ const details=q(name+'-details');
+ const preferenceKey='mavka-control.disclosure.'+name+'.v1';
+ try{
+  const stored=localStorage.getItem(preferenceKey);
+  if(stored==='true'||stored==='false')details.open=stored==='true';
+ }catch{/* Local storage may be disabled. */}
+ details.addEventListener('toggle',()=>{
+  try{localStorage.setItem(preferenceKey,String(details.open))}
+  catch{/* Optional per-browser preference. */}
+ });
+}
+function updateDisclosurePreviews(){
+ const coverage=q('chart-coverage').textContent.trim();
+ q('trends-preview').textContent='Період: '+activePeriod+' · '+(coverage||'немає даних');
+ const day=q('security-day').textContent.trim(),week=q('security-week').textContent.trim();
+ q('security-preview').textContent=day==='—'&&week==='—'
+  ? 'Дані безпеки ще недоступні'
+  : 'Відхилення: 24 год · '+day+'; 7 днів · '+week;
+ const active=q('device-active').textContent.trim(),recent=q('device-online').textContent.trim();
+ q('devices-preview').textContent=active==='—'&&recent==='—'
+  ? 'Дані пристроїв ще недоступні'
+  : 'Активний статус · '+active+'; зверталися за 30 хв · '+recent;
+}
 // Fixed right-side local anchor menu; no extra requests or trackers.
 const quickNav=q('quick-nav');
 const navLinks=[...quickNav.querySelectorAll('a[href^="#"]')];
@@ -781,6 +845,16 @@ document.addEventListener('pointerdown',event=>{
 window.addEventListener('scroll',scheduleNavHighlight,{passive:true});
 window.addEventListener('resize',scheduleNavHighlight);
 scheduleNavHighlight();
+// One local scroll control, never a network operation.
+const backToTop=q('back-to-top');
+function updateBackToTop(){backToTop.hidden=window.scrollY<360}
+backToTop.addEventListener('click',()=>{
+ const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ window.scrollTo({top:0,behavior:reduced?'auto':'smooth'});
+});
+window.addEventListener('scroll',updateBackToTop,{passive:true});
+updateBackToTop();
+updateDisclosurePreviews();
 
 q('refresh').addEventListener('click',refresh);
 refresh();setInterval(()=>{if(!document.hidden)refresh()},900000);
