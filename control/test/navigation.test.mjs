@@ -64,5 +64,5 @@ test('client logic is syntactically valid and still uses existing network reads'
  assert.ok(!navCode.includes("get('/api/"), 'navigation added an API call');
  assert.ok(!navCode.includes('document.cookie'));
  assert.ok(!navCode.includes('sendBeacon'));
- assert.ok(html.includes('MaVka Server Control 0.9.0'));
+ assert.ok(html.includes('MaVka Server Control 0.9.1'));
 });
