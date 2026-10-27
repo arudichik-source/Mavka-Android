@@ -139,6 +139,12 @@ html{scroll-behavior:smooth}
 .source-health-status.missing{color:#ffc3c3;border-color:#8b4b52}
 .source-health-detail{font-size:12px;color:var(--muted);line-height:1.5;margin-top:9px;overflow-wrap:anywhere}
 .source-health-summary{font-size:13px;color:var(--muted);line-height:1.5;margin:0 0 14px}
+.cron-health-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.cron-health-card{padding:14px;border:1px solid #304157;border-radius:10px;background:#101826;min-width:0}
+.cron-health-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:9px}
+.cron-health-card p{margin:10px 0 0;font-size:12px;line-height:1.55;color:var(--muted)}
+.cron-health-detail{overflow-wrap:anywhere}
+@media(max-width:650px){.cron-health-grid{grid-template-columns:1fr}}
 .forecast-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .forecast-card{border:1px solid #304157;background:#101826;border-radius:12px;padding:16px;min-width:0}
 .forecast-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -305,6 +311,19 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <p style="margin-top:12px">Знімки старше 30 днів видаляються за Cron о 03:17 UTC (за Києвом: 05:17 узимку / 06:17 влітку). Нуль видалень — допустимий результат. Без службової таблиці <code>control_retention_status</code> очищення продовжує працювати, але підтвердження не показується.</p>
 <p style="margin-top:12px">Relay очищує прострочені записи кожні 5 хв; агрегати безпеки — щогодини. R2 <code>transfers/</code> має життєвий цикл 7 днів. Не видаляємо невручені повідомлення або відкликані пристрої заради квот.</p></div>
 </div>
+<div class="read-only" style="margin-top:14px" id="cron-diagnostics" aria-label="Діагностика Cron">
+<div class="chart-head" style="margin-bottom:9px"><div><h3 style="margin:0 0 5px">Діагностика Cron · дві D1</h3>
+<p class="dim">Оцінюємо лише наявні контрольні відмітки, а не реальні журнали кожного запуску.</p></div>
+<span id="cron-overall-status" class="source-health-status" role="status">Очікуємо дані</span></div>
+<div class="cron-health-grid">
+<div class="cron-health-card"><div class="cron-health-head"><strong>Relay · погодинний контроль</strong><span id="cron-relay-level" class="source-health-status">—</span></div>
+<p id="cron-relay-detail" class="cron-health-detail">Перевіряємо останній контрольний знімок…</p></div>
+<div class="cron-health-card"><div class="cron-health-head"><strong>Control · щоденний Cron</strong><span id="cron-control-level" class="source-health-status">—</span></div>
+<p id="cron-control-detail" class="cron-health-detail">Перевіряємо останній підтверджений запуск…</p></div>
+</div>
+<p id="cron-schedule-detail" class="dim" style="margin-top:12px">Розклад Control: 03:17 UTC щодня.</p>
+<p id="cron-diagnostic-note" class="dim" style="margin-top:8px">Без запису про запуск не можна відрізнити пропущений Cron від збою запису контрольної відмітки. П’ятихвилинне очищення Relay окремо не підтверджується кожною погодинною відміткою.</p>
+</div>
 <div class="read-only jump-target" id="r2-lifecycle" style="margin-top:14px" aria-label="Контроль життєвого циклу R2">
 <div class="chart-head" style="margin-bottom:10px"><div><h3>R2 · перевірка тимчасових частин</h3>
 <p id="r2-audit-status" role="status" aria-live="polite">Перевіряємо результати останнього огляду…</p></div>
@@ -360,7 +379,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </div></details></div>
 </section>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Повернутися нагору" title="Повернутися нагору" hidden>↑ Вгору</button>
-<div class="footer">MaVka Server Control 0.9.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.9.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -587,6 +606,79 @@ function sourceHealthTime(value){
   ? new Date(stamp).toISOString().slice(0,16).replace('T',' ')+' UTC'
   : 'час не підтверджено';
 }
+// Client-only Cron diagnostics from the existing /api/maintenance response.
+// A missing marker is not proof that a scheduled invocation failed.
+function diagnoseCrons(maintenance,now=Date.now()){
+ const DAY=86400000,ANCHOR=3*3600000+17*60000,GRACE=2*3600000;
+ const lastDue=Math.floor((now-GRACE-ANCHOR)/DAY)*DAY+ANCHOR;
+ const nextDue=(Math.floor((now-ANCHOR)/DAY)+1)*DAY+ANCHOR;
+ const seconds=n=>Number.isSafeInteger(n)&&n>0&&n*1000<=now+300000;
+ const control=maintenance?.controlRetention;
+ const relay=maintenance;
+ const controlResult={level:'missing',reason:'unknown',detail:
+  'Підтвердження відсутнє. Перевір наявність службової таблиці та розклад Cron.'};
+ if(control?.reason==='awaiting_first_run'){
+  controlResult.detail='Таблиця доступна, але запусків ще не зареєстровано. Час її створення невідомий — пропуск Cron не доведений.';
+ }else if(control?.data&&['ready','stale','failed'].includes(control.state)){
+  const d=control.data,lastSuccess=d.lastSuccessAt,lastAttempt=d.lastAttemptAt;
+  if(!seconds(lastAttempt)||(lastSuccess!==null&&!seconds(lastSuccess))){
+   controlResult.detail='Час контрольного запису некоректний. Не підтверджуємо виконання Cron.';
+  }else if(control.state==='failed'||d.lastAttemptOk===false){
+   controlResult.level='warn';controlResult.reason='failed';
+   controlResult.detail='Остання зафіксована спроба невдала. Час: '+sourceHealthTime(lastAttempt)+'. Перевір Cron Events.';
+  }else if(lastSuccess===null){
+   controlResult.detail='Немає підтвердженого успішного запуску; пропуск поки не доведений.';
+  }else if(control.state==='stale'||lastSuccess*1000<lastDue){
+   controlResult.level='warn';controlResult.reason='missed_confirmation';
+   controlResult.detail='Немає успішної відмітки після очікуваного запуску '+
+    new Date(lastDue).toISOString().slice(0,16).replace('T',' ')+' UTC (із запасом 2 год). Можливий пропуск або збій запису.';
+  }else{
+   controlResult.level='ok';controlResult.reason='fresh';
+   controlResult.detail='Останній успіх: '+sourceHealthTime(lastSuccess)+
+    ' · видалено: '+fmt(d.deletedLastSuccess)+' записів.';
+  }
+ }
+ const relayResult={level:'missing',reason:'unknown',detail:
+  'Погодинну контрольну відмітку Relay не отримано. Стан 5-хвилинного очищення не підтверджений.'};
+ const rd=relay?.data;
+ if(rd&&['ready','stale'].includes(relay?.state)&&seconds(rd.checkedAt)){
+  const ageMinutes=Math.max(0,(now-rd.checkedAt*1000)/60000);
+  if(relay.state==='stale'||ageMinutes>90){
+   relayResult.level='warn';relayResult.reason='stale';
+   relayResult.detail='Останній погодинний контроль: '+sourceHealthTime(rd.checkedAt)+
+    ' · '+Math.floor(ageMinutes)+' хв тому. Поріг 90 хв перевищено.';
+  }else if(!rd.securityPruneSucceeded){
+   relayResult.level='warn';relayResult.reason='prune_unconfirmed';
+   relayResult.detail='Контроль свіжий ('+Math.floor(ageMinutes)+' хв), але очищення журналу безпеки не підтверджене.';
+  }else{
+   relayResult.level='ok';relayResult.reason='fresh';
+   relayResult.detail='Погодинний контроль: '+sourceHealthTime(rd.checkedAt)+
+    ' · '+Math.floor(ageMinutes)+' хв тому. Це не підтвердження кожного 5-хвилинного Cron.';
+  }
+ }
+ const levels=[controlResult.level,relayResult.level];
+ const overall=levels.includes('warn')?'warn':levels.includes('missing')?'missing':'ok';
+ return {control:controlResult,relay:relayResult,overall,lastDue,nextDue,graceHours:2};
+}
+function renderCronDiagnostics(result){
+ const summary=diagnoseCrons(result);
+ const labels={ok:'Актуально',warn:'Перевірити',missing:'Невідомо'};
+ for(const name of ['relay','control']){
+  const item=summary[name],badge=q('cron-'+name+'-level');
+  badge.className='source-health-status '+(item.level==='warn'?'warn':item.level==='missing'?'missing':'ok');
+  badge.textContent=labels[item.level];
+  q('cron-'+name+'-detail').textContent=item.detail;
+ }
+ const pill=q('cron-overall-status');
+ pill.className='source-health-status '+(summary.overall==='warn'?'warn':summary.overall==='missing'?'missing':'ok');
+ pill.textContent=summary.overall==='warn'?'Потрібна перевірка':
+  summary.overall==='missing'?'Не все підтверджено':'Відмітки актуальні';
+ q('cron-schedule-detail').textContent=
+  'Control · останній очікуваний запуск з урахуванням 2 год запасу: '+
+  new Date(summary.lastDue).toISOString().slice(0,16).replace('T',' ')+' UTC; '+
+  'наступний: '+new Date(summary.nextDue).toISOString().slice(0,16).replace('T',' ')+
+  ' UTC. Relay · контрольний знімок приблизно щогодини.';
+}
 function telemetrySourceRows(responses,now=Date.now()){
  const answer=i=>responses?.[i]?.status==='fulfilled'?responses[i].value:null;
  const summary=answer(0),history=answer(1),trends=answer(2);
@@ -650,14 +742,9 @@ function telemetrySourceRows(responses,now=Date.now()){
    (maintenance.state==='stale'?' · старший за 90 хв':
     !maintenance.data.securityPruneSucceeded?' · очищення журналу не підтверджено':' · свіжий')
    :'Погодинний контроль очищення не підтверджено');
- const control=maintenance?.controlRetention;
- const controlReady=control?.state==='ready';
- const controlWarn=control?.state==='stale'||control?.state==='failed';
+ const controlHealth=diagnoseCrons(maintenance,now).control;
  put('control-retention','D1 Control · очищення',
-  controlReady?'ok':controlWarn?'warn':'missing',
-  controlReady?'Останній успішний запуск '+sourceHealthTime(control.data.lastSuccessAt):
-   controlWarn?'Очищення потребує перевірки · остання спроба '+sourceHealthTime(control?.data?.lastAttemptAt):
-   'Немає підтвердження Cron Control; потрібна службова міграція 0002 або наступний запуск');
+  controlHealth.level,controlHealth.detail);
  const audit=maintenance?.data?.r2Audit;
  const auditValid=['ready','stale'].includes(audit?.state)&&audit?.data;
  put('r2-audit','R2 · тимчасові частини',
@@ -876,6 +963,7 @@ function showControlRetention(result){
   (data.lastAttemptOk?' · успішна':' · невдала');
 }
 function showMaintenance(result){
+ renderCronDiagnostics(result);
  showControlRetention(result?.controlRetention);
  showR2Audit(result?.data?.r2Audit);
  const pill=q('cleanup-pill'),status=q('cleanup-status');
