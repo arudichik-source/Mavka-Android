@@ -4,7 +4,7 @@ import { Script } from 'node:vm';
 import { html } from '../src/ui.js';
 
 const SECTION_IDS=[
- 'overview','resources','trends','history','risks',
+ 'overview','resources','source-health','trends','history','risks',
  'maintenance','r2-lifecycle','security','devices'
 ];
 
@@ -24,7 +24,7 @@ test('a11y: history native disclosure retains status, summary and export on expa
  assert.equal((panel.match(/<summary/g)||[]).length,1);
  assert.equal((panel.match(/<\/details>/g)||[]).length,1);
 });
-test('nine quick-nav links all point to existing unique named targets',()=>{
+test('ten quick-nav links all point to existing unique named targets',()=>{
  assert.match(html,/<nav class="quick-nav" aria-label="Швидкий перехід до розділів">/);
  assert.match(html,/<details id="quick-nav"><summary>Розділи<\/summary>/);
  for(const id of SECTION_IDS){
@@ -64,5 +64,5 @@ test('client logic is syntactically valid and still uses existing network reads'
  assert.ok(!navCode.includes("get('/api/"), 'navigation added an API call');
  assert.ok(!navCode.includes('document.cookie'));
  assert.ok(!navCode.includes('sendBeacon'));
- assert.ok(html.includes('MaVka Server Control 0.7.2'));
+ assert.ok(html.includes('MaVka Server Control 0.8.0'));
 });

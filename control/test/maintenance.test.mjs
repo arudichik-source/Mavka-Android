@@ -68,7 +68,7 @@ test('new UI only presents one-hour sampled deletion figures and explicit stale 
  for(const id of ['cleanup-pill','cleanup-status','cleanup-msg','cleanup-nonces',
   'cleanup-receipts','cleanup-rate','cleanup-security'])
   assert.ok(html.includes('id="'+id+'"'),id);
- assert.ok(html.includes('MaVka Server Control 0.7.2'));
+ assert.ok(html.includes('MaVka Server Control 0.8.0'));
  assert.ok(html.includes("showMaintenance(results[5]"));
  assert.ok(html.includes('це не підрахунок за всю годину') ||
   html.includes('Це не підрахунок за всю годину'));

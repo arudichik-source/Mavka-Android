@@ -129,6 +129,18 @@ html{scroll-behavior:smooth}
  background:#1b3545;color:#e0fff7;border-color:#476b76;border-radius:11px;
  padding:10px 13px;font-size:12px;font-weight:650;box-shadow:0 8px 22px #050b14b3}
 .back-to-top[hidden]{display:none}
+.source-health-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.source-health-card{padding:13px;border:1px solid #304157;border-radius:11px;background:#101826;min-width:0}
+.source-health-head{display:flex;justify-content:space-between;align-items:center;gap:7px;flex-wrap:wrap}
+.source-health-head strong{font-size:13px}
+.source-health-status{font-size:11px;border:1px solid #47616c;color:#b2d8df;border-radius:7px;padding:3px 7px}
+.source-health-status.ok{color:#a6efdf;border-color:#3c766e}
+.source-health-status.warn{color:#f7d597;border-color:#725d39}
+.source-health-status.missing{color:#ffc3c3;border-color:#8b4b52}
+.source-health-detail{font-size:12px;color:var(--muted);line-height:1.5;margin-top:9px;overflow-wrap:anywhere}
+.source-health-summary{font-size:13px;color:var(--muted);line-height:1.5;margin:0 0 14px}
+@media(max-width:950px){.source-health-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:540px){.source-health-grid{grid-template-columns:1fr}}
 @media(max-width:750px){
  .quick-nav{top:auto;right:12px;bottom:14px}
  .quick-links{top:auto;bottom:calc(100% - 1px);border-radius:12px 12px 0 12px;max-height:62vh}
@@ -149,6 +161,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="quick-links">
 <a href="#overview">Огляд сервера</a>
 <a href="#resources">Квоти та сховище</a>
+<a href="#source-health">Стан джерел</a>
 <a href="#trends">Графік ресурсів</a>
 <a href="#history">Історія спостережень</a>
 <a href="#risks">Ризики та ліміти</a>
@@ -188,6 +201,13 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <p class="dim" id="updated" style="margin-top:15px">Остання перевірка: —</p>
 </section>
 </div>
+<section class="panel section jump-target" id="source-health" aria-label="Стан джерел моніторингу">
+<div class="chart-head"><div><h2 style="margin:0 0 6px">Стан джерел моніторингу</h2>
+<p class="dim">Показує якість і давність отриманих даних, а не гарантує безперервну доступність сервісів. Лише вже наявні запити.</p></div>
+<span id="source-health-checked" class="status" role="status">Очікуємо перевірку</span></div>
+<p id="source-health-summary" class="source-health-summary" aria-live="polite">Отримуємо показники…</p>
+<div id="source-health-grid" class="source-health-grid" aria-label="Доступність джерел телеметрії"></div>
+</section>
 <section class="panel section jump-target" id="trends">
 <details class="panel-disclosure" id="trends-details" open>
 <summary aria-controls="trends-content"><span class="disclosure-heading">
@@ -315,7 +335,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </div></details></div>
 </section>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Повернутися нагору" title="Повернутися нагору" hidden>↑ Вгору</button>
-<div class="footer">MaVka Server Control 0.7.2 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.8.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -520,17 +540,125 @@ async function loadHistory(before=null,reset=true){
  const data=await get(query);
  q('history-state').textContent=data.state==='ready'?'D1 підключена · '+activePeriod:
  data.state==='not_bound'?'D1 не підключена':'Не вдалося прочитати історію';
- if(data.state!=='ready'){appendRows([],reset);q('more-history').hidden=true;q('history-preview').textContent='Історія недоступна · '+activePeriod;return}
+ if(data.state!=='ready'){appendRows([],reset);q('more-history').hidden=true;q('history-preview').textContent='Історія недоступна · '+activePeriod;return data}
  appendRows(data.entries,reset);
  historyCursor=data.nextBefore;
  q('more-history').hidden=!historyCursor;
  updateHistoryPreview();
+ return data;
 }
 async function loadTrends(){
  const t=await get('/api/trends?period='+activePeriod);
  drawTrends(t);
+ return t;
 }
 let loading=false;
+// Source health is calculated only from responses already requested by this page.
+// Neither this view nor its period changes create extra API requests.
+let sourceHealthResults=null;
+function sourceHealthTime(value){
+ const stamp=typeof value==='number'?value*1000:Date.parse(value);
+ return Number.isFinite(stamp)&&stamp>=0&&stamp<=8.64e15
+  ? new Date(stamp).toISOString().slice(0,16).replace('T',' ')+' UTC'
+  : 'час не підтверджено';
+}
+function telemetrySourceRows(responses,now=Date.now()){
+ const answer=i=>responses?.[i]?.status==='fulfilled'?responses[i].value:null;
+ const summary=answer(0),history=answer(1),trends=answer(2);
+ const security=answer(3),devices=answer(4),maintenance=answer(5);
+ const rows=[];
+ const put=(name,label,level,description)=>rows.push({name,label,level,description});
+ const summaryTime=sourceHealthTime(summary?.at);
+ const summaryMs=Date.parse(summary?.at);
+ const oldSummary=Number.isFinite(summaryMs)&&now-summaryMs>30*60*1000;
+ const metric=(name,label,valid,description)=>{
+  const status=valid?(oldSummary?'warn':'ok'):'missing';
+  put(name,label,status,valid
+   ? description+(oldSummary?' · аналітика старша за 30 хв':'')
+   : 'Немає підтверджених значень · не означає нульове використання');
+ };
+ metric('workers','Workers · запити Relay',
+  Number.isFinite(summary?.workers?.requestsToday)&&Number.isFinite(summary?.workers?.errorsToday),
+  'Аналітика одного Worker · звіт '+summaryTime);
+ metric('d1','D1 · використання',
+  Number.isFinite(summary?.d1?.rowsReadToday)&&Number.isFinite(summary?.d1?.rowsWrittenToday),
+  'Аналітика всього акаунта · звіт '+summaryTime);
+ const storage=summary?.r2?.storage;
+ const storageMs=Date.parse(storage?.observedAt);
+ const delayed=Number.isFinite(storageMs)&&now-storageMs>24*3600000;
+ const storageValid=Number.isFinite(storage?.bytes)&&Number.isFinite(storage?.objects);
+ put('r2-storage','R2 · зайняте місце',
+  storageValid&&(oldSummary||delayed)?'warn':storageValid?'ok':'missing',
+  storageValid?'Знімок '+sourceHealthTime(storage?.observedAt)+
+   (delayed?' · старший за 24 год':' · можлива затримка Analytics')
+   :'Немає підтвердженого знімка · це не нульовий обсяг');
+ metric('r2-ops','R2 · операції',
+  Number.isFinite(summary?.r2?.operations?.requestsThisMonth),
+  'Агрегат за місяць · без поділу Class A/B · звіт '+summaryTime);
+ put('history','D1 · історія',
+  history?.state==='ready'?'ok':'missing',
+  history?.state==='ready'?'Прочитано записів сторінки: '+fmt(history.entries?.length||0)+
+   ' · відсутність записів не означає простій':'Не вдалося підтвердити читання історії Control D1');
+ put('trends','D1 · графік',
+  trends?.state==='ready'?'ok':'missing',
+  trends?.state==='ready'?'Вибірка: '+fmt(trends.entries?.length||0)+' знімків · '+activePeriod
+   :'Не вдалося прочитати знімки для графіка');
+ const remote=value=>Number.isSafeInteger(value)&&value>0&&value*1000<=now+300000;
+ const securityValid=security?.state==='ready'&&security?.coverage==='best_effort'&&
+  remote(security.observedAt);
+ const deviceValid=devices?.state==='ready'&&devices?.data&&remote(devices.observedAt);
+ const older=(stamp,minutes)=>Number.isSafeInteger(stamp)&&stamp>=0&&now-stamp*1000>minutes*60000;
+ put('security','Relay · журнал безпеки',
+  securityValid?(older(security.observedAt,30)?'warn':'ok'):'missing',
+  securityValid?'Агрегати приблизні · '+sourceHealthTime(security.observedAt)+
+   (older(security.observedAt,30)?' · знімок старший за 30 хв':'')
+   :'Немає підтвердженого зведення; це не означає відсутність подій');
+ put('devices','Relay · пристрої',
+  deviceValid?(older(devices.observedAt,30)?'warn':'ok'):'missing',
+  deviceValid?'Анонімні кількості · '+sourceHealthTime(devices.observedAt)+
+   (older(devices.observedAt,30)?' · знімок старший за 30 хв':'')
+   :'Немає підтвердженої статистики пристроїв');
+ const cleanupValid=['ready','stale'].includes(maintenance?.state)&&maintenance?.data;
+ put('cleanup','Relay · очищення',
+  cleanupValid?(maintenance.state==='stale'||!maintenance.data.securityPruneSucceeded?'warn':'ok'):'missing',
+  cleanupValid?'Контроль '+sourceHealthTime(maintenance.data.checkedAt)+
+   (maintenance.state==='stale'?' · старший за 90 хв':
+    !maintenance.data.securityPruneSucceeded?' · очищення журналу не підтверджено':' · свіжий')
+   :'Погодинний контроль очищення не підтверджено');
+ const audit=maintenance?.data?.r2Audit;
+ const auditValid=['ready','stale'].includes(audit?.state)&&audit?.data;
+ put('r2-audit','R2 · тимчасові частини',
+  auditValid?(audit.state==='stale'||audit.data.truncated||audit.data.overdueObjects>0?'warn':'ok'):'missing',
+  auditValid?'Огляд '+sourceHealthTime(audit.data.auditedAt)+
+   ' · до 500 об’єктів transfers/'+
+   (audit.state==='stale'?' · старший за 8 год':'')+
+   (audit.data.truncated?' · неповна вибірка':'')+
+   (audit.data.overdueObjects>0?' · є старші за 8 діб':'')
+   :'Немає підтвердженого огляду transfers/ · не означає порожнє сховище');
+ return rows;
+}
+function renderSourceHealth(responses){
+ const rows=telemetrySourceRows(responses);
+ const grid=q('source-health-grid');
+ grid.replaceChildren();
+ for(const item of rows){
+  const card=document.createElement('article');card.className='source-health-card';
+  const top=document.createElement('div');top.className='source-health-head';
+  const title=document.createElement('strong');title.textContent=item.label;
+  const badge=document.createElement('span');badge.className='source-health-status '+item.level;
+  badge.textContent=item.level==='ok'?'Дані отримано':item.level==='warn'?'Перевірити':'Немає даних';
+  const detail=document.createElement('div');detail.className='source-health-detail';
+  detail.textContent=item.description;
+  top.append(title,badge);card.append(top,detail);grid.appendChild(card);
+ }
+ const ok=rows.filter(x=>x.level==='ok').length;
+ const warn=rows.filter(x=>x.level==='warn').length;
+ const missing=rows.length-ok-warn;
+ q('source-health-summary').textContent='Дані отримано: '+ok+' · потребують уваги: '+
+  warn+' · без підтвердження: '+missing+'. Статус джерела не є перевіркою uptime.';
+ q('source-health-checked').textContent='Перевірено: '+new Date().toLocaleTimeString('uk-UA')+
+  ' · за наявними відповідями';
+}
 function showR2Audit(result){
  const pill=q('r2-audit-pill'),status=q('r2-audit-status'),warning=q('r2-audit-warning');
  if(!result?.data||!['ready','stale'].includes(result.state)){
@@ -691,6 +819,8 @@ async function refresh(){
   showSecurity(results[3].status==='fulfilled'?results[3].value:null);
   showDevices(results[4].status==='fulfilled'?results[4].value:null);
   showMaintenance(results[5].status==='fulfilled'?results[5].value:null);
+  sourceHealthResults=results;
+  renderSourceHealth(sourceHealthResults);
   updateDisclosurePreviews();
  } finally {loading=false;q('refresh').disabled=false}
 }
@@ -701,7 +831,12 @@ async function setPeriod(period){
   const el=q('period-'+name),sel=name===period;
   el.classList.toggle('active',sel);el.setAttribute('aria-pressed',String(sel));
  }
- await Promise.allSettled([loadHistory(),loadTrends()]);
+ const reads=await Promise.allSettled([loadHistory(),loadTrends()]);
+ if(sourceHealthResults){
+  sourceHealthResults[1]=reads[0];
+  sourceHealthResults[2]=reads[1];
+  renderSourceHealth(sourceHealthResults);
+ }
  updateDisclosurePreviews();
 }
 for(const period of ['24h','7d','30d'])
