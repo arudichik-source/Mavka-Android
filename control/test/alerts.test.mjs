@@ -66,7 +66,7 @@ test('retention is transparent with zero new databases, no extra poll timer',()=
  assert.equal(RETENTION_INFO.securitySignalsDays,14);
  assert.equal(RETENTION_INFO.r2TemporaryTransferDays,7);
  assert.equal(RETENTION_INFO.securityCleanupMinutes,60);
- assert.ok(html.includes('MaVka Server Control 0.8.1'));
+ assert.ok(html.includes('MaVka Server Control 0.9.0'));
  for(const id of ['quota-alerts','quota-summary','incident-list','incident-summary'])
   assert.ok(html.includes('id="'+id+'"'),id);
  assert.ok(html.includes('showQuotaWarnings(m.quotaAlerts)'));
