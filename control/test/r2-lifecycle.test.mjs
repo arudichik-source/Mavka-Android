@@ -60,7 +60,7 @@ test('new UI gives privacy and incomplete-sample warnings instead of claiming fu
  for(const id of ['r2-audit-status','r2-audit-pill','r2-audit-count',
   'r2-audit-bytes','r2-audit-overdue','r2-audit-oldest','r2-audit-warning'])
   assert.ok(html.includes('id="'+id+'"'),id);
- assert.ok(html.includes('MaVka Server Control 0.7.2'));
+ assert.ok(html.includes('MaVka Server Control 0.8.0'));
  assert.ok(html.includes('showR2Audit(result?.data?.r2Audit)'));
  assert.ok(html.includes('НЕ є повним підсумком'));
  assert.ok(html.includes('не для всього бакета'));
