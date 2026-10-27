@@ -83,14 +83,66 @@ a{color:#9cdfe0;text-decoration:none}a:hover{text-decoration:underline}
 .alert-level.critical{color:#ffc3c3;border-color:#8b4b52}
 .alert-level.warning{color:#f7d597;border-color:#725d39}
 .retention-note{padding:12px;border:1px solid var(--edge);border-radius:10px;color:var(--muted);font-size:12px;line-height:1.55;margin-top:13px}
+
+html{scroll-behavior:smooth}
+.jump-target{scroll-margin-top:105px}
+.quick-nav{position:fixed;right:16px;top:96px;z-index:8;max-width:calc(100vw - 24px)}
+.quick-nav details{position:relative}
+.quick-nav summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;
+ background:#1b3545;color:#e0fff7;border:1px solid #476b76;border-radius:11px;
+ padding:10px 13px;font-size:12px;font-weight:650;box-shadow:0 8px 22px #050b14b3}
+.quick-nav summary::-webkit-details-marker,.history-details summary::-webkit-details-marker{display:none}
+.quick-nav summary::before{content:"☰";font-size:16px;font-weight:400}
+.quick-nav details[open] summary{border-color:var(--accent);border-radius:11px 11px 0 0}
+.quick-nav summary:focus-visible,.history-details summary:focus-visible,.quick-links a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.quick-links{position:absolute;right:0;top:100%;width:min(275px,calc(100vw - 24px));
+ max-height:min(73vh,520px);overflow-y:auto;display:grid;gap:3px;padding:9px;
+ border:1px solid #476b76;background:#111e2e;border-radius:12px 0 12px 12px;
+ box-shadow:0 16px 40px #050b15dd}
+.quick-links a{display:block;padding:10px 11px;border-radius:8px;color:#c4d5e6;
+ font-size:12px;line-height:1.4;text-decoration:none}
+.quick-links a:hover,.quick-links a.active{color:#d7fff7;background:#214653;text-decoration:none}
+.history-details summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;
+ align-items:center;flex-wrap:wrap;gap:12px;padding:2px 0 14px}
+.history-details summary::-webkit-details-marker{display:none}
+.history-heading{display:grid;gap:5px;flex:1;min-width:180px}
+.history-heading h2{margin:0}
+.history-summary-end{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.history-toggle{font-size:12px;border:1px solid #3c596d;background:#213549;
+ border-radius:9px;padding:8px 11px;color:#ddf7f1;white-space:nowrap}
+.history-toggle::after{content:"Згорнути  ▴"}
+.history-details:not([open]) .history-toggle::after{content:"Розгорнути  ▾"}
+.history-details:not([open]) summary{padding-bottom:0}
+.history-content{padding-top:10px;border-top:1px solid var(--edge)}
+@media(max-width:750px){
+ .quick-nav{top:auto;right:12px;bottom:14px}
+ .quick-links{top:auto;bottom:calc(100% - 1px);border-radius:12px 12px 0 12px;max-height:62vh}
+ .quick-nav details[open] summary{border-radius:0 0 11px 11px}
+ .history-summary-end{width:100%;justify-content:space-between}
+ .footer{padding-bottom:65px}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 </style>
 </head>
 <body>
 <header><div class="shell head"><div class="brand"><div class="logo">M</div><div>
 MaVka Server Control<div class="subtitle">Cloudflare · керування ресурсами</div></div></div>
 <div class="toolbar"><span class="pill">Режим лише перегляду</span><button id="refresh" type="button">Оновити</button></div></div></header>
+<nav class="quick-nav" aria-label="Швидкий перехід до розділів">
+<details id="quick-nav"><summary>Розділи</summary>
+<div class="quick-links">
+<a href="#overview">Огляд сервера</a>
+<a href="#resources">Квоти та сховище</a>
+<a href="#trends">Графік ресурсів</a>
+<a href="#history">Історія спостережень</a>
+<a href="#risks">Ризики та ліміти</a>
+<a href="#maintenance">Автоматичне очищення</a>
+<a href="#r2-lifecycle">Контроль R2</a>
+<a href="#security">Журнал безпеки</a>
+<a href="#devices">Стан пристроїв</a>
+</div></details></nav>
 <main class="shell main">
-<div class="topline"><div><h1>Моніторинг інфраструктури</h1><p class="dim">Окремо від робочого сервера «Мавки». Усі суми — з API Cloudflare, без демоданих.</p></div><div class="status"><span id="dot" class="dot"></span><span id="state">Завантаження даних…</span></div></div>
+<div class="topline jump-target" id="overview"><div><h1>Моніторинг інфраструктури</h1><p class="dim">Окремо від робочого сервера «Мавки». Усі суми — з API Cloudflare, без демоданих.</p></div><div class="status"><span id="dot" class="dot"></span><span id="state">Завантаження даних…</span></div></div>
 <div id="notice" class="notice">Деякі квоти рахуються на рівні акаунта, інші — окремого сервісу. Нарахування перевіряйте у Cloudflare Billing.</div>
 <div class="grid">
 <article class="panel"><div class="metric-label">Workers · mavka-relay</div><div class="metric" id="requests">—</div><div class="metric-note">Виклики за поточну добу UTC. Не весь акаунт.</div></article>
@@ -98,7 +150,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <article class="panel"><div class="metric-label">D1 · прочитані рядки</div><div class="metric" id="reads">—</div><div class="metric-note">Усі бази акаунта за добу UTC.</div></article>
 <article class="panel"><div class="metric-label">D1 · записані рядки</div><div class="metric" id="writes">—</div><div class="metric-note">Усі бази акаунта за добу UTC.</div></article>
 </div>
-<div class="section columns">
+<div class="section columns jump-target" id="resources">
 <section class="panel">
 <h2>Використання безкоштовних квот</h2>
 <p class="dim">Пороги 70%, 85%, 95%. «—» означає, що дані ще не надійшли.</p>
@@ -120,7 +172,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <p class="dim" id="updated" style="margin-top:15px">Остання перевірка: —</p>
 </section>
 </div>
-<section class="panel section">
+<section class="panel section jump-target" id="trends">
 <div class="chart-head"><div><h2 style="margin:0 0 5px">Графік використання ресурсів</h2><p class="dim">Реальні знімки D1 за вибраний період. Пропуски не заповнюються вигаданими даними.</p></div>
 <div class="tabs" role="group" aria-label="Період графіка"><button class="active" id="period-24h" type="button" aria-pressed="true">24 год</button><button id="period-7d" type="button" aria-pressed="false">7 днів</button><button id="period-30d" type="button" aria-pressed="false">30 днів</button></div></div>
 <div class="chart-head"><label for="trend-metric" class="dim">Показник для графіка</label>
@@ -135,12 +187,18 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div id="chart" class="chart-box" role="img" aria-label="Графік реальних вимірювань"><div class="chart-empty">Завантаження історії…</div></div>
 <div class="chart-meta"><span id="chart-coverage">Немає даних</span><span>Лічильники Workers і D1 обнуляються кожної доби UTC; записи — лише під час відкриття панелі.</span></div>
 </section>
-<section class="panel section">
-<div class="topline" style="margin-bottom:12px"><div><h2 style="margin:0">Історія спостережень</h2><p class="dim">Посторінковий перегляд збережених даних за вибраний період — до 30 днів.</p></div><span class="status" id="history-state">База: перевіряємо…</span></div>
+<section class="panel section jump-target" id="history">
+<details class="history-details" id="history-details" open>
+<summary aria-controls="history-content"><span class="history-heading">
+<h2>Історія спостережень</h2>
+<span class="dim" id="history-preview">Посторінковий перегляд · до 30 днів</span></span>
+<span class="history-summary-end"><span class="status" id="history-state">База: перевіряємо…</span>
+<span class="history-toggle" aria-hidden="true"></span></span></summary>
+<div class="history-content" id="history-content">
 <div class="table-scroll"><table><thead><tr><th>Час (UTC)</th><th>Relay запити</th><th>D1 читання</th><th>D1 запис</th><th>R2 байти</th></tr></thead><tbody id="rows"><tr><td colspan="5">Записів ще немає</td></tr></tbody></table></div>
 <div style="margin-top:14px;display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap"><span id="history-export-status" class="dim" role="status" aria-live="polite"></span><button class="small-btn" id="export-history" type="button">Експорт історії CSV</button><button class="small-btn" id="more-history" type="button" hidden>Показати ще 50 записів</button></div>
-</section>
-<section class="panel section" aria-label="Сигнали та контроль квот">
+</div></details></section>
+<section class="panel section jump-target" id="risks" aria-label="Сигнали та контроль квот">
 <div class="chart-head"><div><h2 style="margin:0 0 6px">Контроль ризиків і лімітів</h2>
 <p class="dim">Оцінюємо лише підтверджені агрегати і поточні показники. Жодного додаткового фонового опитування.</p></div><span class="pill">На основі наявних знімків</span></div>
 <div class="columns">
@@ -160,7 +218,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
  а старі агрегати безпеки перевіряє щогодини. Відкликані реєстрації пристроїв та
  неотримані документи автоматично через поріг R2 у 5 ГБ не видаляємо.</div>
 </section>
-<section class="panel section" aria-label="Контроль автоматичного очищення">
+<section class="panel section jump-target" id="maintenance" aria-label="Контроль автоматичного очищення">
 <div class="chart-head"><div><h2 style="margin:0 0 6px">Автоматичне очищення · контроль роботи</h2>
 <p class="dim">Показуємо тільки останній погодинний контрольний знімок Relay, без повторного читання таблиць документів.</p></div>
 <span id="cleanup-pill" class="pill">Очікуємо стан</span></div>
@@ -180,7 +238,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <p style="margin-top:12px">Control: старіші за 30 днів знімки тепер видаляються автоматично о 03:17 UTC щодня, навіть якщо сторінка закрита.</p>
 <p style="margin-top:12px">Журнал безпеки Relay: очищення щогодини (30 днів). Тимчасові файли R2 у <code>transfers/</code>: політика 7 днів. Основна черга й відкликані реєстрації не очищуються достроково заради квот.</p></div>
 </div>
-<div class="read-only" style="margin-top:14px" aria-label="Контроль життєвого циклу R2">
+<div class="read-only jump-target" id="r2-lifecycle" style="margin-top:14px" aria-label="Контроль життєвого циклу R2">
 <div class="chart-head" style="margin-bottom:10px"><div><h3>R2 · перевірка тимчасових частин</h3>
 <p id="r2-audit-status" role="status" aria-live="polite">Перевіряємо результати останнього огляду…</p></div>
 <span class="pill" id="r2-audit-pill">Немає знімка</span></div>
@@ -196,7 +254,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 Правило Cloudflare R2 Lifecycle видаляє тимчасові об’єкти через 7 днів; видалення може затримуватися.
 Файли не видаляємо вручну й не змінюємо чергу доставки.</p>
 </div></section>
-<section class="section columns" aria-label="Контроль безпеки">
+<section class="section columns jump-target" id="security" aria-label="Контроль безпеки">
 <div class="read-only"><h3>Журнал безпеки Relay</h3>
 <p id="security-status" role="status" aria-live="polite">Завантаження захищеної статистики…</p>
 <div class="stats" style="margin-top:13px">
@@ -211,7 +269,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div style="margin-top:13px"><h3 style="font-size:13px">Активність за годинами UTC</h3>
 <div id="security-hours" class="security-hours" aria-label="Погодинна статистика відхилень"></div></div>
 <p style="margin-top:12px">Це приблизні агрегати з окремої таблиці D1 Relay, вони можуть занижувати кількість подій. Детальний журнал залишається у Cloudflare Observability. IP, ключі, ID, заголовки, підписи й повідомлення сюди не передаються.</p></div>
-<div class="read-only"><h3>Стан пристроїв Relay</h3>
+<div class="read-only jump-target" id="devices"><h3>Стан пристроїв Relay</h3>
 <p id="devices-status">Перевіряємо приватний канал статистики…</p>
 <div class="stats" style="margin-top:14px">
 <div class="small-card"><b id="device-active">—</b><div>Підключені мобільні (активний статус)</div></div>
@@ -220,7 +278,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="small-card"><b id="device-revoked">—</b><div>Відкликані</div></div>
 </div><p class="dim" style="margin-top:11px">Це лише агреговані кількості, без ID, персональних даних, ключів, повідомлень і списків пристроїв. Активний статус не означає, що пристрій онлайн.</p></div>
 </section>
-<div class="footer">MaVka Server Control 0.7.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.7.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -425,10 +483,11 @@ async function loadHistory(before=null,reset=true){
  const data=await get(query);
  q('history-state').textContent=data.state==='ready'?'D1 підключена · '+activePeriod:
  data.state==='not_bound'?'D1 не підключена':'Не вдалося прочитати історію';
- if(data.state!=='ready'){appendRows([],reset);q('more-history').hidden=true;return}
+ if(data.state!=='ready'){appendRows([],reset);q('more-history').hidden=true;q('history-preview').textContent='Історія недоступна · '+activePeriod;return}
  appendRows(data.entries,reset);
  historyCursor=data.nextBefore;
  q('more-history').hidden=!historyCursor;
+ updateHistoryPreview();
 }
 async function loadTrends(){
  const t=await get('/api/trends?period='+activePeriod);
@@ -669,6 +728,60 @@ q('more-history').addEventListener('click',async ()=>{
  try{await loadHistory(historyCursor,false)}
  finally{button.disabled=false}
 });
+
+// Native details permit click/keyboard collapse without requiring JavaScript.
+// Persist only a local UI preference; never send it to the Worker.
+const historyDetails=q('history-details');
+const historyPreferenceKey='mavka-control.history-open.v1';
+try{if(localStorage.getItem(historyPreferenceKey)==='false')historyDetails.open=false}
+catch{/* blocked localStorage: use default expanded state */}
+historyDetails.addEventListener('toggle',()=>{
+ try{localStorage.setItem(historyPreferenceKey,String(historyDetails.open))}
+ catch{/* optional preference */}
+});
+function updateHistoryPreview(){
+ const last=visibleRows[0]?.bucket_start;
+ const stamp=Number.isSafeInteger(last)?
+  ' · останній '+new Date(last*1000).toISOString().slice(0,16).replace('T',' ')+' UTC':'';
+ q('history-preview').textContent='Завантажено записів: '+visibleRows.length+
+  ' · '+activePeriod+stamp;
+}
+// Fixed right-side local anchor menu; no extra requests or trackers.
+const quickNav=q('quick-nav');
+const navLinks=[...quickNav.querySelectorAll('a[href^="#"]')];
+const targets=navLinks.map(link=>q(link.getAttribute('href').slice(1)));
+function markActiveNavigation(){
+ let current=targets[0]?.id;
+ const cutoff=Math.min(190,window.innerHeight*0.33);
+ for(const section of targets)
+  if(section&&section.getBoundingClientRect().top<=cutoff)current=section.id;
+ for(const link of navLinks){
+  const active=link.getAttribute('href')==='#'+current;
+  link.classList.toggle('active',active);
+  if(active)link.setAttribute('aria-current','location');
+  else link.removeAttribute('aria-current');
+ }
+}
+let navFramePending=false;
+function scheduleNavHighlight(){
+ if(navFramePending)return;
+ navFramePending=true;
+ requestAnimationFrame(()=>{navFramePending=false;markActiveNavigation()});
+}
+for(const link of navLinks)
+ link.addEventListener('click',()=>{quickNav.open=false;scheduleNavHighlight()});
+document.addEventListener('keydown',event=>{
+ if(event.key==='Escape'&&quickNav.open){
+  quickNav.open=false;quickNav.querySelector('summary').focus();
+ }
+});
+document.addEventListener('pointerdown',event=>{
+ if(quickNav.open&&!quickNav.contains(event.target))quickNav.open=false;
+});
+window.addEventListener('scroll',scheduleNavHighlight,{passive:true});
+window.addEventListener('resize',scheduleNavHighlight);
+scheduleNavHighlight();
+
 q('refresh').addEventListener('click',refresh);
 refresh();setInterval(()=>{if(!document.hidden)refresh()},900000);
 })();
