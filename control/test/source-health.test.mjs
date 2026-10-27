@@ -29,16 +29,17 @@ const complete=()=>[
  fulfilled({state:'ready',observedAt:secs(3),data:{mobileActive:0,mobileSeenRecently:0}}),
  fulfilled({state:'ready',data:{checkedAt:secs(3),securityPruneSucceeded:true,
   r2Audit:{state:'ready',data:{auditedAt:secs(60),sampledObjects:0,sampledBytes:0,
-   truncated:false,overdueObjects:0}}}})
+   truncated:false,overdueObjects:0}}},
+  controlRetention:{state:'ready',data:{lastAttemptAt:secs(60),lastSuccessAt:secs(60),deletedLastSuccess:0}}})
 ];
 const byName=rows=>Object.fromEntries(rows.map(x=>[x.name,x]));
 
-test('all 10 existing telemetry feeds are represented without new network calls',()=>{
+test('all 11 existing telemetry feeds are represented without new network calls',()=>{
  const rows=evaluate(complete(),NOW);
- assert.equal(rows.length,10);
+ assert.equal(rows.length,11);
  assert.deepEqual(rows.map(x=>x.name),[
   'workers','d1','r2-storage','r2-ops','history','trends',
-  'security','devices','cleanup','r2-audit']);
+  'security','devices','cleanup','control-retention','r2-audit']);
  assert.ok(rows.every(x=>x.level==='ok'));
  const section=script.slice(start,script.indexOf('function showR2Audit(',end));
  assert.doesNotMatch(section,/\bfetch\s*\(|\bget\s*\(|sendBeacon|WebSocket/);
@@ -49,7 +50,7 @@ test('all 10 existing telemetry feeds are represented without new network calls'
 });
 test('legitimate numeric zero is confirmed data, not a false unavailable signal',()=>{
  const r=byName(evaluate(complete(),NOW));
- for(const name of ['workers','d1','r2-storage','r2-ops','security','devices','r2-audit'])
+ for(const name of ['workers','d1','r2-storage','r2-ops','security','devices','control-retention','r2-audit'])
   assert.equal(r[name].level,'ok',name);
  assert.match(r.history.description,/0/);
  assert.match(r['r2-storage'].description,/знімок/i);
@@ -63,10 +64,11 @@ test('stale checkpoint, timestamps, truncated audit and failed prune are warning
  data[5].value.state='stale';
  data[5].value.data.securityPruneSucceeded=false;
  data[5].value.data.r2Audit.state='stale';
+ data[5].value.controlRetention.state='stale';
  data[5].value.data.r2Audit.data.truncated=true;
  data[5].value.data.r2Audit.data.overdueObjects=4;
  const r=byName(evaluate(data,NOW));
- for(const name of ['workers','d1','r2-storage','r2-ops','security','devices','cleanup','r2-audit'])
+ for(const name of ['workers','d1','r2-storage','r2-ops','security','devices','cleanup','control-retention','r2-audit'])
   assert.equal(r[name].level,'warn',name);
  assert.equal(r.history.level,'ok');
  assert.equal(r.trends.level,'ok');
@@ -87,7 +89,7 @@ test('no data or disconnected services never masquerade as zero or healthy',()=>
  partial[5]=fulfilled({state:'not_connected'});
  const r=byName(evaluate(partial,NOW));
  assert.equal(r.d1.level,'ok');
- for(const name of ['workers','r2-storage','r2-ops','history','trends','security','devices','cleanup','r2-audit'])
+ for(const name of ['workers','r2-storage','r2-ops','history','trends','security','devices','cleanup','control-retention','r2-audit'])
   assert.equal(r[name].level,'missing',name);
 });
 test('future or invalid remote timestamps never appear healthy or crash display',()=>{
@@ -107,5 +109,5 @@ test('full dashboard refresh and period changes reuse existing six API calls',()
  assert.match(script,/if\(data\.state!=='ready'\).*return data/);
  assert.match(script,/drawTrends\(t\);\s*return t;/);
  assert.match(script,/900000/);
- assert.match(html,/MaVka Server Control 0\.8\.1/);
+ assert.match(html,/MaVka Server Control 0\.9\.0/);
 });

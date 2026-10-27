@@ -1,4 +1,4 @@
-# MaVka Server Control 0.8.1 — separate, read-only Cloudflare console
+# MaVka Server Control 0.9.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,58 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 0.9.0 — independent daily Control D1 cleanup confirmation
+
+- The existing **Автоматичне очищення** panel now shows a separate
+  **D1 Control · очищення** card next to the Relay hourly checkpoint.
+  It displays the last Cron attempt, last successful daily cleanup,
+  number of rows deleted during the **last successful run**, and elapsed hours.
+  Zero deleted rows is a valid successful run while the history is younger than
+  the 30-day retention period. A stale checkpoint (over 36 hours) or failed
+  latest attempt is shown as a warning, not as success.
+- **One-time manual database migration:** take a Time Travel bookmark or
+  export of the EXISTING `mavka-control` D1 before making schema changes.
+  In Cloudflare D1 → **mavka-control** → Console, run the SQL statements in
+  `control/migrations/0002_control_retention_status.sql` **once**.
+  Verify the current database name carefully: this migration must **NOT**
+  run against Relay's `mavka-messages`. It creates only one small optional
+  singleton table `control_retention_status`, no changes to historical
+  `usage_snapshots` rows.
+- The current scheduled Worker trigger remains `17 3 * * *` (03:17 **UTC**
+  daily; 05:17 in Kyiv winter or 06:17 in Kyiv summer). The existing
+  `DELETE FROM usage_snapshots WHERE bucket_start < ?` runs **first**, even
+  when optional status table is missing, before a single small UPSERT of its
+  anonymous outcome. If status writing fails, cleanup itself remains
+  successful and a privacy-safe Cron log says `statusRecorded:false`.
+  If DELETE fails, the Cron correctly rejects and tries to record a failed
+  attempt if D1 is still usable.
+- The existing Access-protected `GET /api/maintenance` adds an optional
+  `controlRetention` object with only four counters/timestamps/status flags
+  plus fixed schedule metadata. Its **one indexed singleton D1 read** is
+  done during the existing 15-minute dashboard refresh — no new HTTP route,
+  Relay RPC, analytics query, extra Cron trigger, R2 request or polling.
+  At most ~96 such tiny D1 reads per day **while the dashboard is open**,
+  plus one extra D1 row write per daily Cron. The historical 30-day pruning
+  itself remains unchanged.
+- This monitoring change can be safely deployed **before** the manual
+  migration. Without migration, the Control card reports no confirmation
+  while pre-existing expiration runs as before; it never fabricates a "ready"
+  result. After migration, confirmation begins with the *next* scheduled
+  daily Cron. It does not backfill earlier history or claim to have verified
+  past runs.
+- The source health list includes an additional **D1 Control · очищення**
+  source. Any missing, stale, or last-failed mark is distinguished from the
+  independent hourly Relay cleanup status.
+- Verification: after the next Cron, in **mavka-control** Console run
+  `SELECT * FROM control_retention_status WHERE id=1;`
+  or use the new dashboard card. Logs still use
+  `MAVKA_CONTROL_RETENTION_V1`, with `outcome`, `rowsDeleted` and
+  `statusRecorded`, without secrets or user/device identifiers.
+- Regression coverage includes zero deletions, new/missing table, failure,
+  stale timestamps, optional write failure isolation, authenticated read,
+  and unchanged actual deletion order. All UI/server endpoints remain
+  accessible only through configured Cloudflare Access.
 
 ## Version 0.8.1 — resource use pace projections (no new queries)
 

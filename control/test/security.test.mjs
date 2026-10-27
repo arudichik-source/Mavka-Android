@@ -62,7 +62,7 @@ test('interactive UI provides anonymous 24h/7d security summaries and avoids raw
  for(const id of ['security-day','security-week','security-status','security-reasons',
   'security-countries','security-hours','security-warning'])
    assert.ok(html.includes('id="'+id+'"'),id);
- assert.ok(html.includes('MaVka Server Control 0.8.1'));
+ assert.ok(html.includes('MaVka Server Control 0.9.0'));
  assert.ok(html.includes("showSecurity(results[3]"));
  assert.ok(!html.includes('/v1/devices/'));
 });

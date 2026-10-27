@@ -301,6 +301,9 @@ test('Control daily scheduled cleanup prunes 30 days once; does not require brow
   {CONTROL_DB:local},{waitUntil:p=>pending.push(p)});
  await Promise.all(pending);
  assert.equal(pending.length,1);
- assert.equal(calls.length,1);
+ assert.equal(calls.length,2,'one indexed DELETE then one optional singleton UPSERT');
  assert.match(calls[0].sql,/DELETE FROM usage_snapshots WHERE bucket_start < \?/);
+ assert.match(calls[1].sql,/INSERT INTO control_retention_status/);
+ assert.equal(calls[1].params[1],1,'the existing deletion result is the recorded success');
+ assert.equal(calls[1].params[3],2,'record the actual deleted row count');
 });

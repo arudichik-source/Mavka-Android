@@ -282,7 +282,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </section>
 <section class="panel section jump-target" id="maintenance" aria-label="Контроль автоматичного очищення">
 <div class="chart-head"><div><h2 style="margin:0 0 6px">Автоматичне очищення · контроль роботи</h2>
-<p class="dim">Показуємо тільки останній погодинний контрольний знімок Relay, без повторного читання таблиць документів.</p></div>
+<p class="dim">Показуємо останній погодинний контроль Relay та щоденний запуск очищення D1 Control. Без читання документів.</p></div>
 <span id="cleanup-pill" class="pill">Очікуємо стан</span></div>
 <div class="columns">
 <div class="read-only"><h3>Службове очищення Relay</h3>
@@ -293,12 +293,17 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="small-card"><b id="cleanup-receipts">—</b><div>Прострочені підтвердження, видалено під час запуску</div></div>
 <div class="small-card"><b id="cleanup-rate">—</b><div>Старі ліміти частоти, видалено під час запуску</div></div>
 </div>
-<p id="cleanup-security" style="margin-top:10px">Стан очищення журналу безпеки — перевіряємо.</p></div>
-<div class="read-only"><h3>Збереження та квоти</h3>
-<p>Relay: повідомлення й службові TTL перевіряються кожні 5 хвилин.
-Контрольна відмітка записується в один рядок D1 щогодини. Це не підрахунок за всю годину і не поточна кількість прострочених записів.</p>
-<p style="margin-top:12px">Control: старіші за 30 днів знімки тепер видаляються автоматично о 03:17 UTC щодня, навіть якщо сторінка закрита.</p>
-<p style="margin-top:12px">Журнал безпеки Relay: очищення щогодини (30 днів). Тимчасові файли R2 у <code>transfers/</code>: політика 7 днів. Основна черга й відкликані реєстрації не очищуються достроково заради квот.</p></div>
+<p id="cleanup-security" style="margin-top:10px">Стан очищення журналу безпеки — перевіряємо.</p><p style="margin-top:10px">Це не підрахунок за всю годину: показуємо лише останній контрольний запуск Relay.</p></div>
+<div class="read-only">
+<div class="chart-head" style="margin-bottom:8px"><h3 style="margin:0">D1 Control · очищення</h3><span id="control-retention-pill" class="source-health-status">Очікуємо стан</span></div>
+<p id="control-retention-status" role="status" aria-live="polite">Отримуємо відмітку останнього щоденного запуску…</p>
+<div class="stats">
+<div class="small-card"><b id="control-retention-deleted">—</b><div>Видалено під час останнього успішного запуску</div></div>
+<div class="small-card"><b id="control-retention-age">—</b><div>Годин від останнього успішного очищення</div></div>
+</div>
+<p id="control-retention-attempt" style="margin-top:9px">Остання спроба: —</p>
+<p style="margin-top:12px">Знімки старше 30 днів видаляються за Cron о 03:17 UTC (за Києвом: 05:17 узимку / 06:17 влітку). Нуль видалень — допустимий результат. Без службової таблиці <code>control_retention_status</code> очищення продовжує працювати, але підтвердження не показується.</p>
+<p style="margin-top:12px">Relay очищує прострочені записи кожні 5 хв; агрегати безпеки — щогодини. R2 <code>transfers/</code> має життєвий цикл 7 днів. Не видаляємо невручені повідомлення або відкликані пристрої заради квот.</p></div>
 </div>
 <div class="read-only jump-target" id="r2-lifecycle" style="margin-top:14px" aria-label="Контроль життєвого циклу R2">
 <div class="chart-head" style="margin-bottom:10px"><div><h3>R2 · перевірка тимчасових частин</h3>
@@ -355,7 +360,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </div></details></div>
 </section>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Повернутися нагору" title="Повернутися нагору" hidden>↑ Вгору</button>
-<div class="footer">MaVka Server Control 0.8.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 0.9.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -645,6 +650,14 @@ function telemetrySourceRows(responses,now=Date.now()){
    (maintenance.state==='stale'?' · старший за 90 хв':
     !maintenance.data.securityPruneSucceeded?' · очищення журналу не підтверджено':' · свіжий')
    :'Погодинний контроль очищення не підтверджено');
+ const control=maintenance?.controlRetention;
+ const controlReady=control?.state==='ready';
+ const controlWarn=control?.state==='stale'||control?.state==='failed';
+ put('control-retention','D1 Control · очищення',
+  controlReady?'ok':controlWarn?'warn':'missing',
+  controlReady?'Останній успішний запуск '+sourceHealthTime(control.data.lastSuccessAt):
+   controlWarn?'Очищення потребує перевірки · остання спроба '+sourceHealthTime(control?.data?.lastAttemptAt):
+   'Немає підтвердження Cron Control; потрібна службова міграція 0002 або наступний запуск');
  const audit=maintenance?.data?.r2Audit;
  const auditValid=['ready','stale'].includes(audit?.state)&&audit?.data;
  put('r2-audit','R2 · тимчасові частини',
@@ -830,7 +843,40 @@ function showR2Audit(result){
    'У перевіреному списку об’єктів старше 8 днів не виявлено.');
  warning.textContent=messages.join(' ');
 }
+function showControlRetention(result){
+ const pill=q('control-retention-pill'),status=q('control-retention-status'),
+   deleted=q('control-retention-deleted'),age=q('control-retention-age'),
+   attempt=q('control-retention-attempt');
+ pill.className='source-health-status';
+ if(!result?.data||!['ready','stale','failed'].includes(result.state)){
+  const reason=result?.reason;
+  pill.textContent='Немає підтвердження';pill.classList.add('missing');
+  deleted.textContent='—';age.textContent='—';
+  status.textContent=reason==='awaiting_first_run'
+   ? 'Таблицю підключено. Очікуємо наступний запуск щоденного Cron о 03:17 UTC.'
+   :reason==='db_not_bound'?'Контрольну базу D1 не підключено.'
+   :'Контрольний запис недоступний. Перевір одноразову міграцію 0002 у mavka-control та Cron Triggers.';
+  attempt.textContent='Остання спроба: не підтверджена';
+  return;
+ }
+ const data=result.data;
+ const stamp=at=>Number.isSafeInteger(at)&&at>0?
+  new Date(at*1000).toLocaleString('uk-UA')+' (час браузера)':'—';
+ const ready=result.state==='ready';
+ pill.textContent=ready?'Виконано':result.state==='stale'?'Знімок застарів':'Останній запуск невдалий';
+ pill.classList.add(ready?'ok':'warn');
+ deleted.textContent=fmt(data.deletedLastSuccess);
+ age.textContent=Number.isFinite(data.ageSeconds)?fmt(Math.floor(data.ageSeconds/3600)):'—';
+ status.textContent=ready
+  ? 'Очищення знімків старше 30 днів підтверджено. Останній успіх: '+stamp(data.lastSuccessAt)
+  :result.state==='failed'
+   ? 'Останній Cron не підтвердив очищення; перевір Workers Logs. Попередній успіх: '+stamp(data.lastSuccessAt)
+   : 'Після останнього успішного очищення минуло понад 36 годин; перевір Cron Triggers.';
+ attempt.textContent='Остання спроба: '+stamp(data.lastAttemptAt)+
+  (data.lastAttemptOk?' · успішна':' · невдала');
+}
 function showMaintenance(result){
+ showControlRetention(result?.controlRetention);
  showR2Audit(result?.data?.r2Audit);
  const pill=q('cleanup-pill'),status=q('cleanup-status');
  const ids=['cleanup-msg','cleanup-nonces','cleanup-receipts','cleanup-rate'];

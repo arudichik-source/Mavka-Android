@@ -4,6 +4,7 @@ import { devicesSummary } from './devices.js';
 import { securitySummary } from './security.js';
 import { assessQuotaWarnings, RETENTION_INFO } from './alerts.js';
 import { maintenanceSummary, pruneControlHistory } from './maintenance.js';
+import { readControlRetention, recordControlRetention } from './control-retention.js';
 import { parsePeriod, parseBefore, readHistoryPage, readTrends } from './history.js';
 import { html } from './ui.js';
 
@@ -94,7 +95,14 @@ export default {
       return json(await readHistoryPage(env.CONTROL_DB, period, before));
     }
     if (url.pathname === '/api/devices' && !url.search) return json(await devicesSummary(env));
-    if (url.pathname === '/api/maintenance' && !url.search) return json(await maintenanceSummary(env));
+    if (url.pathname === '/api/maintenance' && !url.search) {
+      // Reuse the existing authenticated maintenance fetch; one indexed D1
+      // singleton read, no new browser request, Relay RPC, cron or analytics.
+      const [relay,controlRetention] = await Promise.all([
+        maintenanceSummary(env), readControlRetention(env.CONTROL_DB),
+      ]);
+      return json({ ...relay, controlRetention });
+    }
     if (url.pathname === '/api/security') {
       if (url.search) return json({ error: 'invalid_query' }, 400);
       // Private named Relay RPC returns bounded aggregate counters only.
@@ -102,7 +110,7 @@ export default {
       return json(await securitySummary(env));
     }
     if (url.pathname === '/api/about' && !url.search) return json({
-      application: 'MaVka Server Control', version: '0.8.1',
+      application: 'MaVka Server Control', version: '0.9.0',
       mode: 'read_only', refreshSeconds: 900,
       storage: env.CONTROL_DB?.prepare ? 'bound' : 'not_bound',
       analyticsConfigured: Boolean(env.CF_ACCOUNT_ID && env.CF_ANALYTICS_TOKEN),
@@ -112,23 +120,26 @@ export default {
     return json({ error: 'not_found' }, 404);
   },
   async scheduled(_event, env, ctx) {
-    // One daily UTC DELETE and at most one privacy-safe status log per day.
-    // Never log SQL errors, device identity, security logs or message data.
+    // Existing once-daily Cron: DELETE remains first, followed by one small
+    // optional singleton UPSERT. Without migration 0002 the deletion still
+    // runs exactly as before; never fabricate successful checkpoint data.
     ctx.waitUntil((async () => {
       const result = await pruneControlHistory(env.CONTROL_DB);
+      const marker = await recordControlRetention(env.CONTROL_DB,result);
       if (result.state !== 'ready') {
         console.warn(JSON.stringify({
           event: 'MAVKA_CONTROL_RETENTION_V1',
           outcome: 'failed',
           reason: result.state === 'not_bound' ? 'db_not_bound' : 'cleanup_unavailable',
+          statusRecorded: marker.state === 'recorded',
         }));
         throw new Error('control_daily_retention_failed');
       }
       console.info(JSON.stringify({
         event: 'MAVKA_CONTROL_RETENTION_V1',
-        outcome: 'ok',
-        rowsDeleted: result.deleted,
+        outcome: 'ok',rowsDeleted: result.deleted,
+        statusRecorded: marker.state === 'recorded',
       }));
     })());
-  },
+  }
 };
