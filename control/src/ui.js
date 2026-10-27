@@ -678,6 +678,7 @@ function renderCronDiagnostics(result){
   new Date(summary.lastDue).toISOString().slice(0,16).replace('T',' ')+' UTC; '+
   'наступний: '+new Date(summary.nextDue).toISOString().slice(0,16).replace('T',' ')+
   ' UTC. Relay · контрольний знімок приблизно щогодини.';
+ return summary;
 }
 function telemetrySourceRows(responses,now=Date.now()){
  const answer=i=>responses?.[i]?.status==='fulfilled'?responses[i].value:null;
@@ -930,7 +931,7 @@ function showR2Audit(result){
    'У перевіреному списку об’єктів старше 8 днів не виявлено.');
  warning.textContent=messages.join(' ');
 }
-function showControlRetention(result){
+function showControlRetention(result,diagnostic){
  const pill=q('control-retention-pill'),status=q('control-retention-status'),
    deleted=q('control-retention-deleted'),age=q('control-retention-age'),
    attempt=q('control-retention-attempt');
@@ -949,22 +950,26 @@ function showControlRetention(result){
  const data=result.data;
  const stamp=at=>Number.isSafeInteger(at)&&at>0?
   new Date(at*1000).toLocaleString('uk-UA')+' (час браузера)':'—';
- const ready=result.state==='ready';
- pill.textContent=ready?'Виконано':result.state==='stale'?'Знімок застарів':'Останній запуск невдалий';
+ const missed=diagnostic?.reason==='missed_confirmation';
+ const ready=result.state==='ready'&&!missed;
+ pill.textContent=missed?'Можливий пропуск':ready?'Виконано':
+  result.state==='stale'?'Знімок застарів':'Останній запуск невдалий';
  pill.classList.add(ready?'ok':'warn');
  deleted.textContent=fmt(data.deletedLastSuccess);
  age.textContent=Number.isFinite(data.ageSeconds)?fmt(Math.floor(data.ageSeconds/3600)):'—';
  status.textContent=ready
   ? 'Очищення знімків старше 30 днів підтверджено. Останній успіх: '+stamp(data.lastSuccessAt)
-  :result.state==='failed'
+  :missed
+   ? 'Немає успішного підтвердження після очікуваного UTC-запуску (запас 2 години). Перевір Cron Events.'
+   :result.state==='failed'
    ? 'Останній Cron не підтвердив очищення; перевір Workers Logs. Попередній успіх: '+stamp(data.lastSuccessAt)
    : 'Після останнього успішного очищення минуло понад 36 годин; перевір Cron Triggers.';
  attempt.textContent='Остання спроба: '+stamp(data.lastAttemptAt)+
   (data.lastAttemptOk?' · успішна':' · невдала');
 }
 function showMaintenance(result){
- renderCronDiagnostics(result);
- showControlRetention(result?.controlRetention);
+ const diagnostic=renderCronDiagnostics(result);
+ showControlRetention(result?.controlRetention,diagnostic.control);
  showR2Audit(result?.data?.r2Audit);
  const pill=q('cleanup-pill'),status=q('cleanup-status');
  const ids=['cleanup-msg','cleanup-nonces','cleanup-receipts','cleanup-rate'];
