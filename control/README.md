@@ -1,4 +1,4 @@
-# MaVka Server Control 0.7.2 — separate, read-only Cloudflare console
+# MaVka Server Control 0.8.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,34 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 0.8.0 — source health and data freshness
+
+- Adds a read-only **Стан джерел моніторингу** panel with ten independent
+  indicators drawn from existing dashboard requests: Workers Relay analytics,
+  account-wide D1 usage, R2 storage, R2 operations, Control D1 history and
+  trends, Relay security and device aggregates, Relay hourly cleanup, and
+  R2 temporary-object lifecycle audit.
+- The indicators describe **availability/freshness of telemetry**, NOT server
+  uptime or a guarantee that delivery, authentication or cleanup is functioning.
+  A zero metric is acceptable only if its source actually returned a finite
+  zero. Missing source data is never converted into a fabricated zero.
+- Explicit warnings for analytics reports older than 30 minutes, aggregate
+  security/device timestamps older than 30 minutes, R2 storage measurements
+  older than 24 hours, stale Relay maintenance checks (90 minutes), and stale
+  R2 audits (8 hours). An incomplete 500-object R2 audit or overdue object
+  counts remains a warning, not a full storage reading.
+- Partial read failures remain visible per source, so a successful source
+  cannot hide a failed peer. The overview also updates after the user changes
+  the selected historical period.
+- All data comes from the existing six page requests and their cached Relay
+  RPC/GraphQL responses. **No extra requests, storage bindings, tokens,
+  migrations, background polls, cron triggers, D1 writes, or R2 operations**
+  are introduced by this feature. Existing Access and 15-minute refresh
+  behaviour is untouched.
+- Source health tests exercise normal, missing, zero, stale, truncated and
+  invalid timestamp cases; do not interpret this status as Cloudflare Billing
+  or raw Workers Log evidence.
 
 ## Version 0.7.2 — compact status panels and back-to-top
 
