@@ -77,5 +77,5 @@ test('all script syntax and pre-existing read-only refresh routes stay unchanged
  assert.ok(script.includes("get('/api/devices')"));
  assert.ok(script.includes("get('/api/maintenance')"));
  assert.ok(script.includes('900000'));
- assert.ok(html.includes('MaVka Server Control 0.9.1'));
+ assert.ok(html.includes('MaVka Server Control 1.0.0'));
 });
