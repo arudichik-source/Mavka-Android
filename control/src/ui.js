@@ -1,3 +1,4 @@
+import { technicalEventsClient } from './technical-events-client.js';
 // No external fonts, scripts, tracking, images, dependencies or CDNs.
 export const html = `<!doctype html>
 <html lang="uk">
@@ -139,6 +140,17 @@ html{scroll-behavior:smooth}
 .source-health-status.missing{color:#ffc3c3;border-color:#8b4b52}
 .source-health-detail{font-size:12px;color:var(--muted);line-height:1.5;margin-top:9px;overflow-wrap:anywhere}
 .source-health-summary{font-size:13px;color:var(--muted);line-height:1.5;margin:0 0 14px}
+.event-filters{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:12px 0 16px}
+.event-filters label{display:grid;gap:6px;color:var(--muted);font-size:12px}
+.event-filters .selector{min-width:135px}
+.event-feed{display:grid;gap:8px}
+.event-entry{border:1px solid #304157;background:#101826;border-radius:11px;padding:12px 14px}
+.event-entry-head{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap}
+.event-entry-title{font-size:13px;font-weight:650}
+.event-entry-meta{display:flex;gap:9px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:11px;margin-top:7px}
+.event-entry-message{font-size:12px;line-height:1.5;color:var(--muted);margin:7px 0 0}
+.event-empty{padding:18px;border:1px dashed #385263;border-radius:10px;color:var(--muted);font-size:13px}
+@media(max-width:540px){.event-filters .selector{min-width:0;width:100%}.event-filters label{flex:1;min-width:120px}}
 .cron-health-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .cron-health-card{padding:14px;border:1px solid #304157;border-radius:10px;background:#101826;min-width:0}
 .cron-health-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:9px}
@@ -179,6 +191,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <a href="#overview">Огляд сервера</a>
 <a href="#resources">Квоти та сховище</a>
 <a href="#source-health">Стан джерел</a>
+<a href="#technical-events">Технічні події</a>
 <a href="#forecast">Прогноз ресурсів</a>
 <a href="#trends">Графік ресурсів</a>
 <a href="#history">Історія спостережень</a>
@@ -225,6 +238,29 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <span id="source-health-checked" class="status" role="status">Очікуємо перевірку</span></div>
 <p id="source-health-summary" class="source-health-summary" aria-live="polite">Отримуємо показники…</p>
 <div id="source-health-grid" class="source-health-grid" aria-label="Доступність джерел телеметрії"></div>
+</section>
+<section class="panel section jump-target" id="technical-events" aria-label="Центр технічних подій">
+<div class="chart-head"><div><h2 style="margin:0 0 6px">Центр технічних подій</h2>
+<p class="dim">Лише зміни технічних станів і зведені сигнали безпеки. Жодних адрес, персональних даних, повідомлень чи ключів.</p></div>
+<span id="tech-events-status" class="source-health-status" role="status">Очікуємо телеметрію</span></div>
+<p id="tech-events-summary" class="source-health-summary" aria-live="polite">Записи формуються під час перегляду та оновлення панелі.</p>
+<div class="event-filters">
+<label for="tech-filter-severity">Важливість<select id="tech-filter-severity" class="selector">
+<option value="all">Усі</option><option value="critical">Критичні</option>
+<option value="warning">Попередження</option><option value="info">Інформаційні</option>
+</select></label>
+<label for="tech-filter-period">Період<select id="tech-filter-period" class="selector">
+<option value="24h">24 години</option><option value="7d" selected>7 днів</option><option value="14d">14 днів</option>
+</select></label>
+<label for="tech-filter-group">Джерело<select id="tech-filter-group" class="selector">
+<option value="all">Усі джерела</option><option value="workers">Workers</option>
+<option value="d1">D1</option><option value="r2">R2</option>
+<option value="relay">Relay</option><option value="cron">Cron</option>
+</select></label>
+<button id="tech-events-clear" class="small-btn" type="button">Очистити локальний журнал</button>
+</div>
+<div id="tech-events-list" class="event-feed" aria-label="Технічні події"></div>
+<p id="tech-events-storage" class="dim" style="margin-top:13px">Історія лише цього браузера, до 120 подій за 14 днів. Це не Cloudflare Events.</p>
 </section>
 <section class="panel section jump-target" id="forecast" aria-label="Прогноз використання ресурсів">
 <div class="chart-head"><div><h2 style="margin:0 0 6px">Прогноз використання ресурсів</h2>
@@ -379,7 +415,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </div></details></div>
 </section>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Повернутися нагору" title="Повернутися нагору" hidden>↑ Вгору</button>
-<div class="footer">MaVka Server Control 0.9.1 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 1.0.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -780,6 +816,7 @@ function renderSourceHealth(responses){
  q('source-health-checked').textContent='Перевірено: '+new Date().toLocaleTimeString('uk-UA')+
   ' · за наявними відповідями';
 }
+${technicalEventsClient}
 // Conservative, browser-only projections from already-loaded usage snapshots.
 // These are hypothetical pace estimates, never billing forecasts or verified uptime.
 function resourceUsageForecast(summary,trends,now=Date.now()){
@@ -1095,6 +1132,7 @@ async function refresh(){
   sourceHealthResults=results;
   renderSourceHealth(sourceHealthResults);
   renderUsageForecast(sourceHealthResults);
+  ingestTechnicalEvents(sourceHealthResults);
   updateDisclosurePreviews();
  } finally {loading=false;q('refresh').disabled=false}
 }
