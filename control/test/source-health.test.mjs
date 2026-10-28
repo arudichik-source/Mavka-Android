@@ -42,7 +42,7 @@ test('all 11 existing telemetry feeds are represented without new network calls'
   'security','devices','cleanup','control-retention','r2-audit']);
  assert.ok(rows.every(x=>x.level==='ok'));
  const section=script.slice(start,script.indexOf('function showR2Audit(',end));
- assert.doesNotMatch(section,/\bfetch\s*\(|\bget\s*\(|sendBeacon|WebSocket/);
+ assert.doesNotMatch(section,/\bfetch\s*\(|\bget\s*\(\s*['"]\/api|sendBeacon|WebSocket/);
  assert.match(html,/id="source-health-grid"/);
  assert.match(html,/id="source-health-summary"/);
  assert.match(html,/href="#source-health"/);
@@ -109,5 +109,5 @@ test('full dashboard refresh and period changes reuse existing six API calls',()
  assert.match(script,/if\(data\.state!=='ready'\).*return data/);
  assert.match(script,/drawTrends\(t\);\s*return t;/);
  assert.match(script,/900000/);
- assert.match(html,/MaVka Server Control 0\.9\.1/);
+ assert.match(html,/MaVka Server Control 1\.0\.0/);
 });

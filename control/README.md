@@ -1,4 +1,4 @@
-# MaVka Server Control 0.9.1 — separate, read-only Cloudflare console
+# MaVka Server Control 1.0.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,43 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 1.0.0 — private technical events center
+
+- Adds **Центр технічних подій**, with severity, interval (24h / 7d / 14d)
+  and source (Workers, D1, R2, Relay, Cron) filters, plus a local "clear"
+  action. Reuses the already-loaded current source status, explicit quota
+  alerts and optional 14-day allowlisted aggregate Relay risk signals.
+- Observed transitions are recorded **only when the dashboard is opened or
+  refreshed**: unknown/unavailable/warning/critical status, subsequent recovery
+  and changed severity. Repeated identical observations are deduplicated.
+  Security rollup signals retain the UTC *day*, never an invented hour.
+  Security signals indicate monitoring thresholds, not proven intrusions.
+- Only a **fixed allowlist of 20 technical codes**, timestamp, severity and
+  phase are stored under `mavka-control.technical-events.v1` in the
+  browser's `localStorage`; no backend error strings, user identifiers,
+  device IDs, IPs, request bodies, raw messages, credentials or content.
+  Stored entries are validated and capped at **120 items / 14 days**. Expired
+  events are removed on the next view/refresh; clearing removes only the
+  local entries while preserving state-change deduplication. With browser
+  storage blocked, the journal survives only until the page closes.
+- **No global synchronization or continuous logging**: closing the page means
+  no new local events are recorded, and another browser sees its own separate
+  history. This is *not* Cloudflare Workers Logs, Cron Events, a forensic
+  audit trail, or a server-health guarantee. Authoritative individual
+  invocations must still be checked in the Cloudflare dashboard.
+- No new D1 database or schema, no additional D1 writes, RPC, API endpoints,
+  external scripts, Cloudflare Analytics calls, secrets, Cron triggers,
+  server storage, remote logging or new polling intervals. The existing
+  Access-protected 15-minute dashboard refresh is unchanged.
+- The event journal is populated from already-read sources and quota signals
+  in the same refresh; **period or dropdown changes are local only** and do
+  not generate extra HTTP requests. Existing Relay encryption and deletion
+  rules are unchanged. The fixed-code renderer uses `textContent`, not raw
+  HTML strings.
+- Tests cover code whitelisting, no arbitrary persisted fields, initial
+  unhealthy observations, recovery, deduplication, severity filters, retention,
+  bounded memory, daily UTC rollups, and zero extra requests.
 
 ## Version 0.9.1 — Cron schedule diagnostics from existing checkpoints
 

@@ -110,7 +110,7 @@ export default {
       return json(await securitySummary(env));
     }
     if (url.pathname === '/api/about' && !url.search) return json({
-      application: 'MaVka Server Control', version: '0.9.1',
+      application: 'MaVka Server Control', version: '1.0.0',
       mode: 'read_only', refreshSeconds: 900,
       storage: env.CONTROL_DB?.prepare ? 'bound' : 'not_bound',
       analyticsConfigured: Boolean(env.CF_ACCOUNT_ID && env.CF_ANALYTICS_TOKEN),
