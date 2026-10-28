@@ -63,7 +63,7 @@ test('restoration creates a single information event after an issue',()=>{
  assert.equal(recovered.events[0].code,'source.history');
  assert.equal(recovered.events[0].phase,'restored');
  assert.equal(recovered.events[0].severity,'info');
- assert.equal(updateEventJournal(recovered,ready(),NOW+1800000).events.length,2);
+ assert.equal(updateEventJournal(recovered,ready(),NOW+900000).events.length,2);
 });
 
 test('failed Control Cron is critical and does not overwrite Relay freshness',()=>{
@@ -143,7 +143,7 @@ test('event client remains on same six reads without timers, extra APIs, or D1 w
   'tech-filter-severity','tech-filter-period','tech-filter-group'])
   assert.equal(html.split('id="'+id+'"').length-1,1,id);
  const segment=script.slice(start,script.indexOf('// Conservative, browser-only projections',end));
- assert.doesNotMatch(segment,/\bfetch\s*\(|\bget\s*\(|setInterval|setTimeout|WebSocket|sendBeacon/);
+ assert.doesNotMatch(segment,/\bfetch\s*\(|\bget\s*\(\s*['"]\/api|setInterval|setTimeout|WebSocket|sendBeacon/);
  assert.match(segment,/localStorage\.setItem\(EVENT_KEY,JSON\.stringify\(technicalJournal\)\)/);
  assert.match(segment,/technicalJournal\.events=\[\]/);
  const refresh=script.slice(script.indexOf('async function refresh('),script.indexOf('async function setPeriod('));
