@@ -100,7 +100,7 @@ test('responsive UI reflects independent diagnostics and uses existing maintenan
  assert.match(html,/renderCronDiagnostics\(result\)/);
  assert.match(html,/showControlRetention\(result\?\.controlRetention,diagnostic.control\)/);
  assert.match(html,/renderCronDiagnostics\(result\)[\s\S]*?showControlRetention/);
- assert.match(html,/MaVka Server Control 0\.9\.1/);
+ assert.match(html,/MaVka Server Control 1\.0\.0/);
  const segment=js.slice(begin,js.indexOf('function renderSourceHealth(',begin));
  assert.doesNotMatch(segment,/fetch\(|\bget\(|setInterval|setTimeout|sendBeacon/);
  const refresh=js.slice(js.indexOf('async function refresh('),js.indexOf('async function setPeriod('));
