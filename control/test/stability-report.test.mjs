@@ -67,7 +67,7 @@ test('consecutive UTC days compare maxima of observed cumulative counters, not d
  assert.deepEqual([worker.previous,worker.current,worker.change,worker.percent],
   [40,50,10,25]);
  assert.equal(report.groups.find(g=>g.name==='Relay').status,'ok');
- assert.match(stabilityReportText(report,NOW),/максимуми/i);
+ assert.match(stabilityReportText(report,NOW),/пікових СПОСТЕРЕЖЕНИХ/i);
 });
 
 test('nonconsecutive days and absent per-metric samples do not manufacture percentages',()=>{
