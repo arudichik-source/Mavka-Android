@@ -1,4 +1,5 @@
 import { technicalEventsClient } from './technical-events-client.js';
+import { stabilityClient } from './stability-client.js';
 // No external fonts, scripts, tracking, images, dependencies or CDNs.
 export const html = `<!doctype html>
 <html lang="uk">
@@ -150,6 +151,13 @@ html{scroll-behavior:smooth}
 .event-entry-meta{display:flex;gap:9px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:11px;margin-top:7px}
 .event-entry-message{font-size:12px;line-height:1.5;color:var(--muted);margin:7px 0 0}
 .event-empty{padding:18px;border:1px dashed #385263;border-radius:10px;color:var(--muted);font-size:13px}
+.stability-sources{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:15px}
+.stability-mini{background:#101826;border:1px solid #304157;padding:12px;border-radius:10px;min-width:0;display:flex;align-items:flex-start;gap:7px;flex-wrap:wrap}
+.stability-mini strong{font-size:13px}
+.stability-mini p{width:100%;color:var(--muted);font-size:12px;margin:2px 0 0}
+.stability-repeat{border-bottom:1px solid #28394a;padding:8px 0;font-size:12px}
+@media(max-width:850px){.stability-sources{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:540px){.stability-sources{grid-template-columns:1fr}}
 @media(max-width:540px){.event-filters .selector{min-width:0;width:100%}.event-filters label{flex:1;min-width:120px}}
 .cron-health-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .cron-health-card{padding:14px;border:1px solid #304157;border-radius:10px;background:#101826;min-width:0}
@@ -192,6 +200,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <a href="#resources">Квоти та сховище</a>
 <a href="#source-health">Стан джерел</a>
 <a href="#technical-events">Технічні події</a>
+<a href="#stability">Аналітика стабільності</a>
 <a href="#forecast">Прогноз ресурсів</a>
 <a href="#trends">Графік ресурсів</a>
 <a href="#history">Історія спостережень</a>
@@ -261,6 +270,28 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </div>
 <div id="tech-events-list" class="event-feed" aria-label="Технічні події"></div>
 <p id="tech-events-storage" class="dim" style="margin-top:13px">Історія лише цього браузера, до 120 подій за 14 днів. Це не Cloudflare Events.</p>
+</section>
+<section class="panel section jump-target" id="stability" aria-label="Аналітика стабільності сервера">
+<div class="chart-head"><div><h2 style="margin:0 0 6px">Аналітика стабільності інфраструктури</h2>
+<p class="dim">Знімки Workers, D1, R2 і Relay, локальні попередження та порівняння спостережених показників. Не розраховує uptime.</p></div>
+<span id="stability-status" class="source-health-status">Очікуємо вибірку</span></div>
+<div class="event-filters">
+<label for="stability-period">Період знімків<select id="stability-period" class="selector">
+<option value="24h">24 години</option><option value="7d">7 днів</option>
+<option value="30d">30 днів</option>
+</select></label>
+<button class="small-btn" id="stability-export" type="button">Експорт діагностичного звіту TXT</button>
+<span class="dim" id="stability-export-status" role="status" aria-live="polite"></span></div>
+<div id="stability-sources" class="stability-sources" aria-label="Стан джерел"></div>
+<p id="stability-coverage" class="dim" style="margin-top:14px">Визначаємо охоплення реальними знімками…</p>
+<h3 style="font-size:14px;margin:19px 0 8px">Спостережені піки добових лічильників</h3>
+<div class="table-scroll"><table><thead><tr><th>Ресурс</th><th>Останній день</th><th>Попередній день</th><th>Різниця</th></tr></thead>
+<tbody id="stability-counters"></tbody></table></div>
+<p id="stability-comparison-note" class="dim" style="margin-top:10px"></p>
+<h3 style="font-size:14px;margin:19px 0 8px">Технічні сигнали за доступний період</h3>
+<p id="stability-events" class="dim">Очікуємо локальну історію…</p>
+<div id="stability-recurring" style="margin-top:10px"></div>
+<p class="retention-note">Знімки формуються лише під час роботи консолі; періоди 24 год / 7 днів / 30 днів використовують наявний графік. Порівняння — не точний обсяг за день. Локальні події зберігаються максимум 14 днів, навіть коли звіт охоплює 30 днів. Звіт створюється в браузері без нових запитів.</p>
 </section>
 <section class="panel section jump-target" id="forecast" aria-label="Прогноз використання ресурсів">
 <div class="chart-head"><div><h2 style="margin:0 0 6px">Прогноз використання ресурсів</h2>
@@ -415,7 +446,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 </div></details></div>
 </section>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Повернутися нагору" title="Повернутися нагору" hidden>↑ Вгору</button>
-<div class="footer">MaVka Server Control 1.0.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
+<div class="footer">MaVka Server Control 1.1.0 · тільки читання · інтервал 15 хв · жодного доступу до текстів повідомлень, ключів або файлів. Показники можуть надходити із затримкою. Фактичні платежі та квоти перевіряйте в <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Dashboard</a>.</div>
 </main>
 <script nonce="__CSP_NONCE__">
 (function(){
@@ -817,6 +848,7 @@ function renderSourceHealth(responses){
   ' · за наявними відповідями';
 }
 ${technicalEventsClient}
+${stabilityClient}
 // Conservative, browser-only projections from already-loaded usage snapshots.
 // These are hypothetical pace estimates, never billing forecasts or verified uptime.
 function resourceUsageForecast(summary,trends,now=Date.now()){
@@ -1133,6 +1165,7 @@ async function refresh(){
   renderSourceHealth(sourceHealthResults);
   renderUsageForecast(sourceHealthResults);
   ingestTechnicalEvents(sourceHealthResults);
+  renderStabilityReview();
   updateDisclosurePreviews();
  } finally {loading=false;q('refresh').disabled=false}
 }
@@ -1149,6 +1182,7 @@ async function setPeriod(period){
   sourceHealthResults[2]=reads[1];
   renderSourceHealth(sourceHealthResults);
   renderUsageForecast(sourceHealthResults);
+  renderStabilityReview();
  }
  updateDisclosurePreviews();
 }
