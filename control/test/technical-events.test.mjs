@@ -149,5 +149,5 @@ test('event client remains on same six reads without timers, extra APIs, or D1 w
  const refresh=script.slice(script.indexOf('async function refresh('),script.indexOf('async function setPeriod('));
  assert.match(refresh,/ingestTechnicalEvents\(sourceHealthResults\)/);
  assert.equal((refresh.match(/get\('\/api\//g)||[]).length,4);
- assert.match(html,/MaVka Server Control 1\.0\.0/);
+ assert.match(html,/MaVka Server Control 1\.1\.0/);
 });
