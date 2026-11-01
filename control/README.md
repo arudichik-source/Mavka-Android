@@ -1,4 +1,4 @@
-# MaVka Server Control 1.0.0 — separate, read-only Cloudflare console
+# MaVka Server Control 1.1.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
 It is isolated from `mavka-relay` and its `mavka-messages` database. It
@@ -84,6 +84,44 @@ does **not** modify, proxy or call the MaVka message API.
   intentionally **do not** expand the existing read-only Analytics token to
   grant log-query access. Security/device integration stays `not_connected`.
 
+
+## Version 1.1.0 — sampled stability analysis & local diagnostic export
+
+- Adds **Аналітика стабільності інфраструктури**: four status groups
+  (Workers, D1, R2 and Relay) summarizing existing 11 source-health signals.
+  Green means *the latest telemetry was obtained*, not proof of uptime.
+- The report shares the existing 24h / 7d / 30d graph period and the already
+  requested `/api/trends` response. Changing the report period uses the
+  existing `setPeriod` flow (same chart/history endpoints); rendering and
+  local export do **not** trigger independent network reads.
+- From real D1 observations, computes per-UTC-day **maximum observed**
+  cumulative Workers/D1 counters (requests, runtime errors, rows read/write).
+  If snapshots exist on two consecutive UTC calendar days, displays their
+  observed peak difference and percentage if the previous peak is nonzero.
+  It is **not a true daily total or billing delta**. Counters reset at UTC
+  midnight; sparse samples and incomplete days can invalidate comparisons.
+  A day without any samples produces no invented zero. 7d uses hourly and 30d
+  uses daily sampling, so apparent day peaks are lower-bound observations.
+  The report also clearly labels sampled days, observation count and span.
+- Summarizes local critical/warning/info signals, restoration records and
+  repeated transitions (two or more occurrences of the same safe signal).
+  Only the allowlisted, browser-private **14-day** event journal is considered;
+  a 30-day graph report cannot include events from days 15–30. No claim is
+  made about problems that occurred while the browser was closed.
+- **Експорт діагностичного звіту TXT** builds a readable Ukrainian report
+  solely from the current rendered/derived data in the user's browser.
+  Export includes source group aggregates, observed peak comparisons,
+  counts of local signals and repeated safe labels. No raw responses,
+  identities, user messages, phone numbers, device IDs, IP addresses,
+  authentication material, free-form network errors or private Relay records.
+  It uses a Blob/ObjectURL only upon explicit click.
+- No new server endpoints, GraphQL/Relay requests, D1/R2 writes, extra Cron
+  triggers, schema migrations, background polling, secrets or token scopes.
+  Existing retention rules remain intact. This is dashboard inspection,
+  **not** an SLA availability monitor.
+- Regression tests cover sparse/incomplete real samples, UTC-day boundaries,
+  absent telemetry, missing metric fields, repeated local signals,
+  14-day event retention and the network-free report/export path.
 
 ## Version 1.0.0 — private technical events center
 
