@@ -563,3 +563,24 @@ GitHub Actions runs the tests and a Wrangler `deploy --dry-run` with a
 **synthetic** D1 ID; it never accesses a production account or stores
 credentials. Run locally only in an environment where Node is available:
 **the user's Windows PC does not need Node.js**.
+
+
+## Shorts Studio external operator entry
+
+This Server Control has a **read-only external navigation link** to the separate
+Cloudflare-protected video operations console:
+https://shorts-studio-cloudflare.arudichik.workers.dev/
+
+The link is in the header, overview card and right-side navigation. It is
+intentionally NOT an Oracle API proxy and does not pass any Mavka identifiers,
+messages, keys, tokens, cookies or telemetry into Shorts Studio.
+The separate Cloudflare Access application controls authorization for the video
+console. Existing authentication may be reused by the browser within its
+configured session lifetime; indefinite bypass is explicitly not supported.
+
+To operate video generation without entering Oracle VM for each job, Shorts
+Studio must integrate with the **already-existing renderer** using the private
+VPC Service contract. Do not install the experimental local Oracle API in place
+of any existing production rendering process without inspecting the existing
+repository, service ports and job format. The required renderer repo and API
+contract have not yet been verified. No Mavka service is modified by this UI link.
