@@ -66,3 +66,14 @@ test('client logic is syntactically valid and still uses existing network reads'
  assert.ok(!navCode.includes('sendBeacon'));
  assert.ok(html.includes('MaVka Server Control 1.1.0'));
 });
+
+test('Shorts Studio is only a protected external entry and has no Mavka data bridge',()=>{
+ const url='https://shorts-studio-cloudflare.arudichik.workers.dev/';
+ assert.match(html,/id="shorts-studio"/);
+ assert.equal(html.split('href="'+url+'"').length-1,2);
+ assert.match(html,/rel="noopener noreferrer"/);
+ assert.match(html,/Shorts Studio · керування відео/);
+ // The local-control UI must never call Oracle or forward Mavka data there.
+ assert.doesNotMatch(html,/fetch\s*\(\s*['"]https:\/\/shorts-studio/);
+ assert.doesNotMatch(html,/shorts-studio-oracle\/v1\//);
+});
