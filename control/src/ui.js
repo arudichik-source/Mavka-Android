@@ -51,6 +51,11 @@ th{color:var(--muted);font-weight:500;padding:12px 10px;border-bottom:1px solid 
 td{padding:12px 10px;border-bottom:1px solid #263247;font-variant-numeric:tabular-nums}
 .table-scroll{overflow-x:auto}
 a{color:#9cdfe0;text-decoration:none}a:hover{text-decoration:underline}
+.external-tool{display:inline-flex;align-items:center;gap:6px;padding:9px 12px;border:1px solid #316a79;border-radius:10px;background:#15303d;color:#befaf2;font-size:12px;font-weight:700;white-space:nowrap}
+.external-tool:hover{border-color:var(--accent);text-decoration:none;background:#1c4147}
+.tool-card{display:flex;justify-content:space-between;gap:18px;align-items:center;flex-wrap:wrap;background:#111f30;border:1px solid #2b4d5a;border-radius:13px;padding:15px 17px;margin-bottom:18px}
+.tool-card h2{font-size:15px;margin:0 0 5px}.tool-card p{font-size:12px;color:var(--muted);margin:0;max-width:800px}
+@media(max-width:540px){.external-tool{padding:8px;font-size:11px}.tool-card .external-tool{width:100%;justify-content:center}}
 .footer{margin-top:27px;border-top:1px solid var(--edge);padding:17px 0;color:var(--muted);font-size:12px;line-height:1.5}
 @media(max-width:950px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.columns{grid-template-columns:1fr}}
 @media(max-width:540px){.head{align-items:flex-start}.brand{font-size:14px}.pill{display:none}.grid{grid-template-columns:1fr}.panel{padding:16px}.toolbar button{padding:9px}.main{padding-top:20px}}
@@ -192,11 +197,12 @@ html{scroll-behavior:smooth}
 <body>
 <header><div class="shell head"><div class="brand"><div class="logo">M</div><div>
 MaVka Server Control<div class="subtitle">Cloudflare · керування ресурсами</div></div></div>
-<div class="toolbar"><span class="pill">Режим лише перегляду</span><button id="refresh" type="button">Оновити</button></div></div></header>
+<div class="toolbar"><a class="external-tool" href="https://shorts-studio-cloudflare.arudichik.workers.dev/" target="_blank" rel="noopener noreferrer" title="Окрема панель автоматизації відео">Shorts Studio ↗</a><span class="pill">Режим лише перегляду</span><button id="refresh" type="button">Оновити</button></div></div></header>
 <nav class="quick-nav" aria-label="Швидкий перехід до розділів">
 <details id="quick-nav"><summary>Розділи</summary>
 <div class="quick-links">
 <a href="#overview">Огляд сервера</a>
+<a href="#shorts-studio">Shorts Studio · окрема панель</a>
 <a href="#resources">Квоти та сховище</a>
 <a href="#source-health">Стан джерел</a>
 <a href="#technical-events">Технічні події</a>
@@ -213,6 +219,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <main class="shell main">
 <div class="topline jump-target" id="overview"><div><h1>Моніторинг інфраструктури</h1><p class="dim">Окремо від робочого сервера «Мавки». Усі суми — з API Cloudflare, без демоданих.</p></div><div class="status"><span id="dot" class="dot"></span><span id="state">Завантаження даних…</span></div></div>
 <div id="notice" class="notice">Деякі квоти рахуються на рівні акаунта, інші — окремого сервісу. Нарахування перевіряйте у Cloudflare Billing.</div>
+<section id="shorts-studio" class="tool-card jump-target" aria-label="Окремі сервіси Cloudflare"><div><h2>Shorts Studio · керування відео</h2><p>Окремий захищений Worker для створення роликів на Oracle. Перехід не відкриває дані Мавки, не звертається до Oracle API та не змінює облік Cloudflare в цій панелі.</p></div><a class="external-tool" href="https://shorts-studio-cloudflare.arudichik.workers.dev/" target="_blank" rel="noopener noreferrer">Відкрити Shorts Studio ↗</a></section>
 <div class="grid">
 <article class="panel"><div class="metric-label">Workers · mavka-relay</div><div class="metric" id="requests">—</div><div class="metric-note">Виклики за поточну добу UTC. Не весь акаунт.</div></article>
 <article class="panel"><div class="metric-label">Workers · системні помилки</div><div class="metric" id="errors">—</div><div class="metric-note">Помилки виконання, не HTTP 401/403.</div></article>
