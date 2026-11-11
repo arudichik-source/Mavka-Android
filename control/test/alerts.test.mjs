@@ -30,7 +30,7 @@ test('quota warnings are safe at 70/85/95% and identify R2 5GB as soft only',()=
   state:'ready',
   limits:{ workersRequestsPerDay:100000,d1RowsReadPerDay:5000000,
     d1RowsWrittenPerDay:100000,r2MonitoringBytes:5000000000 },
-  workers:{requestsToday:70000}, d1:{rowsReadToday:4250000,rowsWrittenToday:96000},
+  workers:{requestsToday:70000,accountRequestsToday:72000}, d1:{rowsReadToday:4250000,rowsWrittenToday:96000},
   r2:{storage:{bytes:4800000000}},
  };
  const found=assessQuotaWarnings(data);
@@ -72,4 +72,14 @@ test('retention is transparent with zero new databases, no extra poll timer',()=
  assert.ok(html.includes('showQuotaWarnings(m.quotaAlerts)'));
  assert.ok(html.includes('showIncidents(result?.risk)'));
  assert.ok(html.includes('Потребує перевірки')===false || html.includes('перевірки'));
+});
+
+test('missing account-wide Worker analytics does not count Relay as the account total',()=>{
+ const data={state:'ready',limits:{workersRequestsPerDay:100000,d1RowsReadPerDay:5000000,d1RowsWrittenPerDay:100000,r2MonitoringBytes:5000000000},
+ workers:{requestsToday:90000,accountRequestsToday:null},
+ d1:{rowsReadToday:0,rowsWrittenToday:0},r2:{storage:{bytes:0}}};
+ const actual=assessQuotaWarnings(data);
+ assert.equal(actual.state,'partial');
+ assert.ok(actual.missing.includes('workers'));
+ assert.ok(!actual.warnings.some(x=>x.key==='workers'));
 });
