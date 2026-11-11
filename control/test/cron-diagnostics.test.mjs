@@ -104,6 +104,7 @@ test('responsive UI reflects independent diagnostics and uses existing maintenan
  const segment=js.slice(begin,js.indexOf('function renderSourceHealth(',begin));
  assert.doesNotMatch(segment,/fetch\(|\bget\(|setInterval|setTimeout|sendBeacon/);
  const refresh=js.slice(js.indexOf('async function refresh('),js.indexOf('async function setPeriod('));
- assert.equal((refresh.match(/get\('\/api\//g)||[]).length,4);
+ assert.equal((refresh.match(/get\('\/api\//g)||[]).length,5);
+  assert.match(refresh,/get\('\/api\/oracle'\)/);
  assert.match(refresh,/get\('\/api\/maintenance'\)/);
 });
