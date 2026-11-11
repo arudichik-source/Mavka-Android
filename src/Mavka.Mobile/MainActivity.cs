@@ -21,6 +21,9 @@ public class MainActivity : Activity
     private GmailCredentialsStore _store = null!;
     private UserProfileStore _profileStore = null!;
     private PropertyLedgerStore _ledger = null!;
+    private DocumentArchiveStore _archive = null!;
+    private bool _viewingArchivedDocument;
+    private DateOnly _assetsAsOf = DateOnly.FromDateTime(DateTime.Today);
     private AssetIconProvider _assetIcons = null!;
     private ExchangeKeyStore _exchangeKeys = null!;
     private DocumentPasswordStore _documentPasswords = null!;
@@ -40,6 +43,7 @@ public class MainActivity : Activity
         _store = new GmailCredentialsStore(this);
         _profileStore = new UserProfileStore(this);
         _ledger = new PropertyLedgerStore(this);
+        _archive = new DocumentArchiveStore(this);
         _assetIcons = new AssetIconProvider(this);
         _exchangeKeys = new ExchangeKeyStore(this);
         _documentPasswords = new DocumentPasswordStore(this);
@@ -108,6 +112,7 @@ public class MainActivity : Activity
         Button(sidePanel, "Головна", () => { CloseDrawer(); ShowHome(); });
         Button(sidePanel, "Вхідні", () => { CloseDrawer(); ShowInbox(); });
         Button(sidePanel, "Майно підрозділу", () => { CloseDrawer(); ShowAssets(); });
+        Button(sidePanel, "Історія документів", () => { CloseDrawer(); ShowDocuments(); });
         Button(sidePanel, "Профіль користувача", () => { CloseDrawer(); ShowProfile(); });
         Button(sidePanel, "Ключ обміну", () => { CloseDrawer(); ShowExchangeKey(); });
         Button(sidePanel, "Пароль документів", () => { CloseDrawer(); ShowDocumentPassword(); });
@@ -195,6 +200,13 @@ public class MainActivity : Activity
         Text(card, $"Завантажено: {_messages.Count}", 18);
         Button(card, "Перейти до вхідних", ShowInbox);
         Button(card, "Майно підрозділу", ShowAssets);
+        Button(card, "Історія документів", ShowDocuments);
+        var profile = LoadUserProfile();
+        if (profile is not null)
+        {
+            try { Text(card, "У локальному архіві: " + _archive.CountDocuments(profile.Unit), 14); }
+            catch (Exception ex) { Text(card, "Архів: " + ex.GetType().Name, 12); }
+        }
         Text(_body, "Дозволений відправник", 18, true);
         Text(_body, _store.GetMainMavkaEmail(), 15);
         Text(_body, "Пошук лише у «Вхідних» Gmail, без зміни стану листів.", 13);
@@ -202,6 +214,7 @@ public class MainActivity : Activity
 
     private void ShowInbox()
     {
+        _viewingArchivedDocument = false;
         Begin("inbox", "Вхідні");
         var card = Card();
         Text(card, "Листи ГОЛОВНОЇ МАВКИ", 17, true);
@@ -274,6 +287,25 @@ public class MainActivity : Activity
         var profile = LoadUserProfile();
         Text(top, "Підрозділ: " + (profile?.Unit ?? "не визначений у профілі"), 17, true);
         Button(top, "Перевірити іконки (демо)", ShowIconGallery);
+        var dateLabel = Text(top, "Обліковий залишок на кінець дня: " +
+            _assetsAsOf.ToString("dd.MM.yyyy"), 14, true);
+        Button(top, "📅 Вибрати облікову дату", () =>
+        {
+            new DatePickerDialog(this, (_, date) =>
+            {
+                _assetsAsOf = new DateOnly(date.Year, date.Month + 1, date.DayOfMonth);
+                dateLabel.Text = "Обліковий залишок на кінець дня: " +
+                    _assetsAsOf.ToString("dd.MM.yyyy");
+                RenderAssets();
+            }, _assetsAsOf.Year, _assetsAsOf.Month - 1, _assetsAsOf.Day).Show();
+        });
+        Button(top, "Сьогодні", () =>
+        {
+            _assetsAsOf = DateOnly.FromDateTime(DateTime.Today);
+            dateLabel.Text = "Обліковий залишок на кінець дня: " +
+                _assetsAsOf.ToString("dd.MM.yyyy");
+            RenderAssets();
+        });
         var status = Text(top, "Джерело: JSON-лист ГОЛОВНОЇ МАВКИ (MAVKA_UNIT_ASSETS_V1).", 13);
         Button(top, "Оновити дані з пошти", async () =>
         {
@@ -340,7 +372,7 @@ public class MainActivity : Activity
             localRows.RemoveAllViews();
             try
             {
-                var all = _ledger.ListHoldings(profile.Unit);
+                var all = _ledger.ListHoldingsAsOf(profile.Unit, _assetsAsOf);
                 var query = (search.Text ?? "").Trim();
                 var filtered = all.Where(x => query.Length == 0 ||
                     x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
@@ -379,6 +411,21 @@ public class MainActivity : Activity
 
         // Only snapshots received from the configured sender are present in _messages.
         // Never merge snapshots from different units or add quantities from separate dates.
+        // Consult independently archived snapshots first: their Gmail letters may
+        // already have been moved to Trash after durable storage.
+        UnitAssetsSnapshot? offlineSnapshot = null;
+        try
+        {
+            foreach (var summary in _archive.ListSummaries(profile.Unit)
+                         .Where(s => s.Kind == "Знімок залишків"))
+            {
+                var archived = _archive.FindDocument(summary.DocumentId);
+                if (MavkaExchangeParser.TryAssets(archived?.Json, out offlineSnapshot) &&
+                    offlineSnapshot is not null)
+                    break;
+            }
+        }
+        catch (Exception) { /* Archive errors must not fake a valid snapshot. */ }
         var latest = _messages.SelectMany(mail => mail.Attachments
                 .Where(a => a.RawJson is not null)
                 .Select(a => new { mail, attachment = a }))
@@ -393,13 +440,13 @@ public class MainActivity : Activity
             .OrderByDescending(entry => entry.mail.MessageUid)
             .FirstOrDefault();
 
-        if (latest?.parsed is null)
+        if (latest?.parsed is null && offlineSnapshot is null)
         {
             Text(_body, "Окремого знімка майна з ГОЛОВНОЇ МАВКИ наразі немає.", 14);
             return;
         }
 
-        var snapshot = latest.parsed;
+        var snapshot = offlineSnapshot ?? latest!.parsed!;
         var header = Card();
         Text(header, "Окремий знімок із ГОЛОВНОЇ МАВКИ (не сумується з локальним)", 16, true);
         Text(header, "Підрозділ: " + snapshot.Unit, 17, true);
@@ -483,10 +530,16 @@ public class MainActivity : Activity
 
             // Reference history is read from authorized Gmail documents
             // and kept separate from SQLite accounting and local quantities.
-            var remote = _messages.SelectMany(mail => mail.Attachments)
-                .Where(attachment => attachment.RawJson is not null)
-                .Select(attachment =>
-                    MavkaMovementJournal.TryRead(attachment.RawJson, out var journal)
+            var offlineHistory = _archive.ListSummaries(unit)
+                .Where(s => s.Kind == "Довідкова історія")
+                .Select(s => _archive.FindDocument(s.DocumentId)?.Json)
+                .Where(json => json is not null);
+            var incomingHistory = _messages.SelectMany(mail => mail.Attachments)
+                .Select(attachment => attachment.RawJson)
+                .Where(json => json is not null);
+            var remote = offlineHistory.Concat(incomingHistory)
+                .Select(json =>
+                    MavkaMovementJournal.TryRead(json, out var journal)
                         ? journal : null)
                 .Where(journal => journal is not null)
                 .SelectMany(journal => MavkaMovementJournal.ForAsset(
@@ -728,39 +781,10 @@ public class MainActivity : Activity
             });
         }
 
-        Button(_body, "Перемістити лист у кошик Gmail", () =>
-        {
-            if (_busy) return;
-            new AlertDialog.Builder(this)
-                .SetTitle("Перемістити лист у кошик?")
-                .SetMessage("Лист «" + mail.Subject +
-                    "» буде переміщено в кошик Gmail. Це не видалить документ з головної Мавки.")
-                .SetNegativeButton("Скасувати", (_, _) => { })
-                .SetPositiveButton("У кошик", async (_, _) =>
-                {
-                    if (_busy) return;
-                    _busy = true;
-                    status.Text = "Переміщення листа в кошик...";
-                    try
-                    {
-                        var pass = _store.GetPassword() ??
-                            throw new InvalidOperationException("Пароль Gmail відсутній.");
-                        await GmailConnectionService.MoveToTrashAsync(
-                            _store.GetEmail(), pass, _store.GetMainMavkaEmail(), mail);
-                        _messages = _messages.Where(m => !(m.MessageUid == mail.MessageUid &&
-                            m.UidValidity == mail.UidValidity)).ToList();
-                        ShowInbox();
-                    }
-                    catch (Exception ex)
-                    {
-                        if (_screen == "message")
-                            status.Text = "Помилка переміщення: " + ex.GetType().Name;
-                    }
-                    finally { _busy = false; }
-                })
-                .Show();
-        });
-        Button(_body, "← До вхідних", ShowInbox);
+        // Gmail cleanup is automatic only after verified durable import.
+        // No manual bypass: a message with unread attachments stays in Inbox.
+        Button(_body, _viewingArchivedDocument ? "← До архіву" : "← До вхідних",
+            _viewingArchivedDocument ? ShowDocuments : ShowInbox);
     }
 
     private async Task RefreshMessagesAsync(TextView status)
@@ -787,8 +811,9 @@ public class MainActivity : Activity
             _messages = await GmailConnectionService.ReadFromSenderAsync(
                 _store.GetEmail(), password, sender, _exchangeKeys,
                 _documentPasswords, LoadUserProfile()?.ClientId);
+            var report = await ArchiveAndCleanupAsync(password, sender);
             if (_screen is "home" or "inbox" or "assets")
-                status.Text = $"Завантажено листів: {_messages.Count}. Тільки від дозволеної адреси.";
+                status.Text = $"Листів у вхідних: {_messages.Count}. " + report;
         }
         catch (MailKit.Security.AuthenticationException)
         {
@@ -806,6 +831,149 @@ public class MainActivity : Activity
                 status.Text = $"Помилка читання пошти: {ex.GetType().Name}";
         }
         finally { _busy = false; }
+    }
+
+    private async Task<string> ArchiveAndCleanupAsync(string password, string sender)
+    {
+        var profile = LoadUserProfile();
+        int moved = 0, saved = 0, kept = 0;
+        var remaining = new List<MavkaMailItem>();
+        foreach (var mail in _messages)
+        {
+            // Never discard mail if any attachment is unread, unsupported or corrupt.
+            if (!mail.AttachmentsComplete || mail.Attachments.Count == 0)
+            {
+                remaining.Add(mail);
+                kept++;
+                continue;
+            }
+            bool ready = true;
+            foreach (var attachment in mail.Attachments)
+            {
+                if (attachment.InstalledKeyPackage) continue;
+                if (profile is null ||
+                    !ArchiveDocumentClassifier.TryClassify(
+                        attachment.RawJson, profile.Unit, out var document) ||
+                    document is null)
+                {
+                    ready = false;
+                    break;
+                }
+                try
+                {
+                    _archive.SaveDocument(document.DocumentId, document.Kind,
+                        document.Number, document.Unit, document.DocumentDate,
+                        attachment.FileName, document.Json);
+                    // Force a verified read-back even on duplicate delivery.
+                    if (_archive.FindDocument(document.DocumentId) is null)
+                        throw new InvalidOperationException("Archive read-back failed.");
+                    saved++;
+                }
+                catch (Exception)
+                {
+                    ready = false;
+                    break;
+                }
+            }
+            if (!ready)
+            {
+                remaining.Add(mail);
+                kept++;
+                continue;
+            }
+            try
+            {
+                _archive.MarkMailReady(mail.UidValidity, mail.MessageUid, sender);
+                if (!_archive.IsMailReady(mail.UidValidity, mail.MessageUid, sender))
+                    throw new InvalidOperationException("Mail journal not persisted.");
+                await GmailConnectionService.MoveToTrashAsync(
+                    _store.GetEmail(), password, sender, mail);
+                _archive.MarkMailTrashed(mail.UidValidity, mail.MessageUid, sender);
+                moved++;
+            }
+            catch (Exception)
+            {
+                // Both archived documents and the ready marker survive disconnection.
+                // Re-fetching will not post anything or duplicate the archive.
+                remaining.Add(mail);
+                kept++;
+            }
+        }
+        _messages = remaining;
+        return $"Архівовано/перевірено вкладень: {saved}; у кошик: {moved}; залишено: {kept}.";
+    }
+
+    private void ShowDocuments()
+    {
+        _viewingArchivedDocument = false;
+        Begin("documents", "Історія документів");
+        var profile = LoadUserProfile();
+        if (profile is null)
+        {
+            Text(_body, "Для перегляду архіву заповни профіль.", 15);
+            Button(_body, "Профіль", ShowProfile);
+            return;
+        }
+        var card = Card();
+        Text(card, "Локальний архів · " + profile.Unit, 17, true);
+        Text(card, "Документи доступні без Gmail. Збереження не означає проведення.", 13);
+        var search = ProfileInput(card, "Пошук за номером, типом, датою", "");
+        var rows = new LinearLayout(this) { Orientation = Orientation.Vertical };
+        card.AddView(rows);
+        void Render()
+        {
+            rows.RemoveAllViews();
+            try
+            {
+                var filter = (search.Text ?? "").Trim();
+                var documents = _archive.ListSummaries(profile.Unit);
+                var visible = documents.Where(d => filter.Length == 0 ||
+                    d.Number.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                    d.Kind.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                    d.DocumentDate.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                Text(rows, $"Документів: {visible.Count} із {documents.Count}", 13);
+                foreach (var entry in visible)
+                {
+                    var item = entry;
+                    var tile = new LinearLayout(this) { Orientation = Orientation.Vertical };
+                    rows.AddView(tile);
+                    Text(tile, item.Kind + " № " + item.Number, 16, true);
+                    Text(tile, item.DocumentDate + " · " + item.Unit +
+                        " · Збережено локально", 13);
+                    Button(tile, "Переглянути документ", () => ShowArchivedDocument(item.DocumentId));
+                }
+            }
+            catch (Exception ex)
+            {
+                Text(rows, "Помилка читання архіву: " + ex.GetType().Name, 14);
+            }
+        }
+        search.TextChanged += (_, _) => Render();
+        Render();
+    }
+
+    private void ShowArchivedDocument(string documentId)
+    {
+        try
+        {
+            var doc = _archive.FindDocument(documentId) ??
+                throw new InvalidOperationException("Document not found.");
+            var attachment = new MavkaTextAttachment(doc.FileName,
+                MavkaJsonPreview.Format(doc.Json), doc.Json);
+            // Reuse the existing invoice preview and confirmation flow, but with
+            // no Gmail UID so the local-only copy can never be moved or deleted.
+            var local = new MavkaMailItem(doc.Kind + " № " + doc.Number,
+                doc.DocumentDate, "Збережено в локальному архіві · " + doc.Status,
+                new[] { attachment }, 0, 0);
+            _viewingArchivedDocument = true;
+            ShowMessage(local);
+        }
+        catch (Exception ex)
+        {
+            new AlertDialog.Builder(this).SetTitle("Помилка архіву")
+                .SetMessage(ex.GetType().Name)
+                .SetPositiveButton("Закрити", (_, _) => { }).Show();
+        }
     }
 
     private void ShowDrawer()
@@ -850,6 +1018,9 @@ public class MainActivity : Activity
         var rank = ProfileInput(card, "Звання", current?.Rank);
         Text(card, "Посада", 15, true);
         var position = ProfileInput(card, "Посада користувача", current?.Position);
+        Text(card, "Номер телефону", 15, true);
+        var phone = ProfileInput(card, "+380XXXXXXXXX або міжнародний номер", current?.PhoneNumber);
+        phone.InputType = InputTypes.ClassPhone;
         Text(card, "Матеріально відповідальна особа (МВО)", 15, true);
 
         var mvoRow = new RadioGroup(this) { Orientation = Orientation.Horizontal };
@@ -879,13 +1050,24 @@ public class MainActivity : Activity
             }
             try
             {
-                var stored = _profileStore.Save(u, name, r, p, yes.Checked);
+                if (current is not null &&
+                    !string.Equals(current.Unit, u, StringComparison.OrdinalIgnoreCase) &&
+                    (_ledger.HasReceipts(current.Unit) ||
+                     _archive.CountDocuments(current.Unit) > 0))
+                {
+                    status.Text = "Зміна підрозділу заблокована: наявні локальні документи " +
+                        "або облікові записи. Потрібна окрема звірка, аби не змішати майно.";
+                    return null;
+                }
+                var stored = _profileStore.Save(u, name, r, p, yes.Checked,
+                    phone.Text?.ToString());
                 status.Text = "Профіль успішно збережено на телефоні.";
                 return stored;
             }
             catch (Exception ex)
             {
-                status.Text = "Помилка збереження профілю: " + ex.GetType().Name;
+                status.Text = ex is ArgumentException ? ex.Message :
+                    "Помилка збереження профілю: " + ex.GetType().Name;
                 return null;
             }
         }
@@ -1248,7 +1430,7 @@ public class MainActivity : Activity
     {
         if (_drawerOverlay.Visibility == ViewStates.Visible) { CloseDrawer(); return; }
         if (_screen is "mail" or "exchange-key" or "document-password") { ShowSettings(); return; }
-        if (_screen == "message") { ShowInbox(); return; }
+        if (_screen == "message") { if (_viewingArchivedDocument) ShowDocuments(); else ShowInbox(); return; }
         if (_screen != "home") { ShowHome(); return; }
         base.OnBackPressed();
     }
