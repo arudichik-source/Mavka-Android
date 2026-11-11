@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Mavka.Mobile/XlsxInvoiceBuilder.cs" Link="XlsxInvoiceBuilder.cs" />
+    <Compile Include="../../src/Mavka.Mobile/DocxInvoiceBuilder.cs" Link="DocxInvoiceBuilder.cs" />
+    <Compile Include="../../src/Mavka.Mobile/OfficeDocumentPreview.cs" Link="OfficeDocumentPreview.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MavkaExchangeParser.cs" Link="MavkaExchangeParser.cs" />
+    <Compile Include="../../src/Mavka.Mobile/LedgerBalanceCalculator.cs" Link="LedgerBalanceCalculator.cs" />
+  </ItemGroup>
+</Project>
