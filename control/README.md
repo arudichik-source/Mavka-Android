@@ -584,3 +584,13 @@ VPC Service contract. Do not install the experimental local Oracle API in place
 of any existing production rendering process without inspecting the existing
 repository, service ports and job format. The required renderer repo and API
 contract have not yet been verified. No Mavka service is modified by this UI link.
+
+
+## 2026-11-11: Workers usage: account total vs Relay
+The quota bar now uses account-wide workersInvocationsAdaptive aggregation from
+the existing GraphQL HTTP query. Relay-only count remains separate. History,
+samples, CSV and forecasts still represent Relay, never the whole account.
+If account-wide analytics are absent, show an em dash rather than a false
+account total. This adds no extra HTTP requests, token scopes, D1 migrations,
+Cron events, or binding to the private message database.
+Oracle website HTTP visits are a separate hosting metric.

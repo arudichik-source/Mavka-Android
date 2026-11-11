@@ -1,5 +1,5 @@
 // Read-only Cloudflare Analytics; never make requests from a browser with API tokens.
-// D1 totals are account-wide, Workers are RELAY-ONLY, R2 is one named bucket.
+// D1 totals are account-wide; Workers track Relay and account total separately; R2 is one bucket.
 // Free quotas are guides, not billing balance or a guarantee against overages.
 export const LIMITS = Object.freeze({
   workersRequestsPerDay: 100000,
@@ -17,6 +17,10 @@ const WORKERS = `query RelayWorkers($account: string!, $start: string!, $end: st
     workersInvocationsAdaptive(
       limit: 1
       filter: { scriptName: "mavka-relay", datetime_geq: $start, datetime_lt: $end }
+    ) { sum { requests errors } }
+    accountTotal: workersInvocationsAdaptive(
+      limit: 1
+      filter: { datetime_geq: $start, datetime_lt: $end }
     ) { sum { requests errors } }
   } }
 }`;
@@ -116,6 +120,7 @@ export async function readAnalytics(env, now = new Date()) {
   ]);
   const w = view(results[0]), d = view(results[1]), storage = view(results[2]), ops = view(results[3]);
   const wr = w?.workersInvocationsAdaptive;
+  const wa = w?.accountTotal;
   const dr = d?.d1AnalyticsAdaptiveGroups;
   const st = storage?.r2StorageAdaptiveGroups?.[0];
   const orows = ops?.r2OperationsAdaptiveGroups;
@@ -129,7 +134,9 @@ export async function readAnalytics(env, now = new Date()) {
     state: errors.length === 4 ? 'unavailable' : errors.length ? 'partial' : 'ready',
     at, utcDay: today, limits: LIMITS,
     workers: w ? { scope: 'mavka-relay_only', requestsToday: sum(wr, 'requests'),
-      errorsToday: sum(wr, 'errors') } : null,
+      errorsToday: sum(wr, 'errors'),
+      accountRequestsToday: Array.isArray(wa) ? sum(wa, 'requests') : null,
+      accountErrorsToday: Array.isArray(wa) ? sum(wa, 'errors') : null } : null,
     d1: d ? { scope: 'account', rowsReadToday: sum(dr, 'rowsRead'),
       rowsWrittenToday: sum(dr, 'rowsWritten') } : null,
     r2: { bucket: 'mavka-private-files',
@@ -143,7 +150,7 @@ export async function readAnalytics(env, now = new Date()) {
           requests: number(o.sum?.requests) ?? 0 })),
         classA: null, classB: null } : null },
     errors, diagnostics,
-    caveats: ['Workers requests are relay-only, not account-wide balance.',
+    caveats: ['Relay Workers count is one Worker; account-wide total is a separate aggregate.',
       'R2 current bytes are not GB-months; class A/B and billing costs are unverified.',
       'Analytics may be delayed or sampled; the actual invoice is in Cloudflare Billing.'],
   };

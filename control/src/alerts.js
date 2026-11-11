@@ -35,7 +35,7 @@ export function assessIncidentSignals(rows, observedAt = Math.floor(Date.now()/1
     caveat:'Approximate daily group counts; may undercount. Events are not identified persons or proven intrusions.'};
 }
 const QUOTAS=Object.freeze([
- {key:'workers',label:'Workers · тільки Relay',path:['workers','requestsToday'],limit:'workersRequestsPerDay',scope:'one_worker_utc_day'},
+ {key:'workers',label:'Workers · увесь акаунт',path:['workers','accountRequestsToday'],limit:'workersRequestsPerDay',scope:'account_utc_day'},
  {key:'d1_read',label:'D1 · читання акаунта',path:['d1','rowsReadToday'],limit:'d1RowsReadPerDay',scope:'account_utc_day'},
  {key:'d1_write',label:'D1 · записи акаунта',path:['d1','rowsWrittenToday'],limit:'d1RowsWrittenPerDay',scope:'account_utc_day'},
  {key:'r2_bytes',label:'R2 · власний контрольний поріг 5 ГБ',path:['r2','storage','bytes'],limit:'r2MonitoringBytes',scope:'bucket_soft_limit_not_billing'},

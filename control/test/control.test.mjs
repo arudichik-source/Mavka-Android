@@ -135,7 +135,7 @@ test('Cloudflare analytics return partial rather than fabricated zero on dataset
     const body = JSON.parse(options.body);
     let account = {};
     if (body.query.includes('workersInvocationsAdaptive'))
-      account = { workersInvocationsAdaptive: [{ sum: { requests: 42, errors: 1 } }] };
+      account = { workersInvocationsAdaptive: [{ sum: { requests: 42, errors: 1 } }], accountTotal:[{sum:{requests:312,errors:1}}] };
     else if (body.query.includes('d1AnalyticsAdaptiveGroups'))
       account = { d1AnalyticsAdaptiveGroups: [{ sum: { rowsRead: 123, rowsWritten: 5 } }] };
     else if (body.query.includes('r2StorageAdaptiveGroups'))
@@ -148,6 +148,7 @@ test('Cloudflare analytics return partial rather than fabricated zero on dataset
     const data = await readAnalytics(aenv, new Date('2026-10-23T10:00:00Z'));
     assert.equal(data.state, 'partial');
     assert.equal(data.workers.requestsToday, 42);
+    assert.equal(data.workers.accountRequestsToday, 312);
     assert.equal(data.d1.rowsReadToday, 123);
     assert.equal(data.r2.storage.bytes, 1024);
     assert.equal(data.r2.operations, null);
@@ -170,7 +171,7 @@ test('all four GraphQL queries use Cloudflare lowercase string scalar and return
     assert.equal(options.redirect, 'manual');
     if (payload.query.includes('workersInvocationsAdaptive'))
       return Response.json({ data: { viewer: { accounts: [{
-        workersInvocationsAdaptive: [{sum: {requests: 117, errors: 2}}]
+        workersInvocationsAdaptive: [{sum: {requests: 117, errors: 2}}], accountTotal:[{sum:{requests:481,errors:3}}]
       }] } } });
     if (payload.query.includes('d1AnalyticsAdaptiveGroups'))
       return Response.json({ data: { viewer: { accounts: [{
@@ -194,6 +195,7 @@ test('all four GraphQL queries use Cloudflare lowercase string scalar and return
       workers: 'ok', d1: 'ok', r2Storage: 'ok', r2Operations: 'ok',
     });
     assert.equal(data.workers.requestsToday, 117);
+    assert.equal(data.workers.accountRequestsToday, 481);
     assert.equal(data.d1.rowsWrittenToday, 8);
     assert.equal(data.r2.storage.bytes, 4096);
     assert.equal(data.r2.operations.requestsThisMonth, 9);

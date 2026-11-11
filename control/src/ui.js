@@ -230,11 +230,12 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <section class="panel">
 <h2>Використання безкоштовних квот</h2>
 <p class="dim">Пороги 70%, 85%, 95%. «—» означає, що дані ще не надійшли.</p>
-<div class="line"><span class="name">Workers · лише Relay</span><span class="info" id="wr-limit">— / 100 000</span></div><div class="bar"><div class="fill" id="bar-wr"></div></div>
+<div class="line"><span class="name">Workers · увесь акаунт</span><span class="info" id="wr-limit">— / 100 000</span></div><div class="bar"><div class="fill" id="bar-wr"></div></div>
+<div class="line"><span class="name">Workers · лише Relay (довідково)</span><span class="info" id="wr-relay-limit">—</span></div>
 <div class="line"><span class="name">D1 · читання</span><span class="info" id="dr-limit">— / 5 млн</span></div><div class="bar"><div class="fill" id="bar-dr"></div></div>
 <div class="line"><span class="name">D1 · запис</span><span class="info" id="dw-limit">— / 100 000</span></div><div class="bar"><div class="fill" id="bar-dw"></div></div>
 <div class="line"><span class="name">R2 · зайнято / 5 ГБ (контрольний поріг)</span><span class="info" id="r2-limit">—</span></div><div class="bar"><div class="fill" id="bar-r2"></div></div>
-<p class="dim" style="margin-top:17px">Власний поріг R2 — 5 ГБ: попередження при 70%, 85% і 95%. Це не блокує завантаження. Cloudflare рахує оплату за ГБ-місяці, а не за поточний обсяг. Workers показує лише один застосунок.</p>
+<p class="dim" style="margin-top:17px">Власний поріг R2 — 5 ГБ: попередження при 70%, 85% і 95%. Це не блокує завантаження. Cloudflare рахує оплату за ГБ-місяці, а не за поточний обсяг. Квота Workers показує весь акаунт; окремо наведено Relay. Запити до Oracle-сайту не обов'язково є Workers.</p>
 </section>
 <section class="panel">
 <h2>R2 · mavka-private-files</h2>
@@ -533,11 +534,12 @@ function show(m){
  setMetric('requests',wr.requestsToday);setMetric('errors',wr.errorsToday);
  setMetric('reads',d.rowsReadToday);setMetric('writes',d.rowsWrittenToday);
  q('r2-size').textContent=size(st.bytes);setMetric('r2-objects',st.objects);setMetric('r2-ops',op.requestsThisMonth);
- q('wr-limit').textContent=fmt(wr.requestsToday)+' / '+fmt(l.workersRequestsPerDay);
+ q('wr-limit').textContent=fmt(wr.accountRequestsToday)+' / '+fmt(l.workersRequestsPerDay);
+ q('wr-relay-limit').textContent=fmt(wr.requestsToday)+' запитів Relay';
  q('dr-limit').textContent=fmt(d.rowsReadToday)+' / '+fmt(l.d1RowsReadPerDay);
  q('dw-limit').textContent=fmt(d.rowsWrittenToday)+' / '+fmt(l.d1RowsWrittenPerDay);
  q('r2-limit').textContent=Number.isFinite(st.bytes)?size(st.bytes)+' / '+(Number.isFinite(l.r2MonitoringBytes)?(l.r2MonitoringBytes/1e9)+' ГБ':'5 ГБ'):'—';
- progress('bar-wr',wr.requestsToday,l.workersRequestsPerDay);
+ progress('bar-wr',wr.accountRequestsToday,l.workersRequestsPerDay);
  progress('bar-dr',d.rowsReadToday,l.d1RowsReadPerDay);
  progress('bar-dw',d.rowsWrittenToday,l.d1RowsWrittenPerDay);
  progress('bar-r2',st.bytes,l.r2MonitoringBytes);
@@ -862,7 +864,7 @@ function resourceUsageForecast(summary,trends,now=Date.now()){
  const limits=summary?.limits||{},worker=summary?.workers||{},d1=summary?.d1||{};
  const storage=summary?.r2?.storage||{};
  const configs=[
-  {name:'workers',title:'Workers · запити Relay',key:'workers_requests',
+  {name:'workers',title:'Workers · запити Relay (частина акаунта)',key:'workers_requests',
    current:worker.requestsToday,limit:limits.workersRequestsPerDay,kind:'daily'},
   {name:'d1-reads',title:'D1 · прочитані рядки',key:'d1_rows_read',
    current:d1.rowsReadToday,limit:limits.d1RowsReadPerDay,kind:'daily'},
