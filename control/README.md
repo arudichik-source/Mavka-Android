@@ -594,3 +594,8 @@ If account-wide analytics are absent, show an em dash rather than a false
 account total. This adds no extra HTTP requests, token scopes, D1 migrations,
 Cron events, or binding to the private message database.
 Oracle website HTTP visits are a separate hosting metric.
+
+
+## Oracle VM / МАВКА WEB control (2026-11-11)
+
+The new read-only panel includes CPU, RAM, free disk, local site probe, number of named systemd services active, and daily UTC HTTP requests observed in site and Sync API journals. This is origin-request telemetry, **not unique visitor analytics** or Cloudflare Workers usage. The standalone agent's source is control/oracle/monitor_api.py and it listens only on 127.0.0.1:7340. It requires a *separate* VPC Service limited to that port, an optional ORACLE_MONITOR_VPC binding, and an independent ORACLE_MONITOR_KEY Worker secret. No API keys, site paths, IPs, filenames, or identifiers are returned to the browser. Until those private bindings are configured, GET /api/oracle returns not_connected. The agent doesn't restart or modify existing SSH/VNC, website, Shorts Studio or Mavka Sync services. The browser keeps the same 15-minute refresh cadence.

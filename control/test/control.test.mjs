@@ -51,6 +51,11 @@ test('configuration isolates D1 and fails closed without a real database ID', ()
   assert.deepEqual(cfg.d1_databases.map(d => d.database_name), ['mavka-control']);
   assert.equal(cfg.d1_databases[0].binding, 'CONTROL_DB');
   assert.equal(cfg.preview_urls, false);
+  assert.equal(Object.hasOwn(cfg,'vpc_services'),false);
+  const withVpc=configuration({MAVKA_CONTROL_D1_DATABASE_ID:cfg.d1_databases[0].database_id,
+    MAVKA_ORACLE_MONITOR_VPC_SERVICE_ID:'00000000-aaaa-4bbb-8ccc-111111111111'});
+  assert.deepEqual(withVpc.vpc_services,[{binding:'ORACLE_MONITOR_VPC',
+    service_id:'00000000-aaaa-4bbb-8ccc-111111111111'}]);
   assert.equal(cfg.keep_vars, true);
   assert.deepEqual(cfg.services, [{binding:'RELAY_TELEMETRY',service:'mavka-relay',entrypoint:'RelayTelemetry'}]);
   assert.equal(cfg.observability.redact_query_string, true);
@@ -62,7 +67,7 @@ test('configuration isolates D1 and fails closed without a real database ID', ()
 test('unconfigured and unauthenticated control Worker never exposes HTML or APIs', async () => {
   assert.equal(accessSettings({}), null);
   assert.equal((await control.fetch(request(null), {})).status, 503);
-  for (const path of ['/', '/api/summary', '/api/history', '/api/about', '/api/trends?period=30d', '/api/security', '/api/maintenance']) {
+  for (const path of ['/', '/api/oracle', '/api/summary', '/api/history', '/api/about', '/api/trends?period=30d', '/api/security', '/api/maintenance']) {
     const res = await control.fetch(request(null, path), env);
     assert.equal(res.status, 403);
     assert.equal((await res.json()).error, 'access_denied');
@@ -83,6 +88,9 @@ test('Worker-level Access ctx.access identity works without JWT and never bypass
   const status = await control.fetch(request(null, '/api/about'), env, valid);
   assert.equal(status.status, 200);
   assert.equal((await status.json()).mode, 'read_only');
+  const oracle=await control.fetch(request(null,'/api/oracle'),env,valid);
+  assert.equal(oracle.status,200);
+  assert.equal((await oracle.json()).state,'not_connected');
   const security=await control.fetch(request(null,'/api/security'),env,valid);
   assert.equal(security.status,200);
   assert.deepEqual((await security.json()).data,null);

@@ -42,6 +42,8 @@ p{line-height:1.5}.dim{color:var(--muted);font-size:13px;margin:0}
 .fill{height:100%;width:0;background:linear-gradient(90deg,#388f9b,var(--accent));transition:width .25s}
 .fill.warn{background:var(--warning)}.fill.danger{background:var(--red)}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.oracle-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:15px}.oracle-grid .small-card div{margin:0 0 9px}.oracle-grid .small-card b{font-size:clamp(18px,2vw,24px)}
+@media(max-width:950px){.oracle-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:540px){.oracle-grid{grid-template-columns:1fr}}
 .small-card{border:1px solid #2d3b51;background:#101826;padding:13px;border-radius:11px}
 .small-card b{font-size:19px;font-variant-numeric:tabular-nums}.small-card div{color:var(--muted);font-size:11px;margin-top:4px}
 .status{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted)}
@@ -204,6 +206,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <a href="#overview">Огляд сервера</a>
 <a href="#shorts-studio">Shorts Studio · окрема панель</a>
 <a href="#resources">Квоти та сховище</a>
+<a href="#oracle-vm">Oracle VM / МАВКА WEB</a>
 <a href="#source-health">Стан джерел</a>
 <a href="#technical-events">Технічні події</a>
 <a href="#stability">Аналітика стабільності</a>
@@ -226,6 +229,22 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <article class="panel"><div class="metric-label">D1 · прочитані рядки</div><div class="metric" id="reads">—</div><div class="metric-note">Усі бази акаунта за добу UTC.</div></article>
 <article class="panel"><div class="metric-label">D1 · записані рядки</div><div class="metric" id="writes">—</div><div class="metric-note">Усі бази акаунта за добу UTC.</div></article>
 </div>
+<section id="oracle-vm" class="panel section jump-target" aria-label="Моніторинг Oracle VM та МАВКА WEB">
+<div class="chart-head"><div><h2>Oracle VM / МАВКА WEB</h2>
+<p class="dim">Приватні агреговані показники Oracle. Запити до сайту та API — не кількість унікальних відвідувачів. Лічильники можуть не включати відповіді з кешу Cloudflare.</p></div>
+<span class="source-health-status" id="oracle-state">Не підключено</span></div>
+<div class="grid oracle-grid">
+<article class="small-card"><div>CPU · поточний зразок</div><b id="oracle-cpu">—</b></article>
+<article class="small-card"><div>RAM · використано</div><b id="oracle-ram">—</b></article>
+<article class="small-card"><div>Диск · вільно</div><b id="oracle-disk">—</b></article>
+<article class="small-card"><div>Сайт · локальна перевірка</div><b id="oracle-site">—</b></article>
+<article class="small-card"><div>HTTP-запити сайту (UTC)</div><b id="oracle-site-requests">—</b></article>
+<article class="small-card"><div>Запити Sync API (UTC)</div><b id="oracle-api-requests">—</b></article>
+<article class="small-card"><div>Помилки 4xx/5xx сайту</div><b id="oracle-web-errors">—</b></article>
+<article class="small-card"><div>Активні служби / перевірено</div><b id="oracle-services">—</b></article>
+</div>
+<p class="dim" id="oracle-notes" style="margin-top:14px">Очікуємо окреме приватне VPC-підключення. Чинний доступ до Oracle VM не змінюється.</p>
+</section>
 <div class="section columns jump-target" id="resources">
 <section class="panel">
 <h2>Використання безкоштовних квот</h2>
@@ -1160,16 +1179,42 @@ function showSecurity(result){
   hours.appendChild(bar);
  }
 }
+function renderOracle(data){
+ const ready=data?.state==='ready';
+ const byId=(id,val)=>q(id).textContent=val;
+ const fmtPercent=v=>Number.isFinite(v)?v.toLocaleString('uk-UA',{maximumFractionDigits:1})+'%':'—';
+ const count=x=>x?.complete===true?fmt(x.count):'—';
+ const vals=ready?Object.values(data.services||{}):[];
+ const healthy=vals.filter(x=>x==='active').length;
+ byId('oracle-state',ready?'Дані отримано':data?.state==='not_connected'?'Не підключено':'Недоступно');
+ byId('oracle-cpu',ready?fmtPercent(data.cpuPercent):'—');
+ byId('oracle-ram',ready?fmtPercent(data.ramPercent):'—');
+ byId('oracle-disk',ready&&Number.isFinite(data.diskFreeGb)?data.diskFreeGb.toLocaleString('uk-UA',{maximumFractionDigits:2})+' ГБ':'—');
+ byId('oracle-site',ready?({online:'Працює',offline:'Не відповідає',degraded:'Збій'})[data.siteProbe]||'Невідомо':'—');
+ byId('oracle-site-requests',ready?count(data.siteRequests):'—');
+ byId('oracle-api-requests',ready?count(data.apiRequests):'—');
+ const statuses=data?.siteRequests?.statuses;
+ byId('oracle-web-errors',ready&&data.siteRequests?.complete&&Number.isFinite(statuses?.['4xx'])&&Number.isFinite(statuses?.['5xx'])?
+   fmt(statuses['4xx']+statuses['5xx']):'—');
+ byId('oracle-services',ready?healthy+' / '+vals.length:'—');
+ const incomplete=ready&&(!data.siteRequests?.complete||!data.apiRequests?.complete);
+ byId('oracle-notes',ready?
+   'Знято: '+(data.checkedAt?new Date(data.checkedAt).toLocaleString('uk-UA'):'—')+
+   ' · HTTP-запити, не люди; з журналів Oracle за день UTC.'+
+   (incomplete?' Неповна вибірка журналів: деякі підсумки недоступні.':'') :
+   'Моніторинг Oracle очікує окремий приватний VPC Service та секрет. Наявний доступ до VM не змінено.');
+}
 async function refresh(){
  if(loading)return;loading=true;q('refresh').disabled=true;state('Читаємо Cloudflare…');
  try {
-  const results=await Promise.allSettled([get('/api/summary'),loadHistory(),loadTrends(),get('/api/security'),get('/api/devices'),get('/api/maintenance')]);
+  const results=await Promise.allSettled([get('/api/summary'),loadHistory(),loadTrends(),get('/api/security'),get('/api/devices'),get('/api/maintenance'),get('/api/oracle')]);
   if(results[0].status==='fulfilled')show(results[0].value);
   else {state('Не вдалося отримати аналітику',true);q('notice').className='notice warn';
     q('notice').textContent='Аналітика тимчасово недоступна. Авторизуйся знову через Cloudflare Access за потреби.'}
   showSecurity(results[3].status==='fulfilled'?results[3].value:null);
   showDevices(results[4].status==='fulfilled'?results[4].value:null);
   showMaintenance(results[5].status==='fulfilled'?results[5].value:null);
+  renderOracle(results[6].status==='fulfilled'?results[6].value:null);
   sourceHealthResults=results;
   renderSourceHealth(sourceHealthResults);
   renderUsageForecast(sourceHealthResults);

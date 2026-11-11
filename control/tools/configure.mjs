@@ -8,7 +8,12 @@ export function configuration(env) {
       id === '00000000-0000-0000-0000-000000000000') {
     throw new Error('Create a separate D1 database mavka-control and set MAVKA_CONTROL_D1_DATABASE_ID.');
   }
+  const vpcId=env.MAVKA_ORACLE_MONITOR_VPC_SERVICE_ID;
+  if (vpcId !== undefined &&
+      (typeof vpcId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(vpcId)))
+    throw new Error('Invalid MAVKA_ORACLE_MONITOR_VPC_SERVICE_ID');
   return {
+    ...(vpcId ? {vpc_services:[{binding:'ORACLE_MONITOR_VPC',service_id:vpcId}]} : {}),
     $schema: './node_modules/wrangler/config-schema.json',
     name: 'mavka-server-control', main: 'src/worker.js',
     compatibility_date: '2026-10-23',

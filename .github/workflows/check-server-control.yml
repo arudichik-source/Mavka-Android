@@ -31,3 +31,4 @@ jobs:
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npm run check
       - run: npm run check-bundle
+      - run: python3 -m unittest discover -s oracle -p 'test_*.py' -v

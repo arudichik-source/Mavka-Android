@@ -142,6 +142,7 @@ test('stability UI reuses existing period control, no additional API, background
  const portion=js.slice(start,js.indexOf('// Conservative, browser-only projections',start));
  assert.doesNotMatch(portion,/\bfetch\s*\(|\bget\s*\(\s*['"]\/api|setInterval|WebSocket|sendBeacon|localStorage\.setItem/);
  const refresh=js.slice(js.indexOf('async function refresh('),js.indexOf('async function setPeriod('));
- assert.equal((refresh.match(/get\('\/api\//g)||[]).length,4);
+ assert.equal((refresh.match(/get\('\/api\//g)||[]).length,5);
+  assert.match(refresh,/get\('\/api\/oracle'\)/);
  assert.match(html,/MaVka Server Control 1\.1\.0/);
 });

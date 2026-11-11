@@ -7,6 +7,7 @@ import { maintenanceSummary, pruneControlHistory } from './maintenance.js';
 import { readControlRetention, recordControlRetention } from './control-retention.js';
 import { parsePeriod, parseBefore, readHistoryPage, readTrends } from './history.js';
 import { html } from './ui.js';
+import { oracleTelemetry } from './oracle.js';
 
 const headers = {
   'Cache-Control': 'no-store, private',
@@ -103,6 +104,7 @@ export default {
       ]);
       return json({ ...relay, controlRetention });
     }
+    if (url.pathname === '/api/oracle' && !url.search) return json(await oracleTelemetry(env));
     if (url.pathname === '/api/security') {
       if (url.search) return json({ error: 'invalid_query' }, 400);
       // Private named Relay RPC returns bounded aggregate counters only.
