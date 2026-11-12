@@ -1,6 +1,7 @@
 // Account-wide Free-plan quota overview. Read-only; no billing guesses,
 // direct browser credentials, public API, new Cron or persisted rows.
 import { LIMITS, readD1Storage } from './analytics.js';
+import { readBillingUsage } from './billing.js';
 
 const isCount=x=>typeof x==='number' && Number.isFinite(x) && x>=0;
 const safeCount=x=>isCount(x)?x:null;
@@ -78,7 +79,8 @@ function quota(id,label,value,limit,scope,kind,now,remark=''){
 
 export async function quotaReport(env,metrics,now=new Date()){
   const data=metrics && typeof metrics==='object'?metrics:{};
-  const {d1,builds}=await extras(env);
+  const [extra,billing]=await Promise.all([extras(env),readBillingUsage(env)]);
+  const {d1,builds}=extra;
   const workers=data.workers, db=data.d1, r2=data.r2;
   const accountR2=r2?.operations?.account;
   const rows=[
@@ -105,9 +107,11 @@ export async function quotaReport(env,metrics,now=new Date()){
       accountR2?.classificationComplete===false?
         'Є некласифіковані типи операцій; розбивка неповна. Безкоштовна квота діє лише для Standard.':
         'Безкоштовна квота діє лише для Standard; клас зберігання акаунта не перевірено.'),
-    quota('r2_gb_month','R2 Standard · зберігання, ГБ-місяці',
-      null,LIMITS.r2StandardGbMonths,'account','billing_month',now,
-      'Місячне використання GB-month недоступне у поточному знімку. Не підміняємо його зайнятим обсягом.'),
+    quota('r2_gb_month','R2 Standard · зберігання, ГБ-місяці (платіжний період)',
+      billing?.r2StandardGbMonths,LIMITS.r2StandardGbMonths,'account','billing_cycle',now,
+      billing?.r2StandardGbMonths!==null&&billing?.r2StandardGbMonths!==undefined?
+        'Фактичне споживання за доступними рядками Billable Usage API; дані оновлюються із затримкою.':
+        'Немає однозначно визначених записів Standard GB-month у Billing API. Не підміняємо їх поточним обсягом R2.'),
     quota('builds_minutes','Workers Builds · хвилини збірки',
       null,LIMITS.workersBuildMinutesPerMonth,'account','month',now,
       'API повертає факт вичерпання та дату скидання, а не точну витрату хвилин.'),
@@ -117,10 +121,10 @@ export async function quotaReport(env,metrics,now=new Date()){
   if(builds.state==='ready'&&builds.exhausted===true)
     alerts.unshift({id:'builds_exhausted',level:'critical',percent:null,label:'Workers Builds · ліміт хвилин вичерпано'});
   return {
-    version:1,source:'Cloudflare Analytics + optional Workers Builds API',
+    version:2,source:'Cloudflare Analytics + optional Workers Builds and Billable Usage APIs',
     capturedAt:now.toISOString(),
     plan:'workers_free_reference_not_verified',
-    rows,alerts,builds,
+    rows,alerts,builds,billing,
     d1StorageState:d1.state,
     d1DatabaseCount:d1.state==='ready'?d1.databaseCount:null,
     r2Classification:accountR2?{
@@ -133,7 +137,7 @@ export async function quotaReport(env,metrics,now=new Date()){
       d1Storage:d1.state==='ready',
       r2Classes:rows[5].used!==null&&rows[6].used!==null,
       builds:builds.state==='ready',
-      r2GbMonths:false,billing:false,
+      r2GbMonths:rows[7].used!==null,billing:billing.state==='ready',
     },
     staticLimits:[
       {label:'Workers · CPU/виклик',value:'10 мс',note:'Технічний ліміт, не лічильник використання'},
@@ -149,7 +153,8 @@ export async function quotaReport(env,metrics,now=new Date()){
       'Дані Analytics можуть надходити із затримкою; прогноз лінійний і не гарантує витрати.',
       'R2 Free застосовується тільки до Standard; поточний GraphQL-звіт не розрізняє класи зберігання. Billing перевіряйте окремо.',
       'Розміри D1 — лише за базами з доступними знімками за останні 24 години; повний перелік БД не підтверджено.',
-      'Результат не містить витрат у валюті, бо фактичний рахунок недоступний.',
+      'Billable Usage API показує нарахування за споживання із затримкою, не повний рахунок (без фіксованих підписок).',
+      'R2 GB-month беремо лише з однозначно визначених записів Standard поточного платіжного циклу, ніколи не з поточного зайнятого обсягу.',
     ],
   };
 }
