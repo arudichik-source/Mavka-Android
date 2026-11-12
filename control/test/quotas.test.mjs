@@ -113,3 +113,36 @@ test('R2 notes distinguish complete classification from unknown types; D1 storag
  assert.equal(unknown.rows.find(r=>r.id==='r2_a').used,null);
  assert.match(unknown.rows.find(r=>r.id==='r2_a').remark,/некласифіковані/);
 });
+
+test('optional service exceptions cannot suppress the account-wide quota report',async()=>{
+ const badEnv={get CF_ACCOUNT_ID(){throw new Error('simulated_optional_failure');}};
+ const mock={state:'ready',workers:{accountRequestsToday:759},
+   d1:{rowsReadToday:4148,rowsWrittenToday:23},
+   r2:{operations:{account:{classA:592,classB:43,classificationComplete:true,
+     unknownOperations:0,freeOperations:0}}}};
+ const report=await quotaReport(badEnv,mock,new Date('2026-11-12T09:16:00Z'));
+ assert.equal(report.rows.find(x=>x.id==='workers').used,759);
+ assert.equal(report.rows.find(x=>x.id==='d1_read').used,4148);
+ assert.equal(report.rows.find(x=>x.id==='r2_a').used,592);
+ assert.equal(report.optionalSourcesPartial,true);
+ assert.equal(report.builds.state,'unavailable');
+ assert.equal(report.billing.state,'unavailable');
+ assert.equal(report.rows.find(x=>x.id==='builds_minutes').used,null);
+ assert.equal(report.rows.find(x=>x.id==='r2_gb_month').used,null);
+ assert.doesNotMatch(JSON.stringify(report),/simulated_optional_failure/);
+});
+
+test('core quota report fallback avoids external API calls and labels optional metrics unavailable',async()=>{
+ const old=globalThis.fetch;
+ try {
+   globalThis.fetch=()=>{throw Error('No optional HTTP requests expected');};
+   const report=await quotaReport({},{
+     workers:{accountRequestsToday:100},d1:{rowsReadToday:200,rowsWrittenToday:3},
+   },new Date('2026-11-12T09:16:00Z'),{skipOptional:true});
+   assert.equal(report.rows.find(x=>x.id==='workers').used,100);
+   assert.equal(report.billing.state,'unavailable');
+   assert.equal(report.builds.state,'unavailable');
+   assert.equal(report.optionalSourcesPartial,true);
+   assert.match(html,/Часткові дані · резервний режим/);
+ }finally{globalThis.fetch=old;}
+});
