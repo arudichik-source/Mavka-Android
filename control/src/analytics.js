@@ -108,7 +108,6 @@ export async function readD1Storage(env, now=new Date()) {
       largestDatabaseBytes:Math.max(...sizes),window:'last_24h_latest_samples'};
   }catch(e){return {state:safeErrorKind(e),bytes:null};}
 }
-`;
 export function analyticsConfigured(env) {
   return typeof env.CF_ACCOUNT_ID === 'string' &&
     /^[a-f0-9]{32}$/i.test(env.CF_ACCOUNT_ID) &&
