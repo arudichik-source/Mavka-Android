@@ -89,7 +89,7 @@ test('quota endpoint never fabricates zero for unavailable Billing, D1 storage o
 test('new quota UI is authenticated server data and starts without fabricated numbers',()=>{
  assert.match(html,/id="quota-center"/);
  assert.match(html,/id="quota-center-cards"/);
- assert.match(html,/get\('\\/api\\/limits'\\)/);
+ assert.ok(html.includes("get('/api/limits')"));
  assert.match(html,/renderQuotaCenter\(results\[7\]/);
  assert.match(html,/Немає даних/);
 });
