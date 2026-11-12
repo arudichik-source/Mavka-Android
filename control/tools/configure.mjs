@@ -8,7 +8,9 @@ export function configuration(env) {
       id === '00000000-0000-0000-0000-000000000000') {
     throw new Error('Create a separate D1 database mavka-control and set MAVKA_CONTROL_D1_DATABASE_ID.');
   }
-  const vpcId=env.MAVKA_ORACLE_MONITOR_VPC_SERVICE_ID;
+  // Non-secret Service ID from Cloudflare Workers VPC for the separate Oracle monitor.
+  // Explicit env override is reserved for staging or service replacement.
+  const vpcId=env.MAVKA_ORACLE_MONITOR_VPC_SERVICE_ID ?? '01a1ce8c-9790-7c00-8e11-f849bddf00ac';
   if (vpcId !== undefined &&
       (typeof vpcId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(vpcId)))
     throw new Error('Invalid MAVKA_ORACLE_MONITOR_VPC_SERVICE_ID');

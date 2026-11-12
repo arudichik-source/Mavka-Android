@@ -51,7 +51,8 @@ test('configuration isolates D1 and fails closed without a real database ID', ()
   assert.deepEqual(cfg.d1_databases.map(d => d.database_name), ['mavka-control']);
   assert.equal(cfg.d1_databases[0].binding, 'CONTROL_DB');
   assert.equal(cfg.preview_urls, false);
-  assert.equal(Object.hasOwn(cfg,'vpc_services'),false);
+  assert.deepEqual(cfg.vpc_services,[{binding:'ORACLE_MONITOR_VPC',
+    service_id:'01a1ce8c-9790-7c00-8e11-f849bddf00ac'}]);
   const withVpc=configuration({MAVKA_CONTROL_D1_DATABASE_ID:cfg.d1_databases[0].database_id,
     MAVKA_ORACLE_MONITOR_VPC_SERVICE_ID:'00000000-aaaa-4bbb-8ccc-111111111111'});
   assert.deepEqual(withVpc.vpc_services,[{binding:'ORACLE_MONITOR_VPC',
