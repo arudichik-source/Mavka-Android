@@ -6,11 +6,16 @@ export const LIMITS = Object.freeze({
   d1RowsReadPerDay: 5000000,
   d1RowsWrittenPerDay: 100000,
   d1StorageBytesAccount: 5 * 1000 ** 3,
+  d1StorageBytesPerDatabase: 500 * 1000 ** 2,
   r2StandardGbMonths: 10,
   // Owner-defined dashboard threshold, NOT a provider hard quota or GB-month usage.
   r2MonitoringBytes: 5_000_000_000,
   r2ClassAOperationsPerMonth: 1000000,
   r2ClassBOperationsPerMonth: 10000000,
+  workersBuildMinutesPerMonth: 3000,
+  workersScriptsPerAccount: 100,
+  workersCronTriggersPerAccount: 5,
+  d1DatabasesPerAccount: 10,
 });
 const WORKERS = `query RelayWorkers($account: string!, $start: string!, $end: string!) {
   viewer { accounts(filter: { accountTag: $account }) {
@@ -45,8 +50,64 @@ const R2_OPS = `query R2Operations($account: string!, $start: Time!, $end: Time!
       filter: { datetime_geq: $start, datetime_leq: $end,
         bucketName: "mavka-private-files" }
     ) { sum { requests } dimensions { actionType } }
+    accountOperations: r2OperationsAdaptiveGroups(limit: 1000,
+      filter: { datetime_geq: $start, datetime_leq: $end }
+    ) { sum { requests } dimensions { actionType } }
   } }
 }`;
+const D1_STORAGE = `query D1Storage($account: string!, $start: Time!, $end: Time!) {
+  viewer { accounts(filter: { accountTag: $account }) {
+    d1StorageAdaptiveGroups(limit: 1000,
+      filter: { datetime_geq: $start, datetime_leq: $end },
+      orderBy: [datetime_DESC]
+    ) { max { databaseSizeBytes } dimensions { databaseId datetime } }
+  } }
+}`;
+const R2_CLASS_A = new Set(['ListBuckets','PutBucket','ListObjects','PutObject','CopyObject',
+  'CompleteMultipartUpload','CreateMultipartUpload','LifecycleStorageTierTransition',
+  'ListMultipartUploads','UploadPart','UploadPartCopy','ListParts','PutBucketEncryption',
+  'PutBucketCors','PutBucketLifecycleConfiguration']);
+const R2_CLASS_B = new Set(['HeadBucket','HeadObject','GetObject','UsageSummary',
+  'GetBucketEncryption','GetBucketLocation','GetBucketCors','GetBucketLifecycleConfiguration']);
+const R2_FREE = new Set(['DeleteObject','DeleteBucket','AbortMultipartUpload']);
+// Unrecognized action types are NOT silently treated as billable class A/B.
+export function classifyR2Operations(rows) {
+  if (!Array.isArray(rows) || rows.length>=1000) return null;
+  let a=0,b=0,free=0,unknown=0,total=0;
+  for (const row of rows) {
+    const action=row?.dimensions?.actionType, count=number(row?.sum?.requests);
+    if (count===null) return null;
+    total+=count;
+    if (R2_CLASS_A.has(action)) a+=count;
+    else if (R2_CLASS_B.has(action)) b+=count;
+    else if (R2_FREE.has(action)) free+=count;
+    else unknown+=count;
+  }
+  return {classA:unknown===0?a:null,classB:unknown===0?b:null,
+    freeOperations:free,unknownOperations:unknown,observedRequests:total,
+    classificationComplete:unknown===0,scope:'account',period:'current_utc_month'};
+}
+export async function readD1Storage(env, now=new Date()) {
+  if (!analyticsConfigured(env)) return {state:'not_configured',bytes:null};
+  const end=now.toISOString(),start=new Date(now.getTime()-86400000).toISOString();
+  try {
+    const account=await query(env,'d1Storage',D1_STORAGE,
+      {account:env.CF_ACCOUNT_ID,start,end});
+    const rows=account?.d1StorageAdaptiveGroups;
+    if (!Array.isArray(rows)||!rows.length||rows.length>=1000)
+      return {state:'no_reliable_data',bytes:null};
+    const latest=new Map();
+    for(const row of rows){
+      const id=row?.dimensions?.databaseId, value=number(row?.max?.databaseSizeBytes);
+      if(typeof id!=='string'||!id||value===null)continue;
+      if(!latest.has(id))latest.set(id,value);
+    }
+    if(!latest.size)return {state:'no_reliable_data',bytes:null};
+    const sizes=[...latest.values()];
+    return {state:'ready',bytes:sizes.reduce((a,b)=>a+b,0),databaseCount:latest.size,
+      largestDatabaseBytes:Math.max(...sizes),window:'last_24h_latest_samples'};
+  }catch(e){return {state:safeErrorKind(e),bytes:null};}
+}
 export function analyticsConfigured(env) {
   return typeof env.CF_ACCOUNT_ID === 'string' &&
     /^[a-f0-9]{32}$/i.test(env.CF_ACCOUNT_ID) &&
@@ -124,6 +185,7 @@ export async function readAnalytics(env, now = new Date()) {
   const dr = d?.d1AnalyticsAdaptiveGroups;
   const st = storage?.r2StorageAdaptiveGroups?.[0];
   const orows = ops?.r2OperationsAdaptiveGroups;
+  const accountR2 = classifyR2Operations(ops?.accountOperations);
   const errors = ['workers', 'd1', 'r2Storage', 'r2Operations']
     .filter((name, i) => results[i].status !== 'fulfilled')
     .map(name => name + '_unavailable');
@@ -148,7 +210,9 @@ export async function readAnalytics(env, now = new Date()) {
         actionTypes: (orows ?? []).slice(0, 30).map(o => ({
           action: String(o.dimensions?.actionType ?? 'unknown').slice(0, 80),
           requests: number(o.sum?.requests) ?? 0 })),
-        classA: null, classB: null } : null },
+        classA: classifyR2Operations(orows)?.classA ?? null,
+        classB: classifyR2Operations(orows)?.classB ?? null,
+        account: accountR2 } : null },
     errors, diagnostics,
     caveats: ['Relay Workers count is one Worker; account-wide total is a separate aggregate.',
       'R2 current bytes are not GB-months; class A/B and billing costs are unverified.',

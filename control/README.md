@@ -606,3 +606,48 @@ The new read-only panel includes CPU, RAM, free disk, local site probe, number o
 Cloudflare VPC Service `mavka-oracle-monitor` has ID `01a1ce8c-9790-7c00-8e11-f849bddf00ac` and is configured for HTTP `127.0.0.1:7340` over the pre-existing `shorts-studio-oracle` Tunnel. This non-secret UUID is the **default** binding in `tools/configure.mjs`. To target an alternate service in staging, set `MAVKA_ORACLE_MONITOR_VPC_SERVICE_ID` explicitly at build time. The Worker VPC client uses an explicit HTTP host and port in its request URL.
 
 The secret `ORACLE_MONITOR_KEY` must be created **separately** on the `mavka-server-control` Worker and match Oracle's `/home/ubuntu/oracle-monitor/private.env`. Never add the token to GitHub, logs, Cloudflare plain-text Variables, public routes, or chat. A healthy Cloudflare tunnel alone does not prove application-layer connectivity. The UI remains `not_connected` until the key exists.
+
+## Cloudflare quota and budget center (2026-11-12)
+
+The dashboard now includes **«Ліміти й витрати Cloudflare»** through an
+Access-protected \`GET /api/limits\` route. It reuses the already cached
+\`/api/summary\` Workers/D1/R2 metrics and makes two optional read-only checks:
+- D1 storage: one account GraphQL \`d1StorageAdaptiveGroups\` query for latest
+  database-size samples in the last 24 hours (aggregated on the server, never
+  returning database IDs). If missing or truncated: show unknown.
+- Workers Builds: \`GET /accounts/{account_id}/builds/account/limits\` with a
+  **separate optional** Worker Runtime Secret \`CF_BUILDS_READ_TOKEN\` permitted
+  **Workers CI Read** only. If absent or unauthorized: show unknown; this API
+  exposes only \`has_reached_build_minutes_limit\` and refresh date, **not**
+  used or remaining build minutes. Do not change or broaden CF_ANALYTICS_TOKEN.
+
+R2 operation categories are mapped only from documented Standard action types
+(Class A, Class B, free). The existing R2 operations GraphQL request adds an
+**account-wide alias** without introducing an extra request or exposing object
+names; original \`mavka-private-files\` bucket metrics remain intact. If an
+action is unknown or an operation count invalid, Class A and B become unknown.
+
+The quota report shows current usage, remaining amount, 70/85/95% thresholds
+and a labeled **linear extrapolation** for cumulative UTC-day or calendar-UTC-
+month counters with enough elapsed time. This is not a guarantee of future
+spend. D1 storage is a **current gauge**, not cumulative. R2 currently occupied
+bytes are NOT GB-month, so GB-month remains unknown. No financial totals in
+currency are guessed; compare against Cloudflare Billing directly.
+
+Static Free-plan reference quotas: Workers requests 100K/day, CPU 10ms/request,
+100 Workers, 5 Cron triggers; D1 5M rows read/day, 100K rows written/day,
+5GB total, 500MB per DB, 10 DBs; R2 Standard 10GB-month, 1M Class A and 10M
+Class B operations per month; Workers Builds 3000 minutes/month. Plan and
+actual bill are **not verified**. KV, Queues, VPC, Durable Objects are shown as
+not yet measured instead of zero. References:
+- https://developers.cloudflare.com/workers/platform/limits/
+- https://developers.cloudflare.com/d1/platform/limits/
+- https://developers.cloudflare.com/d1/observability/metrics-analytics/
+- https://developers.cloudflare.com/r2/pricing/
+- https://developers.cloudflare.com/workers/ci-cd/builds/limits-and-pricing/
+- https://developers.cloudflare.com/api/resources/workers_builds/methods/get_account_limits/
+
+No new D1 tables, migrations, R2 objects or Cron triggers are used. Existing
+15-minute browser refresh still governs these metrics; isolate-local response
+cache minimizes extra Cloudflare calls. Do not connect any MaVka private message
+data to the quota report.
