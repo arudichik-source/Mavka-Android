@@ -16,6 +16,7 @@
 
 <ItemGroup>
   <PackageReference Include="MailKit" Version="4.14.1" />
+  <PackageReference Include="PDFsharp" Version="6.2.4" />
 </ItemGroup>
 
 </Project>
