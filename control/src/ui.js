@@ -201,13 +201,13 @@ html{scroll-behavior:smooth}
 .quota-card small{display:block;color:var(--muted);font-size:12px;line-height:1.5;margin-top:7px}
 .quota-fill{height:100%;background:#54bdb5;border-radius:8px;max-width:100%}
 .quota-fill.warning{background:#e5ad55}.quota-fill.critical{background:#ee8b7a}
-.quota-secondary{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:17px}
+.quota-secondary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:17px}
 .quota-sub{border:1px solid var(--edge);border-radius:12px;padding:14px}.quota-sub h3{margin:0 0 12px;font-size:14px}
 .quota-details{margin-top:14px;border-top:1px solid var(--edge);padding-top:12px}
 .quota-details summary{cursor:pointer;color:#bfd5e9;font-weight:650;font-size:13px}
 .quota-reference{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:11px}
 .quota-reference p{border:1px solid var(--edge);padding:10px;border-radius:8px;margin:0;color:var(--muted);font-size:12px}
-@media(max-width:950px){.quota-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:950px){.quota-grid,.quota-secondary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:620px){.quota-grid,.quota-secondary,.quota-reference{grid-template-columns:1fr}}
 </style>
 </head>
@@ -262,12 +262,13 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <p class="dim" id="oracle-notes" style="margin-top:14px">Очікуємо окреме приватне VPC-підключення. Чинний доступ до Oracle VM не змінюється.</p>
 </section>
 <section class="panel section jump-target" id="quota-center" aria-label="Ліміти й витрати Cloudflare">
-<div class="chart-head"><div><h2 style="margin:0 0 6px">Ліміти й витрати Cloudflare</h2><p class="dim">Облік Workers, D1, R2 та стан Workers Builds. Довідкові квоти плану Free; фактичні рахунки не перевіряються.</p></div><span class="source-health-status" id="quota-center-status">Очікуємо перевірку</span></div>
+<div class="chart-head"><div><h2 style="margin:0 0 6px">Ліміти й витрати Cloudflare</h2><p class="dim">Облік Workers, D1, R2 та стан Workers Builds. Довідкові квоти плану Free; нарахування за споживання — лише за наявності Billing Read. Це не повний рахунок.</p></div><span class="source-health-status" id="quota-center-status">Очікуємо перевірку</span></div>
 <p class="dim" id="quota-center-summary" style="margin:13px 0">Статистика оновлюється разом із панеллю.</p>
 <div id="quota-center-cards" class="quota-grid"><p class="dim">Очікуємо дані…</p></div>
 <div class="quota-secondary">
 <div class="quota-sub"><h3>Попередження та прогноз</h3><div id="quota-center-alerts"><p class="dim">Очікуємо дані…</p></div></div>
 <div class="quota-sub"><h3>Workers Builds</h3><p class="dim" id="quota-center-builds">Немає даних.</p><p class="dim">Статус вичерпання хвилин потребує окремого токена Workers CI Read. API не повідомляє точний залишок хвилин.</p></div>
+<div class="quota-sub"><h3>Billable Usage · витрати</h3><p class="dim" id="quota-center-billing">Немає даних.</p><p class="dim">Показує нарахування за споживання, без фіксованих підписок; джерело оновлюється із затримкою.</p></div>
 </div>
 <details class="quota-details"><summary>Інші обмеження та непідключені ресурси</summary><div class="quota-reference" id="quota-center-reference"></div></details>
 <p class="dim" id="quota-center-notes" style="margin-top:13px">R2 GB-month та витрати звіряємо з Cloudflare Billing. Відсутні значення не означають нуль.</p>
@@ -1245,7 +1246,8 @@ function renderQuotaCenter(data){
  if(!ready){
    const p=document.createElement('p');p.className='dim';p.textContent='Звіт недоступний — не сприймай це як нульове використання.';
    root.append(p);q('quota-center-summary').textContent='—';
-   q('quota-center-builds').textContent='Немає даних.';return;
+   q('quota-center-builds').textContent='Немає даних.';
+   q('quota-center-billing').textContent='Немає даних.';return;
  }
  const num=v=>Number.isFinite(v)?new Intl.NumberFormat('uk-UA',{maximumFractionDigits:2}).format(v):'—';
  const measure=(r,v)=>{
@@ -1298,12 +1300,27 @@ function renderQuotaCenter(data){
      ' Точний залишок хвилин API не повертає.':
    b?.state==='not_configured'?'Для перевірки потрібен секрет CF_BUILDS_READ_TOKEN (Workers CI Read).':
      'Статус недоступний ('+(b?.state||'немає відповіді')+').';
+ const bUsage=data.billing;
+ if(bUsage?.state==='ready'&&Number.isFinite(bUsage.totalCost)&&/^[A-Z]{3}$/.test(bUsage.currency||'')){
+   const cost=new Intl.NumberFormat('uk-UA',{style:'currency',currency:bUsage.currency,
+      minimumFractionDigits:2,maximumFractionDigits:4}).format(bUsage.totalCost);
+   const date=bUsage.periodStart&&Number.isFinite(Date.parse(bUsage.periodStart))?
+      new Date(bUsage.periodStart).toLocaleDateString('uk-UA'):'невідома дата';
+   q('quota-center-billing').textContent='Нараховано за споживання: '+cost+
+     '. Початок платіжного періоду: '+date+'. Дані не є повним рахунком.';
+ }else if(bUsage?.state==='not_configured'){
+   q('quota-center-billing').textContent='Для перевірки витрат потрібен секрет CF_BILLING_READ_TOKEN (Account Billing Read).';
+ }else{
+   q('quota-center-billing').textContent='Витрати недоступні ('+(bUsage?.state||'немає відповіді')+').';
+ }
  for(const x of (data.staticLimits||[]).slice(0,14)){
    const p=document.createElement('p');p.textContent=x.label+': '+x.value+'. '+x.note;ref.append(p);
  }
  q('quota-center-notes').textContent='R2: класифікація Class A/B'+
    (data.r2Classification&&!data.r2Classification.complete?' неповна (є невідомі типи операцій)':'')+
-   '. GB-month і витрати у валюті не підтверджені. Дані Analytics можуть надходити із затримкою.';
+   '. R2 GB-month: '+(data.availability?.r2GbMonths?'отримано з Billing API':'даних немає')+
+   '. Нарахування: '+(bUsage?.state==='ready'?'дані Billing API':'не підтверджено')+
+   '. Дані Analytics і Billing можуть надходити із затримкою.';
 }
 
 async function refresh(){
