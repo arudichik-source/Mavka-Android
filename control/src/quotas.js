@@ -77,10 +77,21 @@ function quota(id,label,value,limit,scope,kind,now,remark=''){
     projected:forecast,forecastRisk:forecast!==null&&max!==null&&forecast>=max,remark};
 }
 
-export async function quotaReport(env,metrics,now=new Date()){
+// Optional API failures must NEVER suppress available Workers/D1/R2 usage.
+export async function quotaReport(env,metrics,now=new Date(),options={}){
   const data=metrics && typeof metrics==='object'?metrics:{};
-  const [extra,billing]=await Promise.all([extras(env),readBillingUsage(env)]);
-  const {d1,builds}=extra;
+  const missingD1={state:'unavailable',bytes:null,databaseCount:null,largestDatabaseBytes:null};
+  const missingBuilds={state:'unavailable',exhausted:null,refreshAt:null};
+  const missingBilling={state:'unavailable',currency:null,totalCost:null,periodStart:null,
+    r2StandardGbMonths:null,records:null};
+  const results=options.skipOptional?[]:await Promise.allSettled([
+    Promise.resolve().then(()=>extras(env)),
+    Promise.resolve().then(()=>readBillingUsage(env)),
+  ]);
+  const extra=results[0]?.status==='fulfilled'?results[0].value:null;
+  const d1=extra?.d1||missingD1;
+  const builds=extra?.builds||missingBuilds;
+  const billing=results[1]?.status==='fulfilled'?results[1].value:missingBilling;
   const workers=data.workers, db=data.d1, r2=data.r2;
   const accountR2=r2?.operations?.account;
   const rows=[
@@ -125,6 +136,7 @@ export async function quotaReport(env,metrics,now=new Date()){
     capturedAt:now.toISOString(),
     plan:'workers_free_reference_not_verified',
     rows,alerts,builds,billing,
+    optionalSourcesPartial: Boolean(options.skipOptional||results.some(r=>r.status==='rejected')),
     d1StorageState:d1.state,
     d1DatabaseCount:d1.state==='ready'?d1.databaseCount:null,
     r2Classification:accountR2?{
