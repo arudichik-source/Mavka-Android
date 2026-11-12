@@ -7,11 +7,13 @@ using MimeKit;
 namespace Mavka.Mobile;
 
 internal sealed record MavkaTextAttachment(
-    string FileName, string Text, string? RawJson = null);
+    string FileName, string Text, string? RawJson = null,
+    bool InstalledKeyPackage = false);
 
 internal sealed record MavkaMailItem(
     string Subject, string DateText, string Body,
-    IReadOnlyList<MavkaTextAttachment> Attachments, uint MessageUid, uint UidValidity);
+    IReadOnlyList<MavkaTextAttachment> Attachments, uint MessageUid, uint UidValidity,
+    bool AttachmentsComplete = false, string? ProcessingIssue = null);
 
 internal static class GmailConnectionService
 {
@@ -203,28 +205,42 @@ internal static class GmailConnectionService
                 ? date.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm")
                 : "Без дати";
             var textAttachments = new List<MavkaTextAttachment>();
+            bool attachmentsComplete = summary.Attachments.Any() &&
+                summary.Attachments.Count() <= 3;
             foreach (var attachment in summary.Attachments.Take(10))
             {
                 var fileName = attachment.FileName;
                 if (string.IsNullOrWhiteSpace(fileName) ||
                     !(fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
                       fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) ||
-                    attachment.Octets > 32768)
+                    attachment.Octets > 262144)
+                {
+                    attachmentsComplete = false;
                     continue;
+                }
 
                 var entity = await client.Inbox.GetBodyPartAsync(
                     summary.UniqueId, attachment, timeout.Token);
-                if (entity is not MimePart part) continue;
+                if (entity is not MimePart part)
+                {
+                    attachmentsComplete = false;
+                    continue;
+                }
 
                 using var stream = new MemoryStream();
                 part.Content.DecodeTo(stream);
-                if (stream.Length > 32768) continue;
+                if (stream.Length > 262144)
+                {
+                    attachmentsComplete = false;
+                    continue;
+                }
 
                 // Never interpret attachment content as HTML or executable code.
                 var contents = System.Text.Encoding.UTF8.GetString(stream.ToArray()).TrimStart('\uFEFF');
                 var isJson = fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
                 string? usableJson = isJson ? contents : null;
                 string display = isJson ? MavkaJsonPreview.Format(contents) : contents;
+                bool installedKey = false;
 
                 if (isJson && MavkaKeyPackage.IsPackage(contents))
                 {
@@ -243,6 +259,28 @@ internal static class GmailConnectionService
                         {
                             bool changed = exchangeKeys.ImportPackage(
                                 contents, filePassword, recipientClientId);
+                            // An installed package must also be readable from Keystore.
+                            byte[]? current = null, future = null;
+                            try
+                            {
+                                current = exchangeKeys.CurrentKeyId is string cid
+                                    ? exchangeKeys.GetKey(cid) : null;
+                                future = exchangeKeys.FutureKeyId is string fid
+                                    ? exchangeKeys.GetKey(fid) : null;
+                                installedKey = exchangeKeys.HasKeyPair &&
+                                    current is { Length: 32 } && future is { Length: 32 };
+                            }
+                            finally
+                            {
+                                // Never leave an unwrapped key in memory if reading
+                                // the second key throws halfway through validation.
+                                if (current is not null)
+                                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(current);
+                                if (future is not null)
+                                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(future);
+                            }
+                            if (!installedKey)
+                                throw new InvalidOperationException("Cannot verify persisted keys.");
                             display = changed
                                 ? "🔐 Нову пару ключів збережено: поточний " +
                                   exchangeKeys.CurrentKeyId + ", майбутній " + exchangeKeys.FutureKeyId
@@ -286,13 +324,14 @@ internal static class GmailConnectionService
                     }
                 }
                 textAttachments.Add(new MavkaTextAttachment(
-                    Path.GetFileName(fileName), display, usableJson));
+                    Path.GetFileName(fileName), display, usableJson, installedKey));
                 if (textAttachments.Count >= 3) break;
             }
 
             result.Add(new MavkaMailItem(
                 summary.Envelope?.Subject ?? "(без теми)", dateText, body, textAttachments,
-                summary.UniqueId.Id, client.Inbox.UidValidity));
+                summary.UniqueId.Id, client.Inbox.UidValidity,
+                attachmentsComplete && textAttachments.Count == summary.Attachments.Count()));
         }
 
         await client.DisconnectAsync(true, timeout.Token);
