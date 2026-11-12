@@ -68,7 +68,7 @@ test('configuration isolates D1 and fails closed without a real database ID', ()
 test('unconfigured and unauthenticated control Worker never exposes HTML or APIs', async () => {
   assert.equal(accessSettings({}), null);
   assert.equal((await control.fetch(request(null), {})).status, 503);
-  for (const path of ['/', '/api/oracle', '/api/summary', '/api/history', '/api/about', '/api/trends?period=30d', '/api/security', '/api/maintenance']) {
+  for (const path of ['/', '/api/oracle', '/api/limits', '/api/summary', '/api/history', '/api/about', '/api/trends?period=30d', '/api/security', '/api/maintenance']) {
     const res = await control.fetch(request(null, path), env);
     assert.equal(res.status, 403);
     assert.equal((await res.json()).error, 'access_denied');
@@ -92,6 +92,11 @@ test('Worker-level Access ctx.access identity works without JWT and never bypass
   const oracle=await control.fetch(request(null,'/api/oracle'),env,valid);
   assert.equal(oracle.status,200);
   assert.equal((await oracle.json()).state,'not_connected');
+  const quota=await control.fetch(request(null,'/api/limits'),env,valid);
+  assert.equal(quota.status,200);
+  const limits=await quota.json();
+  assert.equal(limits.rows.find(x=>x.id==='r2_gb_month').used,null);
+  assert.equal((await control.fetch(request(null,'/api/limits?spoof=1'),env,valid)).status,404);
   const security=await control.fetch(request(null,'/api/security'),env,valid);
   assert.equal(security.status,200);
   assert.deepEqual((await security.json()).data,null);
