@@ -18,7 +18,8 @@ internal static class RegistrationMailService
                "Звання: " + profile.Rank + "\n" +
                "Посада: " + profile.Position + "\n" +
                "Підрозділ: " + profile.Unit + "\n" +
-               "МВО: " + (profile.IsMvo ? "+" : "-") + "\n";
+               "МВО: " + (profile.IsMvo ? "+" : "-") + "\n" +
+               "Телефон: " + profile.PhoneNumber + "\n";
     }
 
     public static async Task SendAsync(
@@ -40,7 +41,8 @@ internal static class RegistrationMailService
                 rank = profile.Rank,
                 position = profile.Position,
                 unit = profile.Unit,
-                isMvo = profile.IsMvo
+                isMvo = profile.IsMvo,
+                phoneNumber = profile.PhoneNumber
             }, exchangeKeys);
 
         var connection = await GmailTlsConnection.OpenSmtpAsync(timeout.Token);
