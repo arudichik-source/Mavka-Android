@@ -8,6 +8,7 @@ import { readControlRetention, recordControlRetention } from './control-retentio
 import { parsePeriod, parseBefore, readHistoryPage, readTrends } from './history.js';
 import { html } from './ui.js';
 import { oracleTelemetry } from './oracle.js';
+import { quotaReport } from './quotas.js';
 
 const headers = {
   'Cache-Control': 'no-store, private',
@@ -82,6 +83,10 @@ export default {
         }
         return json({ ...data, quotaAlerts: assessQuotaWarnings(data) });
       } catch { return json({ state: 'unavailable', error: 'analytics_unavailable' }, 503); }
+    }
+    if (url.pathname === '/api/limits' && !url.search) {
+      try { return json(await quotaReport(env,await metrics(env))); }
+      catch { return json({ state:'unavailable',error:'quota_report_unavailable' },503); }
     }
     if (url.pathname === '/api/history' || url.pathname === '/api/trends') {
       const allowed = url.pathname === '/api/history' ? ['period', 'before'] : ['period'];
