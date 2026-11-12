@@ -1240,7 +1240,8 @@ function renderQuotaCenter(data){
  const alerts=q('quota-center-alerts');alerts.replaceChildren();
  const ref=q('quota-center-reference');ref.replaceChildren();
  const ready=Array.isArray(data?.rows)&&data.rows.length>0;
- q('quota-center-status').textContent=ready?'Дані перевірено':'Немає даних';
+ const known=ready?data.rows.filter(r=>Number.isFinite(r.used)).length:0;
+ q('quota-center-status').textContent=!ready?'Немає даних':known===data.rows.length?'Дані перевірено':'Часткові дані';
  if(!ready){
    const p=document.createElement('p');p.className='dim';p.textContent='Звіт недоступний — не сприймай це як нульове використання.';
    root.append(p);q('quota-center-summary').textContent='—';
@@ -1260,12 +1261,14 @@ function renderQuotaCenter(data){
    const value=document.createElement('div');value.className='quota-reading';
    value.textContent=measure(r,r.used)+' / '+measure(r,r.limit);
    const meta=document.createElement('small');
-   meta.textContent=r.used===null?'Використання не підтверджено':
+   meta.textContent=r.used===null?'Використання не підтверджено · шкала не відображається':
      'Залишок: '+measure(r,r.remaining)+' · '+num(r.percent)+'%';
    card.append(title,value);
    const bar=document.createElement('div');bar.className='bar';
    const fill=document.createElement('div');fill.className='quota-fill';
-   if(Number.isFinite(r.percent))fill.style.width=Math.max(0,Math.min(100,r.percent))+'%';
+   // A missing percentage is unknown, never 100% or 0% utilization.
+   fill.style.width=Number.isFinite(r.percent)?Math.max(0,Math.min(100,r.percent))+'%':'0%';
+   bar.setAttribute('aria-label',Number.isFinite(r.percent)?'Використано '+num(r.percent)+'%':'Рівень використання невідомий');
    if(['warning','critical','exceeded'].includes(r.level))
      fill.classList.add(r.level==='warning'?'warning':'critical');
    bar.append(fill);card.append(bar,meta);
@@ -1276,7 +1279,6 @@ function renderQuotaCenter(data){
    if(r.remark){const p=document.createElement('small');p.textContent=r.remark;card.append(p);}
    root.append(card);
  }
- const known=data.rows.filter(r=>Number.isFinite(r.used)).length;
  q('quota-center-summary').textContent='Отримані показники: '+known+'/'+data.rows.length+
   ' · попереджень: '+(data.alerts?.length||0)+' · оновлено '+new Date(data.capturedAt).toLocaleString('uk-UA')+
   ' · довідкові квоти Workers Free.';

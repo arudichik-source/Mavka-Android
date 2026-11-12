@@ -92,6 +92,10 @@ test('new quota UI is authenticated server data and starts without fabricated nu
  assert.ok(html.includes("get('/api/limits')"));
  assert.match(html,/renderQuotaCenter\(results\[7\]/);
  assert.match(html,/Немає даних/);
+ assert.match(html,/Часткові дані/);
+ assert.match(html,/шкала не відображається/);
+ assert.match(html,/Рівень використання невідомий/);
+ assert.match(html,/fill\.style\.width=Number\.isFinite\(r\.percent\)\?/);
  assert.match(html,/Потрібна перевірка служб/);
  assert.doesNotMatch(html,/Класифікацію додамо після перевірки точних даних/);
 });
