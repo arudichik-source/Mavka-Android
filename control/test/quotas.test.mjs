@@ -92,4 +92,20 @@ test('new quota UI is authenticated server data and starts without fabricated nu
  assert.ok(html.includes("get('/api/limits')"));
  assert.match(html,/renderQuotaCenter\(results\[7\]/);
  assert.match(html,/Немає даних/);
+ assert.match(html,/Потрібна перевірка служб/);
+ assert.doesNotMatch(html,/Класифікацію додамо після перевірки точних даних/);
+});
+
+test('R2 notes distinguish complete classification from unknown types; D1 storage stays observation-scoped',async()=>{
+ const mk=complete=>({workers:{accountRequestsToday:20},d1:{rowsReadToday:2,rowsWrittenToday:3},
+   r2:{operations:{account:{classA:complete?13:null,classB:complete?25:null,
+     classificationComplete:complete,unknownOperations:complete?0:3,freeOperations:1}}}});
+ const ready=await quotaReport({},mk(true),new Date('2026-11-12T12:00:00Z'));
+ assert.match(ready.rows.find(r=>r.id==='r2_a').remark,/клас зберігання/i);
+ assert.doesNotMatch(ready.rows.find(r=>r.id==='r2_a').remark,/некласифіковані/);
+ assert.match(ready.rows.find(r=>r.id==='d1_storage').label,/24 год/);
+ assert.match(ready.rows.find(r=>r.id==='d1_storage').remark,/Неактивні бази/);
+ const unknown=await quotaReport({},mk(false),new Date('2026-11-12T12:00:00Z'));
+ assert.equal(unknown.rows.find(r=>r.id==='r2_a').used,null);
+ assert.match(unknown.rows.find(r=>r.id==='r2_a').remark,/некласифіковані/);
 });
