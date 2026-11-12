@@ -1,3 +1,37 @@
+## Version 1.1.x — optional read-only Billable Usage API
+
+- MaVka Server Control can read **metered usage charges** for the current
+  Cloudflare billing period from `GET /accounts/{account_id}/billable-usage`.
+  The API is alpha; accounts may return unavailable/permission or no records.
+  The result is **not a complete invoice**: subscription fees and non-usage
+  charges are outside this data source. Charges may be delayed.
+- Create an independent **user API token** in Cloudflare Profile > API Tokens,
+  with **Account > Billing > Read** scoped to the intended account only.
+  Add it to **mavka-server-control** > Settings > Variables and Secrets as
+  encrypted **Runtime Secret `CF_BILLING_READ_TOKEN`**.
+  Never paste it in chat, GitHub, `wrangler.json`, a build variable,
+  client-side code, or the existing `CF_ANALYTICS_TOKEN`.
+- Optionally create a different **user token** scoped to this account with
+  **Workers CI Read** and add encrypted Runtime Secret
+  `CF_BUILDS_READ_TOKEN` to the same Worker. Cloudflare's Builds API
+  returns only exhausted/not-exhausted and the refresh date, never exact used
+  or remaining minutes. Neither token is necessary for existing monitoring.
+- The server sums validated **BilledCost** rows for one BillingPeriodStart
+  and one currency; it returns **only a rounded total, ISO currency, cycle
+  start, row count and optional unambiguous Standard R2 GB-months**.
+  Generic `R2 Storage` labels or Infrequent Access are never assumed to
+  represent Standard GB-months. A missing record does not mean zero cost.
+  Identifiers, zones, subscriptions, original rows, payment data and tokens
+  are never sent to the browser.
+- Billing requests are **read-only**, cached per active isolate for up to
+  six hours when ready and for 15 minutes when unavailable; no new D1 rows,
+  Cron, R2 operations, user tracking or Oracle changes. This cache is not
+  global across Cloudflare isolates.
+- Check official usage at Cloudflare Dashboard > Manage Account > Billing >
+  Billable Usage. The Billing API totals and the free-tier quota counters
+  have different periods: quota activity is calendar UTC, whereas billing
+  uses the subscription's own billing cycle.
+
 # MaVka Server Control 1.1.0 — separate, read-only Cloudflare console
 
 The initial 0.1 application was deployed successfully to a separate Cloudflare Worker.\nVersion 0.2 introduced real historical graphs and improved read-only reporting;\nverify current deployment status in the Cloudflare dashboard.
