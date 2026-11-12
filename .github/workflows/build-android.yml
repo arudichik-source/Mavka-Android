@@ -40,6 +40,30 @@ jobs:
       - name: Verify asset icon categories
         run: dotnet run --project tools/AssetIconChecks/AssetIconChecks.csproj
 
+      - name: Verify offline archive and profile contracts
+        run: dotnet run --project tools/ArchiveChecks/ArchiveChecks.csproj
+
+      - name: Verify historical ledger arithmetic
+        run: dotnet run --project tools/LedgerChecks/LedgerChecks.csproj
+
+      - name: Verify XLSX document generation
+        run: dotnet run --project tools/XlsxChecks/XlsxChecks.csproj
+
+      - name: Verify read-only reconciliation
+        run: dotnet run --project tools/ReconciliationChecks/ReconciliationChecks.csproj
+
+      - name: Verify old SQLite schema migrations
+        run: python3 tools/sqlite_migration_smoke.py
+
+      - name: Verify export-folder safety policy
+        run: dotnet run --project tools/FilePolicyChecks/FilePolicyChecks.csproj
+
+      - name: Verify AES-256 PDF password compatibility
+        run: dotnet run --project tools/ProtectedPdfChecks/ProtectedPdfChecks.csproj
+
+      - name: Verify Excel-compatible password encryption
+        run: dotnet run --project tools/ProtectedXlsxChecks/ProtectedXlsxChecks.csproj
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
