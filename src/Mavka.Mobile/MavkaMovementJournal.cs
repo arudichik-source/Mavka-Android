@@ -18,7 +18,7 @@ internal static class MavkaMovementJournal
     public static bool TryRead(string? json, out RemoteMovementJournal? journal)
     {
         journal = null;
-        if (string.IsNullOrWhiteSpace(json) || json.Length > 65000)
+        if (string.IsNullOrWhiteSpace(json) || json.Length > 196608)
             return false;
         try
         {
