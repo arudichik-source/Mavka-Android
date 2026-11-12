@@ -20,7 +20,7 @@ internal sealed record InventoryMovement(
 internal sealed class PropertyLedgerStore : SQLiteOpenHelper
 {
     public PropertyLedgerStore(Context context)
-        : base(context, "mavka_property_ledger_v1.db", null, 2) { }
+        : base(context, "mavka_property_ledger_v1.db", null, 3) { }
 
     public override void OnCreate(SQLiteDatabase db)
     {
@@ -44,15 +44,130 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
             FOREIGN KEY(document_id) REFERENCES receipts(document_id)
         )");
         db.ExecSQL("CREATE INDEX idx_receipt_unit ON receipts(recipient)");
+        CreateEventTable(db);
     }
 
     public override void OnUpgrade(SQLiteDatabase db, int oldVersion, int newVersion)
     {
-        // v1 => v2 keeps all existing receipts and movement history.
-        if (oldVersion == 1 && newVersion == 2)
-            db.ExecSQL("ALTER TABLE receipt_items ADD COLUMN unit_price TEXT");
-        else if (newVersion != oldVersion)
+        // Non-destructive, sequential migrations keep every receipt and item.
+        if (oldVersion < 1 || newVersion != 3)
             throw new InvalidOperationException("Unsupported ledger schema version.");
+        if (oldVersion == 1)
+            db.ExecSQL("ALTER TABLE receipt_items ADD COLUMN unit_price TEXT");
+        if (oldVersion <= 2)
+        {
+            CreateEventTable(db);
+            // Exactly one posted event per existing item. This is an idempotent
+            // schema upgrade, not a second inventory receipt.
+            db.ExecSQL(@"INSERT INTO ledger_events
+              (event_id, document_id, line_number, event_type, accounting_date,
+               recorded_utc, unit, name, measure, nsn, quantity_delta, unit_price,
+               status, origin)
+              SELECT r.document_id || '#' || i.line_number, r.document_id,
+                     i.line_number,
+                     CASE WHEN r.document_id LIKE 'OPENING:%' THEN 'opening'
+                          ELSE 'receipt' END,
+                     r.document_date, r.confirmed_utc, r.recipient,
+                     i.name, i.unit, i.nsn, i.quantity, i.unit_price,
+                     'posted', 'mobile'
+                FROM receipts r INNER JOIN receipt_items i
+                ON r.document_id = i.document_id");
+        }
+    }
+
+    private static void CreateEventTable(SQLiteDatabase db)
+    {
+        db.ExecSQL(@"CREATE TABLE ledger_events(
+            event_id TEXT PRIMARY KEY NOT NULL,
+            document_id TEXT NOT NULL,
+            line_number INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            accounting_date TEXT NOT NULL,
+            recorded_utc TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            name TEXT NOT NULL,
+            measure TEXT NOT NULL,
+            nsn TEXT,
+            quantity_delta TEXT NOT NULL,
+            unit_price TEXT,
+            status TEXT NOT NULL,
+            origin TEXT NOT NULL)");
+        db.ExecSQL("CREATE INDEX idx_ledger_event_unit_date ON ledger_events(unit, accounting_date)");
+        db.ExecSQL("CREATE UNIQUE INDEX idx_event_document_line ON ledger_events(document_id, line_number, event_type)");
+    }
+
+    private static void AddEvent(SQLiteDatabase database, string documentId,
+        int line, string kind, string date, string unit, string name,
+        string measure, string? nsn, decimal delta, decimal? price)
+    {
+        var values = new ContentValues();
+        values.Put("event_id", documentId + "#" + line);
+        values.Put("document_id", documentId);
+        values.Put("line_number", line);
+        values.Put("event_type", kind);
+        values.Put("accounting_date", date);
+        values.Put("recorded_utc", DateTimeOffset.UtcNow.ToString("O"));
+        values.Put("unit", unit);
+        values.Put("name", name);
+        values.Put("measure", measure);
+        values.Put("nsn", nsn ?? "");
+        values.Put("quantity_delta", delta.ToString(CultureInfo.InvariantCulture));
+        if (price.HasValue)
+            values.Put("unit_price", price.Value.ToString(CultureInfo.InvariantCulture));
+        else values.PutNull("unit_price");
+        values.Put("status", "posted");
+        values.Put("origin", "mobile");
+        database.InsertOrThrow("ledger_events", null, values);
+    }
+
+    public IReadOnlyList<InventoryHolding> ListHoldingsAsOf(string unit, DateOnly date)
+    {
+        var postings = new List<DatedLedgerEntry>();
+        using (var db = ReadableDatabase)
+        using (var cursor = db.RawQuery(
+            @"SELECT event_id, document_id, unit, name, measure, nsn,
+                     accounting_date, quantity_delta, unit_price, status
+              FROM ledger_events WHERE unit = ? COLLATE NOCASE",
+            new[] { unit }))
+        {
+            while (cursor.MoveToNext())
+                postings.Add(new DatedLedgerEntry(
+                    cursor.GetString(0), cursor.GetString(1), cursor.GetString(2),
+                    cursor.GetString(3), cursor.GetString(4),
+                    cursor.IsNull(5) ? null : cursor.GetString(5),
+                    cursor.GetString(6),
+                    decimal.Parse(cursor.GetString(7), CultureInfo.InvariantCulture),
+                    cursor.IsNull(8) ? null :
+                        decimal.Parse(cursor.GetString(8), CultureInfo.InvariantCulture),
+                    cursor.GetString(9)));
+        }
+        return LedgerBalanceCalculator.Calculate(postings, unit, date)
+            .Select(x => new InventoryHolding(x.Name, x.Measure, x.Nsn,
+                x.Quantity, x.UnitPrice, x.TotalValue)).ToList();
+    }
+
+    public bool HasReceipts(string unit)
+    {
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            "SELECT 1 FROM receipts WHERE recipient = ? COLLATE NOCASE LIMIT 1",
+            new[] { unit });
+        return cursor.MoveToFirst();
+    }
+
+    // Existing durable receipt statuses also act as an offline sending queue.
+    // They survive process termination without any extra in-memory job list.
+    public IReadOnlyList<string> ListPendingReceiptIds(int limit = 25)
+    {
+        var ids = new List<string>();
+        using var db = ReadableDatabase;
+        using var cursor = db.RawQuery(
+            @"SELECT document_id FROM receipts
+              WHERE mail_status = 'pending'
+              ORDER BY confirmed_utc ASC LIMIT ?",
+            new[] { Math.Clamp(limit, 1, 100).ToString(CultureInfo.InvariantCulture) });
+        while (cursor.MoveToNext()) ids.Add(cursor.GetString(0));
+        return ids;
     }
 
     public string? GetMailStatus(string documentId)
@@ -99,6 +214,9 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                     values.Put("unit_price", item.UnitPrice.Value.ToString(CultureInfo.InvariantCulture));
                 else values.PutNull("unit_price");
                 database.InsertOrThrow("receipt_items", null, values);
+                AddEvent(database, invoice.DocumentId, item.LineNo, "receipt",
+                    invoice.Date, invoice.Recipient, item.Name, item.Unit,
+                    item.Nsn, item.Quantity, item.UnitPrice);
             }
 
             database.SetTransactionSuccessful();
@@ -167,6 +285,9 @@ internal sealed class PropertyLedgerStore : SQLiteOpenHelper
                     values.Put("unit_price", asset.UnitPrice.Value.ToString(CultureInfo.InvariantCulture));
                 else values.PutNull("unit_price");
                 database.InsertOrThrow("receipt_items", null, values);
+                AddEvent(database, id, line, "opening",
+                    snapshot.AsOf, unit, asset.Name, asset.Measure,
+                    asset.Nsn, asset.Quantity, asset.UnitPrice);
             }
             database.SetTransactionSuccessful();
             return true;
