@@ -194,6 +194,21 @@ html{scroll-behavior:smooth}
  .footer{padding-bottom:110px}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+.quota-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:15px}
+.quota-card{border:1px solid #2c4158;border-radius:13px;padding:15px;background:#101b2a;min-width:0}
+.quota-card strong{display:block;font-size:13px;line-height:1.45;margin-bottom:8px}
+.quota-reading{font-weight:750;font-size:18px;margin-bottom:6px;font-variant-numeric:tabular-nums}
+.quota-card small{display:block;color:var(--muted);font-size:12px;line-height:1.5;margin-top:7px}
+.quota-fill{height:100%;background:#54bdb5;border-radius:8px;max-width:100%}
+.quota-fill.warning{background:#e5ad55}.quota-fill.critical{background:#ee8b7a}
+.quota-secondary{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:17px}
+.quota-sub{border:1px solid var(--edge);border-radius:12px;padding:14px}.quota-sub h3{margin:0 0 12px;font-size:14px}
+.quota-details{margin-top:14px;border-top:1px solid var(--edge);padding-top:12px}
+.quota-details summary{cursor:pointer;color:#bfd5e9;font-weight:650;font-size:13px}
+.quota-reference{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:11px}
+.quota-reference p{border:1px solid var(--edge);padding:10px;border-radius:8px;margin:0;color:var(--muted);font-size:12px}
+@media(max-width:950px){.quota-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){.quota-grid,.quota-secondary,.quota-reference{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -205,6 +220,7 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="quick-links">
 <a href="#overview">Огляд сервера</a>
 <a href="#shorts-studio">Shorts Studio · окрема панель</a>
+<a href="#quota-center">Ліміти й витрати Cloudflare</a>
 <a href="#resources">Квоти та сховище</a>
 <a href="#oracle-vm">Oracle VM / МАВКА WEB</a>
 <a href="#source-health">Стан джерел</a>
@@ -244,6 +260,18 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <article class="small-card"><div>Активні служби / перевірено</div><b id="oracle-services">—</b></article>
 </div>
 <p class="dim" id="oracle-notes" style="margin-top:14px">Очікуємо окреме приватне VPC-підключення. Чинний доступ до Oracle VM не змінюється.</p>
+</section>
+<section class="panel section jump-target" id="quota-center" aria-label="Ліміти й витрати Cloudflare">
+<div class="chart-head"><div><h2 style="margin:0 0 6px">Ліміти й витрати Cloudflare</h2><p class="dim">Облік Workers, D1, R2 та стан Workers Builds. Довідкові квоти плану Free; фактичні рахунки не перевіряються.</p></div><span class="source-health-status" id="quota-center-status">Очікуємо перевірку</span></div>
+<p class="dim" id="quota-center-summary" style="margin:13px 0">Статистика оновлюється разом із панеллю.</p>
+<div id="quota-center-cards" class="quota-grid"><p class="dim">Очікуємо дані…</p></div>
+<div class="quota-secondary">
+<div class="quota-sub"><h3>Попередження та прогноз</h3><div id="quota-center-alerts"><p class="dim">Очікуємо дані…</p></div></div>
+<div class="quota-sub"><h3>Workers Builds</h3><p class="dim" id="quota-center-builds">Немає даних.</p><p class="dim">Статус вичерпання хвилин потребує окремого токена Workers CI Read. API не повідомляє точний залишок хвилин.</p></div>
+</div>
+<details class="quota-details"><summary>Інші обмеження та непідключені ресурси</summary><div class="quota-reference" id="quota-center-reference"></div></details>
+<p class="dim" id="quota-center-notes" style="margin-top:13px">R2 GB-month та витрати звіряємо з Cloudflare Billing. Відсутні значення не означають нуль.</p>
+<p class="dim" style="margin-top:10px"><a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Відкрити Cloudflare Billing та Usage ↗</a></p>
 </section>
 <div class="section columns jump-target" id="resources">
 <section class="panel">
@@ -1204,10 +1232,79 @@ function renderOracle(data){
    (incomplete?' Неповна вибірка журналів: деякі підсумки недоступні.':'') :
    'Моніторинг Oracle очікує окремий приватний VPC Service та секрет. Наявний доступ до VM не змінено.');
 }
+function renderQuotaCenter(data){
+ const root=q('quota-center-cards');root.replaceChildren();
+ const alerts=q('quota-center-alerts');alerts.replaceChildren();
+ const ref=q('quota-center-reference');ref.replaceChildren();
+ const ready=Array.isArray(data?.rows)&&data.rows.length>0;
+ q('quota-center-status').textContent=ready?'Дані перевірено':'Немає даних';
+ if(!ready){
+   const p=document.createElement('p');p.className='dim';p.textContent='Звіт недоступний — не сприймай це як нульове використання.';
+   root.append(p);q('quota-center-summary').textContent='—';
+   q('quota-center-builds').textContent='Немає даних.';return;
+ }
+ const num=v=>Number.isFinite(v)?new Intl.NumberFormat('uk-UA',{maximumFractionDigits:2}).format(v):'—';
+ const measure=(r,v)=>{
+   if(!Number.isFinite(v))return '—';
+   if(r.id==='d1_storage'||r.id==='d1_largest')return num(v/1000000)+' МБ';
+   if(r.id==='r2_gb_month')return num(v)+' ГБ·міс';
+   if(r.id==='builds_minutes')return num(v)+' хв';
+   return num(v);
+ };
+ for(const r of data.rows.slice(0,16)){
+   const card=document.createElement('article');card.className='quota-card';
+   const title=document.createElement('strong');title.textContent=r.label;
+   const value=document.createElement('div');value.className='quota-reading';
+   value.textContent=measure(r,r.used)+' / '+measure(r,r.limit);
+   const meta=document.createElement('small');
+   meta.textContent=r.used===null?'Використання не підтверджено':
+     'Залишок: '+measure(r,r.remaining)+' · '+num(r.percent)+'%';
+   card.append(title,value);
+   const bar=document.createElement('div');bar.className='bar';
+   const fill=document.createElement('div');fill.className='quota-fill';
+   if(Number.isFinite(r.percent))fill.style.width=Math.max(0,Math.min(100,r.percent))+'%';
+   if(['warning','critical','exceeded'].includes(r.level))
+     fill.classList.add(r.level==='warning'?'warning':'critical');
+   bar.append(fill);card.append(bar,meta);
+   if(Number.isFinite(r.projected)){
+     const p=document.createElement('small');
+     p.textContent='Лінійний прогноз: '+measure(r,r.projected)+(r.forecastRisk?' · ризик вичерпання':'');card.append(p);
+   }
+   if(r.remark){const p=document.createElement('small');p.textContent=r.remark;card.append(p);}
+   root.append(card);
+ }
+ const known=data.rows.filter(r=>Number.isFinite(r.used)).length;
+ q('quota-center-summary').textContent='Отримані показники: '+known+'/'+data.rows.length+
+  ' · попереджень: '+(data.alerts?.length||0)+' · оновлено '+new Date(data.capturedAt).toLocaleString('uk-UA')+
+  ' · довідкові квоти Workers Free.';
+ const warnings=Array.isArray(data.alerts)?data.alerts:[];
+ if(!warnings.length){
+   const p=document.createElement('p');p.className='dim';p.textContent='Підтверджені дані не досягли 70%. Невідомі показники не оцінюємо.';alerts.append(p);
+ }
+ for(const w of warnings.slice(0,10)){
+   const p=document.createElement('p');p.className='dim';p.textContent=w.label+
+     (Number.isFinite(w.percent)?' · '+num(w.percent)+'%':' · потребує перевірки');
+   alerts.append(p);
+ }
+ const b=data.builds;
+ q('quota-center-builds').textContent=b?.state==='ready'?
+   (b.exhausted?'Ліміт вичерпано.':'Ліміт не вичерпано.')+
+     (b.refreshAt?' Скидання: '+new Date(b.refreshAt).toLocaleString('uk-UA')+'.':'')+
+     ' Точний залишок хвилин API не повертає.':
+   b?.state==='not_configured'?'Для перевірки потрібен секрет CF_BUILDS_READ_TOKEN (Workers CI Read).':
+     'Статус недоступний ('+(b?.state||'немає відповіді')+').';
+ for(const x of (data.staticLimits||[]).slice(0,14)){
+   const p=document.createElement('p');p.textContent=x.label+': '+x.value+'. '+x.note;ref.append(p);
+ }
+ q('quota-center-notes').textContent='R2: класифікація Class A/B'+
+   (data.r2Classification&&!data.r2Classification.complete?' неповна (є невідомі типи операцій)':'')+
+   '. GB-month і витрати у валюті не підтверджені. Дані Analytics можуть надходити із затримкою.';
+}
+
 async function refresh(){
  if(loading)return;loading=true;q('refresh').disabled=true;state('Читаємо Cloudflare…');
  try {
-  const results=await Promise.allSettled([get('/api/summary'),loadHistory(),loadTrends(),get('/api/security'),get('/api/devices'),get('/api/maintenance'),get('/api/oracle')]);
+  const results=await Promise.allSettled([get('/api/summary'),loadHistory(),loadTrends(),get('/api/security'),get('/api/devices'),get('/api/maintenance'),get('/api/oracle'),get('/api/limits')]);
   if(results[0].status==='fulfilled')show(results[0].value);
   else {state('Не вдалося отримати аналітику',true);q('notice').className='notice warn';
     q('notice').textContent='Аналітика тимчасово недоступна. Авторизуйся знову через Cloudflare Access за потреби.'}
@@ -1215,6 +1312,7 @@ async function refresh(){
   showDevices(results[4].status==='fulfilled'?results[4].value:null);
   showMaintenance(results[5].status==='fulfilled'?results[5].value:null);
   renderOracle(results[6].status==='fulfilled'?results[6].value:null);
+  renderQuotaCenter(results[7].status==='fulfilled'?results[7].value:null);
   sourceHealthResults=results;
   renderSourceHealth(sourceHealthResults);
   renderUsageForecast(sourceHealthResults);
