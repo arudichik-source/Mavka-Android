@@ -290,9 +290,9 @@ MaVka Server Control<div class="subtitle">Cloudflare · керування ре�
 <div class="stats">
 <div class="small-card"><b id="r2-size">—</b><div>Збережено даних зараз</div></div>
 <div class="small-card"><b id="r2-objects">—</b><div>Об'єктів у сховищі</div></div>
-<div class="small-card"><b id="r2-ops">—</b><div>Операцій за місяць*</div></div>
-<div class="small-card"><b>—</b><div>Залишок Class A / B*</div></div>
-</div><p class="dim" style="margin-top:13px">* Кількість операцій не є розбивкою на платіжні класи A/B. Класифікацію додамо після перевірки точних даних.</p>
+<div class="small-card"><b id="r2-ops">—</b><div>Операцій цього бакета за місяць*</div></div>
+<div class="small-card"><b>Див. вище</b><div>Class A / B для акаунта*</div></div>
+</div><p class="dim" style="margin-top:13px">* Це загальна кількість операцій одного бакета. Окрему розбивку Class A/B за всіма бакетами акаунта наведено у розділі «Ліміти й витрати Cloudflare», якщо доступна.</p>
 <p class="dim" id="updated" style="margin-top:15px">Остання перевірка: —</p>
 </section>
 </div>
@@ -1214,6 +1214,7 @@ function renderOracle(data){
  const count=x=>x?.complete===true?fmt(x.count):'—';
  const vals=ready?Object.values(data.services||{}):[];
  const healthy=vals.filter(x=>x==='active').length;
+ const problemServices=ready?Object.entries(data.services||{}).filter(([,status])=>status!=='active'):[];
  byId('oracle-state',ready?'Дані отримано':data?.state==='not_connected'?'Не підключено':'Недоступно');
  byId('oracle-cpu',ready?fmtPercent(data.cpuPercent):'—');
  byId('oracle-ram',ready?fmtPercent(data.ramPercent):'—');
@@ -1229,7 +1230,9 @@ function renderOracle(data){
  byId('oracle-notes',ready?
    'Знято: '+(data.checkedAt?new Date(data.checkedAt).toLocaleString('uk-UA'):'—')+
    ' · HTTP-запити, не люди; з журналів Oracle за день UTC.'+
-   (incomplete?' Неповна вибірка журналів: деякі підсумки недоступні.':'') :
+   (incomplete?' Неповна вибірка журналів: деякі підсумки недоступні.':'')+
+   (problemServices.length?' Потрібна перевірка служб: '+problemServices.map(([name,status])=>
+     name+' ('+(status==='inactive'?'неактивна':'стан невідомий')+')').join(', ')+'.':'') :
    'Моніторинг Oracle очікує окремий приватний VPC Service та секрет. Наявний доступ до VM не змінено.');
 }
 function renderQuotaCenter(data){
