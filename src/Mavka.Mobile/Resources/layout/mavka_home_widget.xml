@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="9dp"
+    android:background="@drawable/mavka_widget_background">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="29dp"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <ImageView android:layout_width="28dp" android:layout_height="28dp"
+            android:src="@drawable/mavka_app_icon"
+            android:layout_marginEnd="8dp" android:contentDescription="@null" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="МАВКА" android:textColor="#FFFDF3"
+                android:textStyle="bold" android:textSize="15sp"
+                android:includeFontPadding="false" android:maxLines="1" />
+            <TextView android:id="@+id/widget_header"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="ШВИДКИЙ ДОСТУП" android:textColor="#CCDDBC"
+                android:textSize="9sp" android:includeFontPadding="false"
+                android:maxLines="1" />
+        </LinearLayout>
+        <TextView android:id="@+id/widget_status"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="0 нових · 0 нагад." android:textColor="#CCDDBC"
+            android:textSize="10sp" android:includeFontPadding="false"
+            android:maxLines="1" android:ellipsize="end"
+            android:layout_marginStart="4dp" />
+    </LinearLayout>
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:layout_marginTop="5dp" android:background="#688A65" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1" android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+        <LinearLayout android:id="@+id/widget_library"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center_vertical" android:clickable="true"
+            android:focusable="true" android:contentDescription="Бібліотека"
+            android:paddingStart="9dp" android:paddingEnd="6dp"
+            android:layout_marginEnd="3dp"
+            android:background="@drawable/mavka_widget_tile">
+            <ImageView android:layout_width="22dp" android:layout_height="22dp"
+                android:layout_marginEnd="7dp"
+                android:src="@drawable/mavka_widget_icon_library"
+                android:contentDescription="@null" />
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Бібліотека"
+                android:textColor="#FFFDF3" android:textStyle="bold"
+                android:textSize="12sp" android:includeFontPadding="false"
+                android:maxLines="1" android:ellipsize="end" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/widget_notices"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center_vertical" android:clickable="true"
+            android:focusable="true" android:contentDescription="Сповіщення"
+            android:paddingStart="9dp" android:paddingEnd="6dp"
+            android:layout_marginStart="3dp"
+            android:background="@drawable/mavka_widget_tile">
+            <ImageView android:layout_width="22dp" android:layout_height="22dp"
+                android:layout_marginEnd="7dp"
+                android:src="@drawable/mavka_widget_icon_notices"
+                android:contentDescription="@null" />
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Сповіщення"
+                android:textColor="#FFFDF3" android:textStyle="bold"
+                android:textSize="12sp" android:includeFontPadding="false"
+                android:maxLines="1" android:ellipsize="end" />
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1" android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+        <LinearLayout android:id="@+id/widget_assets"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center_vertical" android:clickable="true"
+            android:focusable="true" android:contentDescription="Майно"
+            android:paddingStart="9dp" android:paddingEnd="6dp"
+            android:layout_marginEnd="3dp"
+            android:background="@drawable/mavka_widget_tile">
+            <ImageView android:layout_width="22dp" android:layout_height="22dp"
+                android:layout_marginEnd="7dp"
+                android:src="@drawable/mavka_widget_icon_assets"
+                android:contentDescription="@null" />
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Майно"
+                android:textColor="#FFFDF3" android:textStyle="bold"
+                android:textSize="12sp" android:includeFontPadding="false"
+                android:maxLines="1" android:ellipsize="end" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/widget_inbox"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:orientation="horizontal"
+            android:gravity="center_vertical" android:clickable="true"
+            android:focusable="true" android:contentDescription="Пошта"
+            android:paddingStart="9dp" android:paddingEnd="6dp"
+            android:layout_marginStart="3dp"
+            android:background="@drawable/mavka_widget_tile">
+            <ImageView android:layout_width="22dp" android:layout_height="22dp"
+                android:layout_marginEnd="7dp"
+                android:src="@drawable/mavka_widget_icon_inbox"
+                android:contentDescription="@null" />
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:text="Пошта"
+                android:textColor="#FFFDF3" android:textStyle="bold"
+                android:textSize="12sp" android:includeFontPadding="false"
+                android:maxLines="1" android:ellipsize="end" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

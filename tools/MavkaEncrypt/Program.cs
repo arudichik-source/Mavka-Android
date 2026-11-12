@@ -16,7 +16,7 @@ if (args.Length == 2 && args[0] == "create-key")
     }
     finally { CryptographicOperations.ZeroMemory(key); }
 }
-else if (args.Length == 4 && args[0] == "encrypt")
+else if (args.Length == 4 && (args[0] == "encrypt" || args[0] == "encrypt-password"))
 {
     var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
     if (key.Length != 32) throw new ArgumentException("Key must contain 32 bytes.");
@@ -52,9 +52,159 @@ else if (args.Length == 4 && args[0] == "encrypt")
             tag = Convert.ToBase64String(tag)
         };
 
-        File.WriteAllText(args[3],
-            JsonSerializer.Serialize(envelope, new JsonSerializerOptions { WriteIndented = true }));
+        var serialized = JsonSerializer.Serialize(envelope,
+            new JsonSerializerOptions { WriteIndented = true });
+        if (args[0] == "encrypt-password")
+            serialized = MavkaPasswordedEnvelope.Wrap(serialized, ReadDocumentPassword());
+        File.WriteAllText(args[3], serialized);
         Console.WriteLine("Encrypted file created, key ID: " + id);
+    }
+    finally { CryptographicOperations.ZeroMemory(key); }
+}
+else if ((args.Length == 5 || args.Length == 6) &&
+    args[0] == "notice-password")
+{
+    // Desktop Mavka supplies title on first line and body on subsequent
+    // lines of a LOCAL source file, never via command-line process args.
+    // Only the nested AES-GCM + password envelope is written to output.
+    if (File.Exists(args[4]))
+        throw new IOException("Зашифроване повідомлення з таким ім'ям уже існує.");
+    var lines = File.ReadAllLines(args[3], new UTF8Encoding(false, true));
+    if (lines.Length < 2) throw new ArgumentException(
+        "Перша строка — заголовок, наступні — текст повідомлення.");
+    string title = lines[0].Trim(), body = string.Join("\n", lines.Skip(1)).Trim();
+    DateTimeOffset? reminder = null;
+    if (args.Length == 6)
+        reminder = DateTimeOffset.Parse(args[5],
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind);
+    string notice = MavkaNoticeProtocol.CreateJson(args[2], title, body,
+        DateTimeOffset.UtcNow, reminder);
+    var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
+    if (key.Length != 32) throw new ArgumentException("AES-256 exchange key required.");
+    byte[] plain = Encoding.UTF8.GetBytes(notice);
+    try
+    {
+        var id = KeyId(key);
+        var nonce = RandomNumberGenerator.GetBytes(12);
+        var cipher = new byte[plain.Length];
+        var tag = new byte[16];
+        using (var aes = new AesGcm(key, 16))
+            aes.Encrypt(nonce, plain, cipher, tag,
+                Encoding.UTF8.GetBytes("MAVKA_ENCRYPTED_V1:" + id));
+        string inner = JsonSerializer.Serialize(new
+        {
+            format = "MAVKA_ENCRYPTED_V1", algorithm = "AES-256-GCM",
+            keyId = id, nonce = Convert.ToBase64String(nonce),
+            ciphertext = Convert.ToBase64String(cipher),
+            tag = Convert.ToBase64String(tag)
+        });
+        var protectedNotice = MavkaPasswordedEnvelope.Wrap(
+            inner, ReadDocumentPassword());
+        File.WriteAllText(args[4], protectedNotice, new UTF8Encoding(false));
+        Console.WriteLine("Зашифроване службове повідомлення створено. " +
+            "Надішли файл .json як вкладення листа з дозволеної пошти ГОЛОВНОЇ МАВКИ.");
+    }
+    finally
+    {
+        CryptographicOperations.ZeroMemory(plain);
+        CryptographicOperations.ZeroMemory(key);
+    }
+}
+else if (args.Length == 4 && args[0] == "file-password")
+{
+    // A complete portable binary attachment: AES-256-GCM exchange key +
+    // independent password-derived AES-256-GCM outer envelope.
+    if (File.Exists(args[3]))
+        throw new InvalidOperationException("Output file exists. Refusing overwrite.");
+    var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
+    if (key.Length != 32) throw new ArgumentException("AES-256 key expected.");
+    var length = new FileInfo(args[2]).Length;
+    if (length is < 8 or > MavkaEncryptedFileEnvelope.MaxSingleFileBytes)
+        throw new ArgumentException("Use file-parts-password for files over 2 MB.");
+    byte[] plain = File.ReadAllBytes(args[2]);
+    try
+    {
+        var fileName = Path.GetFileName(args[2]);
+        var inner = MavkaEncryptedFileEnvelope.Encrypt(fileName, plain, key);
+        var password = ReadDocumentPassword();
+        var protectedFile = MavkaPasswordedEnvelope.Wrap(inner, password);
+        if (!string.Equals(MavkaPasswordedEnvelope.Unwrap(protectedFile, password),
+                inner, StringComparison.Ordinal))
+            throw new CryptographicException("Failed password-layer verification.");
+        File.WriteAllText(args[3], protectedFile, new UTF8Encoding(false));
+        Console.WriteLine("One password/key-protected file created: " + fileName);
+    }
+    finally
+    {
+        CryptographicOperations.ZeroMemory(key);
+        CryptographicOperations.ZeroMemory(plain);
+    }
+}
+else if (args.Length == 4 && (args[0] == "file-parts" || args[0] == "file-parts-password"))
+{
+    var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
+    if (new FileInfo(args[2]).Length > MavkaFileParts.MaxFileBytes) throw new ArgumentException("File exceeds 32 MB.");
+    if (Directory.Exists(args[3])) throw new IOException("Output directory already exists.");
+    byte[] plain = File.ReadAllBytes(args[2]);
+    try
+    {
+        var passphrase = args[0] == "file-parts-password" ? ReadDocumentPassword() : null;
+        var h = MavkaFileParts.Describe(Path.GetFileName(args[2]), plain);
+        Directory.CreateDirectory(args[3]);
+        var packets = new List<string>();
+        for (int i = 0; i < h.Count; i++)
+        {
+            var packet = MavkaFileParts.Encrypt(h with { Index = i }, plain.AsSpan(i * MavkaFileParts.ChunkBytes,
+                Math.Min(MavkaFileParts.ChunkBytes, plain.Length - i * MavkaFileParts.ChunkBytes)), key);
+            if (passphrase is not null)
+                packet = MavkaPasswordedEnvelope.Wrap(packet, passphrase);
+            File.WriteAllText(Path.Combine(args[3], $"{h.TransferId}-{i+1}-{h.Count}.mavkapart"), packet, new UTF8Encoding(false));
+            packets.Add(packet);
+        }
+        File.WriteAllText(Path.Combine(args[3], "encrypted-drive-bundle.json"),
+            "{\"format\":\"MAVKA_FILE_BUNDLE_V1\",\"parts\":[" + string.Join(",",packets) + "]}", new UTF8Encoding(false));
+        Console.WriteLine($"Encrypted parts: {h.Count}; transfer ID: {h.TransferId}. Send parts with subject MAVKA_FILE_PART_V1.");
+    }
+    finally { CryptographicOperations.ZeroMemory(key); CryptographicOperations.ZeroMemory(plain); }
+}
+else if (args.Length == 6 && (args[0] == "drive-command" || args[0] == "drive-command-password"))
+{
+    if (File.Exists(args[5])) throw new IOException("Command output already exists.");
+    var key = Convert.FromBase64String(File.ReadAllText(args[1]).Trim());
+    try
+    {
+        if (new FileInfo(args[2]).Length > MavkaFileParts.MaxBundleBytes) throw new ArgumentException("Bundle too large.");
+        var bundle = File.ReadAllBytes(args[2]); using var doc = JsonDocument.Parse(bundle);
+        if (doc.RootElement.GetProperty("format").GetString() != "MAVKA_FILE_BUNDLE_V1") throw new ArgumentException("Encrypted bundle expected.");
+        var firstPart = doc.RootElement.GetProperty("parts")[0].GetRawText();
+        // Password-protected Drive bundles contain encrypted *password
+        // wrappers*, so their inner metadata must be opened locally for
+        // constructing the transfer-bound authenticated command. Never
+        // persist the unwrapped part to disk.
+        if (MavkaPasswordedEnvelope.IsWrapped(firstPart))
+            firstPart = MavkaPasswordedEnvelope.Unwrap(
+                firstPart, ReadDocumentPassword());
+        using var firstDocument = JsonDocument.Parse(firstPart);
+        var id = firstDocument.RootElement.GetProperty("metadata")
+            .GetProperty("transferId").GetString()!;
+        var command = new DriveFileCommand(DriveFileCommand.Kind,args[3],args[4],bundle.Length,Convert.ToHexString(SHA256.HashData(bundle)),id);
+        string json = JsonSerializer.Serialize(command,MavkaFileParts.Json);
+        if (!DriveFileCommand.TryRead(json,out _)) throw new ArgumentException("Invalid Drive download link or metadata.");
+        byte[] plain = Encoding.UTF8.GetBytes(json), nonce=RandomNumberGenerator.GetBytes(12), cipher=new byte[plain.Length], tag=new byte[16];
+        try
+        {
+            string kid=KeyId(key); using var aes = new AesGcm(key,16);
+            aes.Encrypt(nonce,plain,cipher,tag,Encoding.UTF8.GetBytes("MAVKA_ENCRYPTED_V1:"+kid));
+            var protectedCommand = JsonSerializer.Serialize(new { format="MAVKA_ENCRYPTED_V1",algorithm="AES-256-GCM",keyId=kid,
+                nonce=Convert.ToBase64String(nonce),ciphertext=Convert.ToBase64String(cipher),tag=Convert.ToBase64String(tag) });
+            if (args[0] == "drive-command-password")
+                protectedCommand = MavkaPasswordedEnvelope.Wrap(
+                    protectedCommand, ReadDocumentPassword());
+            File.WriteAllText(args[5], protectedCommand, new UTF8Encoding(false));
+        }
+        finally { CryptographicOperations.ZeroMemory(plain); }
+        Console.WriteLine("Encrypted Drive command ready. No plaintext file was uploaded or written.");
     }
     finally { CryptographicOperations.ZeroMemory(key); }
 }
@@ -81,6 +231,30 @@ else if (args.Length == 6 && args[0] == "package")
         CryptographicOperations.ZeroMemory(current);
         CryptographicOperations.ZeroMemory(future);
     }
+}
+else if (args.Length == 2 && args[0] == "demo-package")
+{
+    // The preview client ID is entered locally, never uploaded to CI or chat.
+    // This tool does not transmit email or provision a production identity.
+    if (Console.IsInputRedirected)
+        throw new InvalidOperationException(
+            "Local interactive console required. Demo packages cannot run unattended.");
+    if (File.Exists(args[1]))
+        throw new InvalidOperationException(
+            "Output file exists. Refusing to replace an earlier test package.");
+    Console.WriteLine("ISOLATED PREVIEW ONLY — use fabricated profile data, never production.");
+    Console.Write("Preview Client ID (from the test application): ");
+    var previewClientId = Console.ReadLine()?.Trim() ?? "";
+    var password = ReadDocumentPassword();
+    var json = SyntheticKeyFixture.Create(previewClientId, password);
+    // CreateNew prevents accidental replacement even if the file appeared
+    // during prompt entry. Raw synthetic keys never touch the filesystem.
+    using (var file = new FileStream(args[1], FileMode.CreateNew, FileAccess.Write,
+               FileShare.None))
+    using (var writer = new StreamWriter(file, new UTF8Encoding(false)))
+        writer.Write(json);
+    Console.WriteLine("Synthetic encrypted test package created (generation 1).");
+    Console.WriteLine("No unencrypted keys were written. Do not use in production.");
 }
 else if (args.Length == 1 && args[0] == "selftest")
 {
@@ -110,6 +284,7 @@ else if (args.Length == 1 && args[0] == "selftest")
         if (!rejected)
             throw new Exception("Wrong password was not rejected.");
         Console.WriteLine("Passworded key-pair package round-trip + wrong-password rejection: PASS");
+        SyntheticKeyFixture.SelfTest();
     }
     finally
     {
@@ -122,6 +297,13 @@ else
     Console.WriteLine("Usage:");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- create-key PRIVATE.mavka-key");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- encrypt PRIVATE.mavka-key input.json encrypted.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- encrypt-password PRIVATE.mavka-key input.json protected.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- notice-password PRIVATE.mavka-key UNIT local-notice.txt notice.json [2026-10-14T09:00:00+03:00]");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- file-password PRIVATE.mavka-key input.docx input.docx.mavkafile");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- file-parts-password PRIVATE.mavka-key input.pdf OUTPUT_DIR");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- drive-command-password PRIVATE.mavka-key bundle.json DRIVE_ID HTTPS_URL output.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- demo-package output.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- selftest");
 }
 
 static string KeyId(byte[] key) =>
@@ -153,3 +335,4 @@ static string ReadDocumentPassword()
     Console.WriteLine();
     return input.ToString();
 }
+

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Mavka.Mobile/PhoneNumberNormalizer.cs" Link="PhoneNumberNormalizer.cs" />
+    <Compile Include="../../src/Mavka.Mobile/ArchiveDocumentClassifier.cs" Link="ArchiveDocumentClassifier.cs" />
+    <Compile Include="../../src/Mavka.Mobile/DocumentPageWindow.cs" Link="DocumentPageWindow.cs" />
+    <Compile Include="../../src/Mavka.Mobile/ArchiveTrashPolicy.cs" Link="ArchiveTrashPolicy.cs" />
+    <Compile Include="../../src/Mavka.Mobile/QrPairingProtocol.cs" Link="QrPairingProtocol.cs" />
+    <Compile Include="../../src/Mavka.Mobile/PortableBackupEnvelope.cs" Link="PortableBackupEnvelope.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MavkaExchangeParser.cs" Link="MavkaExchangeParser.cs" />
+    <Compile Include="../../src/Mavka.Mobile/MavkaMovementJournal.cs" Link="MavkaMovementJournal.cs" />
+  </ItemGroup>
+</Project>

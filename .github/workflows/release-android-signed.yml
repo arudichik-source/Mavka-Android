@@ -1,0 +1,154 @@
+name: Signed Mavka Mobile Release
+
+# Production artifacts may only be built from the accepted main branch,
+# with an EXISTING organization-controlled release keystore.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: mavka-production-release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require retained production signing identity
+        shell: bash
+        env:
+          MAVKA_KEYSTORE_B64: ${{ secrets.MAVKA_ANDROID_KEYSTORE_B64 }}
+          MAVKA_KEYSTORE_PASSWORD: ${{ secrets.MAVKA_ANDROID_KEYSTORE_PASSWORD }}
+          MAVKA_KEY_PASSWORD: ${{ secrets.MAVKA_ANDROID_KEY_PASSWORD }}
+          MAVKA_KEY_ALIAS: ${{ secrets.MAVKA_ANDROID_KEY_ALIAS }}
+          MAVKA_EXPECTED_CERT_SHA256: ${{ secrets.MAVKA_ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          for name in MAVKA_KEYSTORE_B64 MAVKA_KEYSTORE_PASSWORD MAVKA_KEY_PASSWORD MAVKA_KEY_ALIAS MAVKA_EXPECTED_CERT_SHA256; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Required signing secret is not configured: $name"
+              exit 1
+            fi
+          done
+          expected="$(printf '%s' "$MAVKA_EXPECTED_CERT_SHA256" | tr -d ': \r\n' | tr '[:upper:]' '[:lower:]')"
+          if [[ ! "$expected" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::The expected certificate SHA-256 is not a valid 64-digit hex fingerprint."
+            exit 1
+          fi
+          umask 077
+          mkdir -p "$RUNNER_TEMP/mavka-signing"
+          printf '%s' "$MAVKA_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mavka-signing/release.jks"
+          if [[ ! -s "$RUNNER_TEMP/mavka-signing/release.jks" ]]; then
+            echo "::error::Release keystore cannot be decoded."
+            exit 1
+          fi
+          # Never generate a new signing key in CI; that would break in-place upgrades.
+          echo "MAVKA_KEYSTORE_PATH=$RUNNER_TEMP/mavka-signing/release.jks" >> "$GITHUB_ENV"
+          echo "MAVKA_EXPECTED_CERT=$expected" >> "$GITHUB_ENV"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install Android workload
+        run: dotnet workload install android
+      - name: Restore
+        run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
+      - name: Publish with stable signing key
+        shell: bash
+        env:
+          MAVKA_KEYSTORE_PASSWORD: ${{ secrets.MAVKA_ANDROID_KEYSTORE_PASSWORD }}
+          MAVKA_KEY_PASSWORD: ${{ secrets.MAVKA_ANDROID_KEY_PASSWORD }}
+          MAVKA_KEY_ALIAS: ${{ secrets.MAVKA_ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          dotnet publish src/Mavka.Mobile/Mavka.Mobile.csproj \
+            -f net10.0-android -c Release \
+            -p:AndroidPackageFormat=apk \
+            -p:AndroidKeyStore=true \
+            "-p:AndroidSigningKeyStore=$MAVKA_KEYSTORE_PATH" \
+            "-p:AndroidSigningKeyAlias=$MAVKA_KEY_ALIAS" \
+            -p:AndroidSigningKeyPass=env:MAVKA_KEY_PASSWORD \
+            -p:AndroidSigningStorePass=env:MAVKA_KEYSTORE_PASSWORD
+      - name: Verify APK identity and signing certificate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $apks = @(Get-ChildItem 'src/Mavka.Mobile/bin/Release/net10.0-android/publish' -Filter '*-Signed.apk' -Recurse)
+          if ($apks.Count -ne 1) {
+            throw 'Expected exactly one signed release APK (no fallback to debug/test signing).'
+          }
+          $apk = $apks[0].FullName
+          ./tools/Inspect-Android-Apk.ps1 -ApkPath $apk -ExpectedPackage ua.mavka.mobile
+          $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { $env:ANDROID_SDK_ROOT }
+          $tool = Get-ChildItem (Join-Path $sdk 'build-tools') -Filter apksigner -Recurse -File |
+              Sort-Object -Property FullName -Descending | Select-Object -First 1
+          if (!$tool) { throw 'Android apksigner not found.' }
+          $output = @(& $tool.FullName verify --print-certs $apk)
+          if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
+          $digest = @($output | Where-Object {
+              $_ -match 'certificate SHA-256 digest:\s*([a-fA-F0-9]{64})\s*
+          } | ForEach-Object { $Matches[1].ToLowerInvariant() }) | Select-Object -First 1
+          if (!$digest -or $digest -ne $env:MAVKA_EXPECTED_CERT) {
+            throw 'BLOCKED: signing certificate differs from the approved production fingerprint.'
+          }
+          "Verified certificate SHA-256: $digest"
+          $hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+              package = 'ua.mavka.mobile'
+              apkFile = $apks[0].Name
+              apkSha256 = $hash
+              signingCertSha256 = $digest
+              gitCommit = $env:GITHUB_SHA
+              verifiedUtc = [DateTime]::UtcNow.ToString('o')
+          } | ConvertTo-Json
+          $manifest | Set-Content 'mavka-release-manifest.json' -Encoding utf8
+          "MAVKA_VERIFIED_APK=$apk" >> $env:GITHUB_ENV
+      - name: Upload verified production APK and integrity manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mavka-Mobile-VERIFIED-SIGNED-RELEASE
+          path: |
+            ${{ env.MAVKA_VERIFIED_APK }}
+            mavka-release-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Destroy temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${MAVKA_KEYSTORE_PATH:-}" ]]; then
+            rm -f -- "$MAVKA_KEYSTORE_PATH"
+          fi
+
+          } | ForEach-Object { $Matches[1].ToLowerInvariant() }) | Select-Object -First 1
+          if (!$digest -or $digest -ne $env:MAVKA_EXPECTED_CERT) {
+            throw 'BLOCKED: signing certificate differs from the approved production fingerprint.'
+          }
+          "Verified certificate SHA-256: $digest"
+          $hash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+              package = 'ua.mavka.mobile'
+              apkFile = $apks[0].Name
+              apkSha256 = $hash
+              signingCertSha256 = $digest
+              gitCommit = $env:GITHUB_SHA
+              verifiedUtc = [DateTime]::UtcNow.ToString('o')
+          } | ConvertTo-Json
+          $manifest | Set-Content 'mavka-release-manifest.json' -Encoding utf8
+          "MAVKA_VERIFIED_APK=$apk" >> $env:GITHUB_ENV
+      - name: Upload verified production APK and integrity manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mavka-Mobile-VERIFIED-SIGNED-RELEASE
+          path: |
+            ${{ env.MAVKA_VERIFIED_APK }}
+            mavka-release-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Destroy temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${MAVKA_KEYSTORE_PATH:-}" ]]; then
+            rm -f -- "$MAVKA_KEYSTORE_PATH"
+          fi
