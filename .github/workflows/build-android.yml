@@ -40,6 +40,12 @@ jobs:
       - name: Verify asset icon categories
         run: dotnet run --project tools/AssetIconChecks/AssetIconChecks.csproj
 
+      - name: Verify offline archive and profile contracts
+        run: dotnet run --project tools/ArchiveChecks/ArchiveChecks.csproj
+
+      - name: Verify historical ledger arithmetic
+        run: dotnet run --project tools/LedgerChecks/LedgerChecks.csproj
+
       - name: Restore
         run: dotnet restore src/Mavka.Mobile/Mavka.Mobile.csproj
 
