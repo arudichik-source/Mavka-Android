@@ -16,7 +16,7 @@ test('Private Oracle response strips unexpected secret and visitor data',async()
 test('private VPC is used without external network fetch',async()=>{
  let calls=0;
  const env={ORACLE_MONITOR_KEY:'q'.repeat(48),ORACLE_MONITOR_VPC:{fetch:async(url,opts)=>{
-  calls++;assert.equal(url,'http://oracle-monitor.internal/v1/telemetry');
+  calls++;assert.equal(url,'http://127.0.0.1:7340/v1/telemetry');
   assert.equal(opts.headers.Authorization,'Bearer '+'q'.repeat(48));
   return Response.json({state:'ready',siteProbe:'online',services:{}});
  }}};

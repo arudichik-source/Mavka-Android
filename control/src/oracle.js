@@ -23,7 +23,7 @@ export async function oracleTelemetry(env){
  if(typeof env?.ORACLE_MONITOR_KEY!=='string'||env.ORACLE_MONITOR_KEY.length<32||
     typeof env?.ORACLE_MONITOR_VPC?.fetch!=='function')return {state:'not_connected'};
  try{
-  const r=await env.ORACLE_MONITOR_VPC.fetch('http://oracle-monitor.internal/v1/telemetry',{
+  const r=await env.ORACLE_MONITOR_VPC.fetch('http://127.0.0.1:7340/v1/telemetry',{
    method:'GET',redirect:'manual',
    headers:{Authorization:'Bearer '+env.ORACLE_MONITOR_KEY,Accept:'application/json'},
    signal:AbortSignal.timeout(8000)});

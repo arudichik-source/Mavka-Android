@@ -599,3 +599,10 @@ Oracle website HTTP visits are a separate hosting metric.
 ## Oracle VM / МАВКА WEB control (2026-11-11)
 
 The new read-only panel includes CPU, RAM, free disk, local site probe, number of named systemd services active, and daily UTC HTTP requests observed in site and Sync API journals. This is origin-request telemetry, **not unique visitor analytics** or Cloudflare Workers usage. The standalone agent's source is control/oracle/monitor_api.py and it listens only on 127.0.0.1:7340. It requires a *separate* VPC Service limited to that port, an optional ORACLE_MONITOR_VPC binding, and an independent ORACLE_MONITOR_KEY Worker secret. No API keys, site paths, IPs, filenames, or identifiers are returned to the browser. Until those private bindings are configured, GET /api/oracle returns not_connected. The agent doesn't restart or modify existing SSH/VNC, website, Shorts Studio or Mavka Sync services. The browser keeps the same 15-minute refresh cadence.
+
+
+## November 12, 2026 — Oracle monitor VPC Service is provisioned
+
+Cloudflare VPC Service `mavka-oracle-monitor` has ID `01a1ce8c-9790-7c00-8e11-f849bddf00ac` and is configured for HTTP `127.0.0.1:7340` over the pre-existing `shorts-studio-oracle` Tunnel. This non-secret UUID is the **default** binding in `tools/configure.mjs`. To target an alternate service in staging, set `MAVKA_ORACLE_MONITOR_VPC_SERVICE_ID` explicitly at build time. The Worker VPC client uses an explicit HTTP host and port in its request URL.
+
+The secret `ORACLE_MONITOR_KEY` must be created **separately** on the `mavka-server-control` Worker and match Oracle's `/home/ubuntu/oracle-monitor/private.env`. Never add the token to GitHub, logs, Cloudflare plain-text Variables, public routes, or chat. A healthy Cloudflare tunnel alone does not prove application-layer connectivity. The UI remains `not_connected` until the key exists.
