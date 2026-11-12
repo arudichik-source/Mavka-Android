@@ -85,8 +85,17 @@ export default {
       } catch { return json({ state: 'unavailable', error: 'analytics_unavailable' }, 503); }
     }
     if (url.pathname === '/api/limits' && !url.search) {
-      try { return json(await quotaReport(env,await metrics(env))); }
-      catch { return json({ state:'unavailable',error:'quota_report_unavailable' },503); }
+      let current;
+      try { current=await metrics(env); }
+      catch { return json({ state:'unavailable',error:'analytics_unavailable' },503); }
+      try { return json(await quotaReport(env,current)); }
+      catch {
+        // A failed optional Cloudflare API must not hide account usage.
+        // Keep logs free of exception messages, tokens and identifiers.
+        console.warn(JSON.stringify({event:'MAVKA_CONTROL_LIMITS_V1',state:'core_fallback'}));
+        try { return json(await quotaReport({},current,new Date(),{skipOptional:true})); }
+        catch { return json({state:'unavailable',error:'quota_report_unavailable'},503); }
+      }
     }
     if (url.pathname === '/api/history' || url.pathname === '/api/trends') {
       const allowed = url.pathname === '/api/history' ? ['period', 'before'] : ['period'];

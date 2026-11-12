@@ -1242,7 +1242,7 @@ function renderQuotaCenter(data){
  const ref=q('quota-center-reference');ref.replaceChildren();
  const ready=Array.isArray(data?.rows)&&data.rows.length>0;
  const known=ready?data.rows.filter(r=>Number.isFinite(r.used)).length:0;
- q('quota-center-status').textContent=!ready?'Немає даних':known===data.rows.length?'Дані перевірено':'Часткові дані';
+ q('quota-center-status').textContent=!ready?'Немає даних':data.optionalSourcesPartial?'Часткові дані · резервний режим':known===data.rows.length?'Дані перевірено':'Часткові дані';
  if(!ready){
    const p=document.createElement('p');p.className='dim';p.textContent='Звіт недоступний — не сприймай це як нульове використання.';
    root.append(p);q('quota-center-summary').textContent='—';
@@ -1283,7 +1283,8 @@ function renderQuotaCenter(data){
  }
  q('quota-center-summary').textContent='Отримані показники: '+known+'/'+data.rows.length+
   ' · попереджень: '+(data.alerts?.length||0)+' · оновлено '+new Date(data.capturedAt).toLocaleString('uk-UA')+
-  ' · довідкові квоти Workers Free.';
+  ' · довідкові квоти Workers Free.'+
+  (data.optionalSourcesPartial?' Додаткові API недоступні; основні ліміти відображено окремо.':'');
  const warnings=Array.isArray(data.alerts)?data.alerts:[];
  if(!warnings.length){
    const p=document.createElement('p');p.className='dim';p.textContent='Підтверджені дані не досягли 70%. Невідомі показники не оцінюємо.';alerts.append(p);
