@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup>
+<Compile Include="../../src/Mavka.Mobile/MavkaFileParts.cs" Link="MavkaFileParts.cs" />
+<Compile Include="../../src/Mavka.Mobile/PendingFileTransferStore.cs" Link="PendingFileTransferStore.cs" />
+<Compile Include="../../src/Mavka.Mobile/DriveFileCommand.cs" Link="DriveFileCommand.cs" />
+<Compile Include="../../src/Mavka.Mobile/BoundedWriteStream.cs" Link="BoundedWriteStream.cs" />
+<Compile Include="../../src/Mavka.Mobile/MavkaEncryptedFileEnvelope.cs" Link="MavkaEncryptedFileEnvelope.cs" />
+<Compile Include="../../src/Mavka.Mobile/OutgoingFileQueue.cs" Link="OutgoingFileQueue.cs" /></ItemGroup></Project>
