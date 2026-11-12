@@ -82,6 +82,30 @@ else if (args.Length == 6 && args[0] == "package")
         CryptographicOperations.ZeroMemory(future);
     }
 }
+else if (args.Length == 2 && args[0] == "demo-package")
+{
+    // The preview client ID is entered locally, never uploaded to CI or chat.
+    // This tool does not transmit email or provision a production identity.
+    if (Console.IsInputRedirected)
+        throw new InvalidOperationException(
+            "Local interactive console required. Demo packages cannot run unattended.");
+    if (File.Exists(args[1]))
+        throw new InvalidOperationException(
+            "Output file exists. Refusing to replace an earlier test package.");
+    Console.WriteLine("ISOLATED PREVIEW ONLY — use fabricated profile data, never production.");
+    Console.Write("Preview Client ID (from the test application): ");
+    var previewClientId = Console.ReadLine()?.Trim() ?? "";
+    var password = ReadDocumentPassword();
+    var json = SyntheticKeyFixture.Create(previewClientId, password);
+    // CreateNew prevents accidental replacement even if the file appeared
+    // during prompt entry. Raw synthetic keys never touch the filesystem.
+    using (var file = new FileStream(args[1], FileMode.CreateNew, FileAccess.Write,
+               FileShare.None))
+    using (var writer = new StreamWriter(file, new UTF8Encoding(false)))
+        writer.Write(json);
+    Console.WriteLine("Synthetic encrypted test package created (generation 1).");
+    Console.WriteLine("No unencrypted keys were written. Do not use in production.");
+}
 else if (args.Length == 1 && args[0] == "selftest")
 {
     var a = RandomNumberGenerator.GetBytes(32);
@@ -110,6 +134,7 @@ else if (args.Length == 1 && args[0] == "selftest")
         if (!rejected)
             throw new Exception("Wrong password was not rejected.");
         Console.WriteLine("Passworded key-pair package round-trip + wrong-password rejection: PASS");
+        SyntheticKeyFixture.SelfTest();
     }
     finally
     {
@@ -122,6 +147,8 @@ else
     Console.WriteLine("Usage:");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- create-key PRIVATE.mavka-key");
     Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- encrypt PRIVATE.mavka-key input.json encrypted.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- demo-package output.json");
+    Console.WriteLine("  dotnet run --project tools/MavkaEncrypt -- selftest");
 }
 
 static string KeyId(byte[] key) =>

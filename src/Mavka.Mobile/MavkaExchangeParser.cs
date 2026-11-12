@@ -18,7 +18,7 @@ internal static class MavkaExchangeParser
     public static bool TryAssets(string? json, out UnitAssetsSnapshot? snapshot)
     {
         snapshot = null;
-        if (string.IsNullOrWhiteSpace(json) || json.Length > 65000) return false;
+        if (string.IsNullOrWhiteSpace(json) || json.Length > 196608) return false;
         try
         {
             using var doc = Parse(json);
@@ -64,7 +64,7 @@ internal static class MavkaExchangeParser
     public static bool TryInvoice(string? json, out IncomingInvoice? invoice)
     {
         invoice = null;
-        if (string.IsNullOrWhiteSpace(json) || json.Length > 65000) return false;
+        if (string.IsNullOrWhiteSpace(json) || json.Length > 196608) return false;
         try
         {
             using var document = Parse(json);
